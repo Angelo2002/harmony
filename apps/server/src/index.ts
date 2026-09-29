@@ -138,7 +138,9 @@ const channelImport = createChannelImportService({
 
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_CEILING_BYTES, files: 1 } });
-await app.register(websocket);
+// A client only ever sends a heartbeat or an identify, so there is no reason to
+// accept a large frame: cap it rather than let a socket buffer megabytes.
+await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
 
 // Serve the built client from this process when there is one, so a production
 // instance is a single origin. In development there is no build and the Vite

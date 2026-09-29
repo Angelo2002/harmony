@@ -279,6 +279,31 @@ try {
   );
   check('discord avatar is fetched by URL', transport.state.downloads.includes('https://cdn.example/avatar.png'));
 
+  // 4a. A suppressed link from Discord is unwrapped so it previews here.
+  transport.emit({
+    id: 'd1u',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    content: 'watch <https://www.youtube.com/watch?v=dQw4w9WgXcQ> ok',
+    attachments: [],
+    fromBot: false,
+  });
+  await sleep(50);
+  const unwrapped = messages.history(channelId, { limit: 50 }, userId).messages.find((message) =>
+    message.content.includes('youtube.com/watch'),
+  );
+  check(
+    'a suppressed discord link is unwrapped before it is stored',
+    unwrapped?.content === 'watch https://www.youtube.com/watch?v=dQw4w9WgXcQ ok',
+  );
+  check(
+    'the unwrapped link is offered to the unfurler',
+    previews.some((entry) => entry.messageId === unwrapped?.id && entry.content === 'watch https://www.youtube.com/watch?v=dQw4w9WgXcQ ok'),
+  );
+
   // 4b. A Discord reply becomes a real Harmony reply.
   transport.emit({
     id: 'd1r',

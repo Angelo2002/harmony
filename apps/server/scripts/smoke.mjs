@@ -14,7 +14,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import sharp from 'sharp';
-import { listEmbeddableUrls, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
+import { listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
 import { tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
@@ -724,6 +724,22 @@ try {
   check(
     'trailing punctuation is trimmed from a link',
     listEmbeddableUrls('see https://example.com/a.').includes('https://example.com/a'),
+  );
+  check(
+    'a suppressed link is unwrapped so it can unfurl',
+    unwrapSuppressedLinks('look <https://example.com/a> now') === 'look https://example.com/a now',
+  );
+  check(
+    'unwrapping leaves bare links alone',
+    unwrapSuppressedLinks('look https://example.com/a now') === 'look https://example.com/a now',
+  );
+  check(
+    'unwrapping skips code spans',
+    unwrapSuppressedLinks('`<https://example.com/a>`') === '`<https://example.com/a>`',
+  );
+  check(
+    'a masked link is not unwrapped',
+    unwrapSuppressedLinks('[x](https://example.com/a)') === '[x](https://example.com/a)',
   );
 
   check('loopback is refused', isPrivateAddress('127.0.0.1') === true && isPrivateAddress('::1') === true);

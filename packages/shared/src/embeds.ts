@@ -9,6 +9,8 @@ const INLINE_CODE = /`[^`\n]*`/g;
 const MASKED_LINK = /\[[^\]\n]+?\]\(https?:\/\/[^\s)]+\)/g;
 const ANGLE_LINK = /<https?:\/\/[^\s>]+>/g;
 const BARE_URL = /https?:\/\/[^\s<>]+/g;
+/** Code spans, whose contents must survive `unwrapSuppressedLinks` untouched. */
+const CODE = /```[\s\S]*?```|`[^`\n]*`/g;
 
 /**
  * Strips trailing sentence punctuation that is almost never part of a bare URL,
@@ -47,4 +49,24 @@ export function listEmbeddableUrls(text: string): string[] {
     if (!found.includes(url)) found.push(url);
   }
   return found;
+}
+
+/**
+ * Removes Discord's angle-bracket link suppression from message text.
+ *
+ * Discord stores a URL as `<https://…>` when its sender hid the preview, and
+ * that suppression is a Discord-side rendering detail: Discord shows the reader
+ * an ordinary link. Carrying the brackets into Harmony would leave the URL
+ * looking normal but unfurlless, so bridged text is unwrapped before it is
+ * stored. Code spans are skipped, since brackets there are literal characters.
+ */
+export function unwrapSuppressedLinks(text: string): string {
+  const code: string[] = [];
+  const masked = text.replace(CODE, (match) => {
+    code.push(match);
+    return `\u0000${code.length - 1}\u0000`;
+  });
+  const unwrapped = masked.replace(ANGLE_LINK, (match) => match.slice(1, -1));
+  if (code.length === 0) return unwrapped;
+  return unwrapped.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => code[Number(index)] ?? '');
 }

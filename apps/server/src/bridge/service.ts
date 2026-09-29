@@ -6,6 +6,7 @@ import type { Metadata } from 'sharp';
 import {
   ALLOWED_IMAGE_TYPES,
   rewriteMentions,
+  unwrapSuppressedLinks,
   type BridgeResponse,
   type DiscordChannelListResponse,
   type ImageContentType,
@@ -514,8 +515,10 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     }
 
     // Anything we cannot mirror is preserved as a link rather than dropped.
+    // Discord hides the preview of a suppressed link by wrapping it in angle
+    // brackets; drop them so the link unfurls here exactly as a typed one does.
     const content = [
-      rewriteInboundMentions(translateInboundEmoji(message.content), message.mentions),
+      rewriteInboundMentions(unwrapSuppressedLinks(translateInboundEmoji(message.content)), message.mentions),
       ...skipped,
     ]
       .filter((part) => part.trim().length > 0)
@@ -594,7 +597,11 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   async function ingestEdit(edit: DiscordIncomingEdit): Promise<void> {
     const mapping = findBridgeMessageByDiscordId(deps.sqlite, edit.id);
     if (!mapping) return;
-    deps.messages.editBridged(mapping.harmony_message_id, translateInboundEmoji(edit.content));
+    // Unwrapped like a fresh message, so an edit that adds or newly suppresses a
+    // link previews on the Harmony side to match.
+    const content = unwrapSuppressedLinks(translateInboundEmoji(edit.content));
+    if (!deps.messages.editBridged(mapping.harmony_message_id, content)) return;
+    deps.resolvePreview?.(mapping.harmony_message_id, content);
   }
 
   async function ingestDelete(deletion: DiscordIncomingDelete): Promise<void> {

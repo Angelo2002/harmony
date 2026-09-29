@@ -31,10 +31,15 @@ export const createChannelSchema = z.object({
 });
 export type CreateChannelInput = z.infer<typeof createChannelSchema>;
 
-export const createMessageSchema = z.object({
-  content: z.string().min(1).max(LIMITS.messageLength),
-  attachmentIds: z.array(z.string()).max(LIMITS.attachmentsPerMessage).optional(),
-});
+export const createMessageSchema = z
+  .object({
+    content: z.string().max(LIMITS.messageLength).default(''),
+    attachmentIds: z.array(z.string()).max(LIMITS.attachmentsPerMessage).optional(),
+  })
+  .refine((value) => value.content.trim().length > 0 || (value.attachmentIds?.length ?? 0) > 0, {
+    message: 'A message needs text or at least one attachment.',
+    path: ['content'],
+  });
 export type CreateMessageInput = z.infer<typeof createMessageSchema>;
 
 export const createInviteSchema = z.object({

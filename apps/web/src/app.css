@@ -382,11 +382,24 @@ button.link:hover {
 }
 
 .composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 0 1rem 1rem;
 }
 
-.composer input {
-  width: 100%;
+.composer form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.file-input {
+  display: none;
+}
+
+.text-input {
+  flex: 1;
   padding: 0.7rem 0.9rem;
   border: none;
   border-radius: var(--h-radius);
@@ -395,6 +408,67 @@ button.link:hover {
   font: inherit;
 }
 
-.composer input:focus {
+.text-input:focus {
   outline: none;
+}
+
+.attach {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--h-bg-elevated);
+  color: var(--h-text-muted);
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.attach:hover:not(:disabled) {
+  color: var(--h-text);
+  filter: none;
+}
+
+.pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pending-item {
+  position: relative;
+}
+
+.pending-item img {
+  display: block;
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.pending-item .remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--h-error);
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.attachments img {
+  max-width: min(420px, 100%);
+  height: auto;
+  border-radius: var(--h-radius);
 }

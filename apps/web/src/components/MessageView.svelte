@@ -28,7 +28,26 @@
             <time>{formatTime(message.createdAt)}</time>
             {#if message.editedAt}<span class="edited">(edited)</span>{/if}
           </div>
-          <p class="content">{message.content}</p>
+
+          {#if message.content}
+            <p class="content">{message.content}</p>
+          {/if}
+
+          {#if message.attachments.length > 0}
+            <div class="attachments">
+              {#each message.attachments as attachment (attachment.id)}
+                <a href={`/api/v1/attachments/${attachment.id}`} target="_blank" rel="noreferrer">
+                  <img
+                    src={`/api/v1/attachments/${attachment.id}`}
+                    alt={attachment.filename}
+                    width={attachment.width ?? undefined}
+                    height={attachment.height ?? undefined}
+                    loading="lazy"
+                  />
+                </a>
+              {/each}
+            </div>
+          {/if}
         </div>
       </article>
     {/each}

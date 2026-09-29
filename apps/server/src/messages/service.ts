@@ -4,11 +4,13 @@ import {
   GatewayEvent,
   Permission,
   hasPermission,
+  type Attachment,
   type Message,
   type MessageHistoryQuery,
   type MessageListResponse,
 } from '@harmony/shared';
 import type { AuthContext } from '../auth/service.ts';
+import { attachToMessage, findAttachment, listAttachmentsForMessages } from '../db/attachments.ts';
 import { findChannel } from '../db/channels.ts';
 import {
   findMessage,
@@ -24,13 +26,13 @@ import type { GatewayHub } from '../realtime/hub.ts';
 
 export interface MessageService {
   history(channelId: string, query: MessageHistoryQuery): MessageListResponse;
-  create(auth: AuthContext, channelId: string, content: string): Message;
+  create(auth: AuthContext, channelId: string, content: string, attachmentIds: string[]): Message;
   edit(auth: AuthContext, messageId: string, content: string): Message;
   remove(auth: AuthContext, messageId: string): void;
 }
 
 export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): MessageService {
-  function toMessage(row: MessageRow): Message {
+  function toMessage(row: MessageRow, attachments: Attachment[]): Message {
     const authorRow = row.author_id ? findUserById(sqlite, row.author_id) : null;
     return {
       id: row.id,
@@ -39,7 +41,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       content: row.content,
       createdAt: row.created_at,
       editedAt: row.edited_at,
-      attachments: [],
+      attachments,
     };
   }
 
@@ -55,6 +57,10 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     return row;
   }
 
+  function attachmentsFor(messageId: string): Attachment[] {
+    return listAttachmentsForMessages(sqlite, [messageId]).get(messageId) ?? [];
+  }
+
   function assertCanModify(auth: AuthContext, row: MessageRow): void {
     const isAuthor = row.author_id === auth.user.id;
     if (!isAuthor && !hasPermission(auth.permissions, Permission.ManageMessages)) {
@@ -65,12 +71,30 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
   return {
     history(channelId, query) {
       requireChannel(channelId);
-      const messages = listMessages(sqlite, channelId, { limit: query.limit, before: query.before }).map(toMessage);
-      return { messages };
+      const rows = listMessages(sqlite, channelId, { limit: query.limit, before: query.before });
+      const byMessage = listAttachmentsForMessages(
+        sqlite,
+        rows.map((row) => row.id),
+      );
+      return { messages: rows.map((row) => toMessage(row, byMessage.get(row.id) ?? [])) };
     },
 
-    create(auth, channelId, content) {
+    create(auth, channelId, content, attachmentIds) {
       requireChannel(channelId);
+
+      // Uploads belong to the message that claims them; reject anything already
+      // used or belonging to someone else.
+      for (const attachmentId of attachmentIds) {
+        const attachment = findAttachment(sqlite, attachmentId);
+        if (!attachment) throw new HttpError(400, 'invalid_attachment', 'One of the attachments does not exist.');
+        if (attachment.message_id) {
+          throw new HttpError(400, 'attachment_in_use', 'One of the attachments is already in use.');
+        }
+        if (attachment.uploader_id !== auth.user.id) {
+          throw new HttpError(403, 'forbidden', 'You can only attach your own uploads.');
+        }
+      }
+
       const id = randomUUID();
       insertMessage(sqlite, {
         id,
@@ -79,8 +103,9 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
         content,
         createdAt: new Date().toISOString(),
       });
+      for (const attachmentId of attachmentIds) attachToMessage(sqlite, attachmentId, id);
 
-      const message = toMessage(requireMessage(id));
+      const message = toMessage(requireMessage(id), attachmentsFor(id));
       hub.dispatch(GatewayEvent.MessageCreate, message);
       return message;
     },
@@ -90,7 +115,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       assertCanModify(auth, row);
 
       updateMessageContent(sqlite, messageId, content, new Date().toISOString());
-      const message = toMessage(requireMessage(messageId));
+      const message = toMessage(requireMessage(messageId), attachmentsFor(messageId));
       hub.dispatch(GatewayEvent.MessageUpdate, message);
       return message;
     },

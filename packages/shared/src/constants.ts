@@ -19,3 +19,10 @@ export const LIMITS = {
   messageLength: 4_000,
   attachmentsPerMessage: 10,
 } as const;
+
+/** Image formats accepted by the attachment upload endpoint. */
+export const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
+export type ImageContentType = (typeof ALLOWED_IMAGE_TYPES)[number];
+
+/** Default maximum size of a single upload, in bytes (10 MiB). */
+export const DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;

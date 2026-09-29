@@ -15,7 +15,10 @@ export class ApiError extends Error {
 /** Thin fetch wrapper for the v1 API that sends cookies and unwraps error bodies. */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body != null && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  // Let the browser set the multipart boundary for FormData bodies.
+  if (init.body != null && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
 
   const response = await fetch(`/api/v1${path}`, { credentials: 'include', ...init, headers });
   const text = await response.text();

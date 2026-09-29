@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
+    "@fastify/multipart": "^10.1.2",
     "@fastify/websocket": "^11.3.1",
     "@harmony/shared": "*",
-    "fastify": "^5.12.5"
+    "fastify": "^5.12.5",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",

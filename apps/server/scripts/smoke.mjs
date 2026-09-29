@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
+import sharp from 'sharp';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8791;
@@ -236,6 +237,66 @@ try {
     check('author can delete their message', (await req(`/messages/${messageId}`, { method: 'DELETE', token: ownerToken })).status === 204);
     const afterDelete = await req(`/channels/${general.id}/messages`, { token: ownerToken });
     check('deleted message is gone from history', afterDelete.json?.messages?.some((m) => m.id === messageId) === false);
+
+    // --- Images ---
+    const png = await sharp({ create: { width: 12, height: 8, channels: 3, background: { r: 30, g: 120, b: 200 } } })
+      .png()
+      .toBuffer();
+
+    const uploadForm = new FormData();
+    uploadForm.append('file', new Blob([png], { type: 'image/png' }), 'pixel.png');
+    const uploadRes = await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: uploadForm,
+    });
+    const uploaded = await uploadRes.json();
+    check('image uploads', uploadRes.status === 200 && uploaded?.contentType === 'image/png', `status ${uploadRes.status}`);
+    check('image dimensions are recorded', uploaded?.width === 12 && uploaded?.height === 8);
+    const attachmentId = uploaded?.id;
+
+    const withImage = await req(`/channels/${general.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'look at this', attachmentIds: [attachmentId] },
+    });
+    check('message carries its attachment', withImage.json?.attachments?.length === 1);
+
+    const reuse = await req(`/channels/${general.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { attachmentIds: [attachmentId] },
+    });
+    check('an attachment cannot be reused (400)', reuse.status === 400, `status ${reuse.status}`);
+
+    const served = await fetch(`${BASE}/attachments/${attachmentId}`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    const servedBytes = Buffer.from(await served.arrayBuffer());
+    check(
+      'uploaded image is served back byte-for-byte',
+      served.status === 200 && served.headers.get('content-type') === 'image/png' && servedBytes.equals(png),
+      `status ${served.status}`,
+    );
+    check('attachments require auth (401)', (await fetch(`${BASE}/attachments/${attachmentId}`)).status === 401);
+
+    const badType = new FormData();
+    badType.append('file', new Blob([Buffer.from('not an image')], { type: 'text/plain' }), 'notes.txt');
+    const badRes = await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: badType,
+    });
+    check('non-image upload rejected (415)', badRes.status === 415, `status ${badRes.status}`);
+
+    const fakeImage = new FormData();
+    fakeImage.append('file', new Blob([Buffer.from('definitely not a png')], { type: 'image/png' }), 'fake.png');
+    const fakeRes = await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: fakeImage,
+    });
+    check('unreadable image rejected (415)', fakeRes.status === 415, `status ${fakeRes.status}`);
   }
 
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);

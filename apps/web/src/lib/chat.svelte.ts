@@ -64,11 +64,14 @@ class ChatStore {
     }
   }
 
-  async sendMessage(content: string): Promise<void> {
+  async sendMessage(content: string, attachmentIds: string[] = []): Promise<void> {
     const channelId = this.activeChannelId;
     if (!channelId) return;
     // The message comes back over the gateway as MESSAGE_CREATE, so we don't append it here.
-    await api(`/channels/${channelId}/messages`, { method: 'POST', body: JSON.stringify({ content }) });
+    await api(`/channels/${channelId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content, attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined }),
+    });
   }
 
   #handleEvent(frame: GatewayFrame): void {

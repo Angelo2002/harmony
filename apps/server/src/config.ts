@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
 import { resolve } from 'node:path';
+import { DEFAULT_MAX_UPLOAD_BYTES } from '@harmony/shared';
 
 export interface Config {
   host: string;
@@ -8,6 +9,10 @@ export interface Config {
   /** Directory holding the SQLite database and uploaded files. */
   dataDir: string;
   dbFile: string;
+  /** Directory holding content-addressed uploaded blobs. */
+  uploadDir: string;
+  /** Largest accepted upload, in bytes. */
+  maxUploadBytes: number;
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   /** When true, registration demands a valid invite code (the first user is always exempt). */
   requireInvite: boolean;
@@ -48,6 +53,10 @@ export function loadConfig(): Config {
     port: readNumber(process.env.HARMONY_PORT, 8787),
     dataDir,
     dbFile: resolve(dataDir, 'harmony.db'),
+    uploadDir: resolve(dataDir, 'uploads'),
+    maxUploadBytes: Math.floor(
+      readNumber(process.env.HARMONY_MAX_UPLOAD_MB, DEFAULT_MAX_UPLOAD_BYTES / (1024 * 1024)) * 1024 * 1024,
+    ),
     logLevel: (process.env.HARMONY_LOG_LEVEL as Config['logLevel']) ?? 'info',
     requireInvite: readBoolean(process.env.HARMONY_REQUIRE_INVITE, false),
     sessionTtlDays: readNumber(process.env.HARMONY_SESSION_TTL_DAYS, 30),

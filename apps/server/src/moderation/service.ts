@@ -8,6 +8,7 @@ import {
 } from '@harmony/shared';
 import { resolvePermissions } from '../auth/permissions.ts';
 import type { AuthContext } from '../auth/service.ts';
+import type { AuditService } from '../audit/service.ts';
 import { deleteBan, findBan, insertBan, listBans } from '../db/bans.ts';
 import { deleteSessionsForUser } from '../db/sessions.ts';
 import { findUserById, presentUser, setUserTimeout, type UserRow } from '../db/users.ts';
@@ -19,17 +20,18 @@ export interface ModerationService {
   clearTimeout(actor: AuthContext, targetId: string): void;
   kickMember(actor: AuthContext, targetId: string): void;
   banMember(actor: AuthContext, targetId: string, reason: string | null): void;
-  unbanMember(targetId: string): void;
+  unbanMember(actor: AuthContext, targetId: string): void;
   listBans(): Ban[];
 }
 
 export interface ModerationDeps {
   sqlite: DatabaseSync;
   hub: GatewayHub;
+  audit: AuditService;
 }
 
 export function createModerationService(deps: ModerationDeps): ModerationService {
-  const { sqlite, hub } = deps;
+  const { sqlite, hub, audit } = deps;
 
   /**
    * Every moderation action shares the same target rules. A full role hierarchy
@@ -65,12 +67,14 @@ export function createModerationService(deps: ModerationDeps): ModerationService
       const target = requireTarget(actor, targetId);
       const until = new Date(Date.now() + durationMinutes * 60_000).toISOString();
       setUserTimeout(sqlite, target.id, until);
+      audit.moderation('timeout_add', actor.user.id, target.id, { durationMinutes });
       announceMember(target.id);
     },
 
     clearTimeout(actor, targetId) {
       const target = requireTarget(actor, targetId);
       setUserTimeout(sqlite, target.id, null);
+      audit.moderation('timeout_clear', actor.user.id, target.id);
       announceMember(target.id);
     },
 
@@ -79,27 +83,31 @@ export function createModerationService(deps: ModerationDeps): ModerationService
       // A kick ends their sessions and live connections; they may log back in.
       deleteSessionsForUser(sqlite, target.id);
       hub.disconnectUser(target.id, GatewayCloseCode.Removed, 'You were removed from this server.');
+      audit.moderation('kick', actor.user.id, target.id);
       announceMember(target.id);
     },
 
     banMember(actor, targetId, reason) {
       const target = requireTarget(actor, targetId);
+      const cleaned = reason && reason.length > 0 ? reason : null;
       insertBan(sqlite, {
         userId: target.id,
         bannedBy: actor.user.id,
-        reason: reason && reason.length > 0 ? reason : null,
+        reason: cleaned,
         createdAt: new Date().toISOString(),
       });
       deleteSessionsForUser(sqlite, target.id);
       hub.disconnectUser(target.id, GatewayCloseCode.Removed, 'You were banned from this server.');
+      audit.moderation('ban', actor.user.id, target.id, { reason: cleaned });
       announceMember(target.id);
     },
 
-    unbanMember(targetId) {
+    unbanMember(actor, targetId) {
       if (!findBan(sqlite, targetId)) {
         throw new HttpError(404, 'not_banned', 'That member is not banned.');
       }
       deleteBan(sqlite, targetId);
+      audit.moderation('unban', actor.user.id, targetId);
       announceMember(targetId);
     },
 

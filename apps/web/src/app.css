@@ -430,6 +430,86 @@ button.link:hover {
   }
 }
 
+/* ---- Audit log ---- */
+
+.audit {
+  gap: 0.5rem;
+}
+
+.audit-entry {
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  background: var(--h-bg-deep);
+}
+
+.audit-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.audit-summary {
+  min-width: 0;
+}
+
+.audit-head time {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+
+.audit-kind {
+  flex-shrink: 0;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--h-bg-elevated);
+  color: var(--h-text-muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Destructive actions read as warnings at a glance. */
+.audit-kind.kind-ban,
+.audit-kind.kind-kick,
+.audit-kind.kind-timeout_add {
+  background: color-mix(in srgb, var(--h-error) 25%, transparent);
+  color: var(--h-text);
+}
+
+.audit-text {
+  max-height: 8em;
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  overflow-y: auto;
+  border-radius: 4px;
+  background: var(--h-bg);
+  font-size: 0.85rem;
+}
+
+.audit-text p {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.audit-label {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--h-text-muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.audit-reason {
+  margin: 0.35rem 0 0;
+  color: var(--h-text-muted);
+  font-size: 0.85rem;
+}
+
 /* ---- Profile card ---- */
 
 .profile-card {

@@ -15,6 +15,7 @@ import {
   type ReactionUpdatePayload,
 } from '@harmony/shared';
 import type { AuthContext } from '../auth/service.ts';
+import type { AuditService } from '../audit/service.ts';
 import { assertNotTimedOut } from '../auth/guards.ts';
 import { canAccessChannel, channelAccessFor } from '../access/service.ts';
 import { attachToMessage, findAttachment, listAttachmentsForMessages } from '../db/attachments.ts';
@@ -90,7 +91,7 @@ export interface MessageService {
   onReactionsCleared(listener: (event: ReactionEvent) => void): void;
 }
 
-export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): MessageService {
+export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audit: AuditService): MessageService {
   function buildReply(row: MessageRow): MessageReference | null {
     if (!row.reply_to_id) return null;
     const parent = findMessage(sqlite, row.reply_to_id);
@@ -358,9 +359,11 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       assertChannelAccess(auth.user.id, row.channel_id);
       assertCanEdit(auth, row);
 
+      const before = row.content;
       updateMessageContent(sqlite, messageId, content, new Date().toISOString());
       const message = render(requireMessage(messageId), auth.user.id);
       announceEdit(message);
+      audit.messageEdited(auth.user.id, row.channel_id, before, content);
       return message;
     },
 
@@ -380,6 +383,8 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       assertCanDelete(auth, row);
 
       softDeleteMessage(sqlite, messageId, new Date().toISOString());
+      // The text is gone from every client, so keep a copy for the audit log.
+      audit.messageDeleted(auth.user.id, row.channel_id, row.content);
       announceDelete({ id: messageId, channelId: row.channel_id });
     },
 

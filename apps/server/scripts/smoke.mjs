@@ -1409,6 +1409,92 @@ try {
     (await req('/members/directory', { token: ownerToken })).json?.users?.some((user) => user.id === modId) === true,
   );
 
+  // --- Audit log ---
+  check('the audit log needs ManageServer (403)', (await req('/audit', { token: bobToken })).status === 403);
+
+  // Produce one of each kind here, so the assertions below cannot depend on how
+  // much earlier activity has pushed older entries off the first page. The
+  // target is modtarget rather than bob, because kicking ends their sessions
+  // and the checks that follow still use bob's token.
+  const auditRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Audited' } });
+  await req(`/members/${modId}/roles/${auditRole.json.id}`, { method: 'PUT', token: ownerToken });
+  await req(`/members/${modId}/roles/${auditRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/members/${modId}/timeout`, { method: 'PUT', token: ownerToken, body: { durationMinutes: 5 } });
+  await req(`/members/${modId}/timeout`, { method: 'DELETE', token: ownerToken });
+  await req(`/members/${modId}/kick`, { method: 'POST', token: ownerToken });
+  await req(`/members/${modId}/ban`, { method: 'PUT', token: ownerToken, body: { reason: 'audit check' } });
+  await req(`/members/${modId}/ban`, { method: 'DELETE', token: ownerToken });
+
+  const auditedMessage = await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'original text' },
+  });
+  await req(`/messages/${auditedMessage.json.id}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { content: 'changed text' },
+  });
+  await req(`/messages/${auditedMessage.json.id}`, { method: 'DELETE', token: ownerToken });
+
+  const audit = (await req('/audit?limit=100', { token: ownerToken })).json;
+  const auditKinds = new Set((audit?.entries ?? []).map((entry) => entry.kind));
+  check(
+    'every audited kind is recorded',
+    [
+      'message_edit',
+      'message_delete',
+      'timeout_add',
+      'timeout_clear',
+      'kick',
+      'ban',
+      'unban',
+      'role_add',
+      'role_remove',
+    ].every((kind) => auditKinds.has(kind)),
+    [...auditKinds].join(', '),
+  );
+
+  const editedEntry = (audit?.entries ?? []).find(
+    (entry) => entry.kind === 'message_edit' && entry.detail.before === 'original text',
+  );
+  check(
+    'an edit keeps the text either side',
+    editedEntry?.detail?.after === 'changed text' && editedEntry?.detail?.channelName === colourChannel.name,
+  );
+
+  const removedEntry = (audit?.entries ?? []).find(
+    (entry) => entry.kind === 'message_delete' && entry.detail.before === 'changed text',
+  );
+  check('a deletion keeps the text that was removed', Boolean(removedEntry));
+
+  const banEntry = (audit?.entries ?? []).find(
+    (entry) => entry.kind === 'ban' && entry.detail.reason === 'audit check',
+  );
+  check(
+    'an entry names the actor and the target',
+    banEntry?.actor?.username === 'alice' && banEntry?.target?.username === 'modtarget',
+  );
+
+  const roleEntry = (audit?.entries ?? []).find(
+    (entry) => entry.kind === 'role_add' && entry.detail.roleName === 'Audited',
+  );
+  check('a role change records the role name', Boolean(roleEntry));
+
+  const newest = audit?.entries?.[0];
+  const olderPage = newest
+    ? await req(
+        `/audit?limit=1&before=${encodeURIComponent(newest.createdAt)}&beforeId=${newest.id}`,
+        { token: ownerToken },
+      )
+    : { status: 0, json: null };
+  check(
+    'the audit log pages backwards',
+    olderPage.status === 200 && olderPage.json?.entries?.length === 1 && olderPage.json.entries[0].id !== newest?.id,
+  );
+
+  await req(`/roles/${auditRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
   // --- Admin media gallery ---
   const galleryPng = await sharp({
     create: { width: 20, height: 14, channels: 3, background: { r: 12, g: 34, b: 56 } },

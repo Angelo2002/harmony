@@ -8,6 +8,7 @@ import { Database } from './db/index.ts';
 import { canSeeResource, channelAccessFor } from './access/service.ts';
 import { createAuthService } from './auth/service.ts';
 import { registerAuth } from './auth/plugin.ts';
+import { createAuditService } from './audit/service.ts';
 import { createSettingsService } from './settings/service.ts';
 import { createAttachmentService } from './attachments/service.ts';
 import { createEmojiService } from './emojis/service.ts';
@@ -36,6 +37,7 @@ import { registerMediaRoutes } from './routes/media.ts';
 import { registerUserRoutes } from './routes/users.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
 import { registerBridgeRoutes } from './routes/bridge.ts';
+import { registerAuditRoutes } from './routes/audit.ts';
 import { registerGateway } from './gateway/index.ts';
 
 const config = loadConfig();
@@ -53,11 +55,12 @@ const settingsService = createSettingsService(db.sqlite, {
   theme: { background: null, accent: null },
 });
 const authService = createAuthService(db.sqlite, config, settingsService);
+const auditService = createAuditService(db.sqlite);
 const attachmentService = createAttachmentService(db.sqlite, config);
 const emojiService = createEmojiService(db.sqlite, config);
 const userService = createUserService(db.sqlite, config);
-const messageService = createMessageService(db.sqlite, hub);
-const moderationService = createModerationService({ sqlite: db.sqlite, hub });
+const messageService = createMessageService(db.sqlite, hub, auditService);
+const moderationService = createModerationService({ sqlite: db.sqlite, hub, audit: auditService });
 const mediaService = createMediaService(db.sqlite, config);
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
@@ -110,9 +113,10 @@ registerMetaRoutes(app, { config, settings: settingsService });
 registerAuthRoutes(app, { service: authService, config });
 registerSettingsRoutes(app, { settings: settingsService, db });
 registerRetentionRoutes(app, { settings: settingsService, pruner });
+registerAuditRoutes(app, { audit: auditService });
 registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
-registerMemberRoutes(app, { db, hub, moderation: moderationService });
+registerMemberRoutes(app, { db, hub, moderation: moderationService, audit: auditService });
 registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub, bridge, settings: settingsService });
 registerMessageRoutes(app, { service: messageService });

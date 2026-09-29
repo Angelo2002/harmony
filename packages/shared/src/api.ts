@@ -1,4 +1,4 @@
-import type { Attachment, Ban, Category, Channel, Emoji, Invite, Message, Role, User } from './types.ts';
+import type { Attachment, AuditEntry, Ban, Category, Channel, Emoji, Invite, Message, Role, User } from './types.ts';
 import type { ThemeSettings } from './theme.ts';
 
 /** Response for a successful register or login. */
@@ -102,6 +102,11 @@ export interface MemberRosterResponse {
 /** Banned users, for `GET /api/v1/bans`. */
 export interface BanListResponse {
   bans: Ban[];
+}
+
+/** A page of the audit log, newest first. */
+export interface AuditListResponse {
+  entries: AuditEntry[];
 }
 
 /** One stored image, resolved for the admin media gallery. */

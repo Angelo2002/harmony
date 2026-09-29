@@ -102,6 +102,53 @@ export interface LinkEmbed {
   siteName: string | null;
 }
 
+/** What an audit entry records. */
+export type AuditKind =
+  | 'message_delete'
+  | 'message_edit'
+  | 'timeout_add'
+  | 'timeout_clear'
+  | 'kick'
+  | 'ban'
+  | 'unban'
+  | 'role_add'
+  | 'role_remove';
+
+/**
+ * The kind-specific fields of an audit entry. Every field is optional because
+ * each kind fills in only the ones it needs:
+ *
+ * - `message_delete` / `message_edit`: `channelName` and `before`, plus `after`
+ *   for an edit.
+ * - `timeout_add`: `durationMinutes`. `ban`: `reason`.
+ * - `role_add` / `role_remove`: `roleName`.
+ *
+ * `actorName` and `targetName` are snapshots taken when the entry was written,
+ * so it stays readable after a rename or a deletion.
+ */
+export interface AuditDetail {
+  channelName?: string;
+  roleName?: string;
+  actorName?: string;
+  targetName?: string;
+  before?: string;
+  after?: string;
+  durationMinutes?: number;
+  reason?: string | null;
+}
+
+/** One recorded admin or moderation action. */
+export interface AuditEntry {
+  id: SnowflakeId;
+  kind: AuditKind;
+  /** Who performed it, or null once that account is gone. */
+  actor: User | null;
+  /** Who it happened to, when the kind has a target. */
+  target: User | null;
+  createdAt: IsoTimestamp;
+  detail: AuditDetail;
+}
+
 export interface Message {
   id: SnowflakeId;
   channelId: SnowflakeId;

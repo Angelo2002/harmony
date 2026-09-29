@@ -3,6 +3,7 @@
   import { session } from '../../lib/session.svelte';
   import { ui } from '../../lib/ui.svelte';
   import BansSection from './BansSection.svelte';
+  import AuditSection from './AuditSection.svelte';
   import ChannelsSection from './ChannelsSection.svelte';
   import BridgeSection from './BridgeSection.svelte';
   import EmojisSection from './EmojisSection.svelte';
@@ -23,7 +24,8 @@
     | 'retention'
     | 'bridge'
     | 'invites'
-    | 'bans';
+    | 'bans'
+    | 'audit';
 
   // Each tab is shown only to someone who could actually use it.
   const tabs: Array<{ id: TabId; label: string; permission: PermissionValue }> = [
@@ -37,6 +39,7 @@
     { id: 'bridge', label: 'Bridge', permission: Permission.ManageServer },
     { id: 'invites', label: 'Invites', permission: Permission.ManageServer },
     { id: 'bans', label: 'Bans', permission: Permission.BanMembers },
+    { id: 'audit', label: 'Log', permission: Permission.ManageServer },
   ];
 
   const permissions = $derived(BigInt(session.permissions || '0'));
@@ -80,6 +83,8 @@
         <BridgeSection />
       {:else if active === 'bans'}
         <BansSection />
+      {:else if active === 'audit'}
+        <AuditSection />
       {:else}
         <InvitesSection />
       {/if}

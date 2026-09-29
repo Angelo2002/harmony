@@ -121,6 +121,10 @@ const cursorQuerySchema = z.object({
 export const messageHistoryQuerySchema = cursorQuerySchema;
 export type MessageHistoryQuery = z.infer<typeof messageHistoryQuerySchema>;
 
+/** The audit log pages the same way, newest first. */
+export const auditQuerySchema = cursorQuerySchema;
+export type AuditQuery = z.infer<typeof auditQuerySchema>;
+
 export const mediaQuerySchema = cursorQuerySchema;
 export type MediaQuery = z.infer<typeof mediaQuerySchema>;
 

@@ -14,6 +14,7 @@ import {
 } from '@harmony/shared';
 import { resolvePermissions } from '../auth/permissions.ts';
 import { requirePermission } from '../auth/plugin.ts';
+import type { AuditService } from '../audit/service.ts';
 import type { Database } from '../db/index.ts';
 import { assignRole, findRole, listMemberRoles, unassignRole } from '../db/roles.ts';
 import { findUserById, listUsers, presentUser } from '../db/users.ts';
@@ -26,10 +27,11 @@ export interface MemberRouteDeps {
   db: Database;
   hub: GatewayHub;
   moderation: ModerationService;
+  audit: AuditService;
 }
 
 export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps): void {
-  const { db, hub, moderation } = deps;
+  const { db, hub, moderation, audit } = deps;
 
   app.get('/api/v1/members', async (request) => {
     requirePermission(request, Permission.ManageRoles);
@@ -79,7 +81,7 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
   });
 
   app.put('/api/v1/members/:userId/roles/:roleId', async (request, reply) => {
-    requirePermission(request, Permission.ManageRoles);
+    const auth = requirePermission(request, Permission.ManageRoles);
     const { userId, roleId } = request.params as { userId: string; roleId: string };
 
     if (!findUserById(db.sqlite, userId)) {
@@ -93,15 +95,17 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     }
 
     assignRole(db.sqlite, userId, roleId);
+    audit.roleChange(auth.user.id, userId, roleId, true);
     hub.dispatch(GatewayEvent.MemberUpdate, { userId });
     return reply.status(204).send();
   });
 
   app.delete('/api/v1/members/:userId/roles/:roleId', async (request, reply) => {
-    requirePermission(request, Permission.ManageRoles);
+    const auth = requirePermission(request, Permission.ManageRoles);
     const { userId, roleId } = request.params as { userId: string; roleId: string };
 
     unassignRole(db.sqlite, userId, roleId);
+    audit.roleChange(auth.user.id, userId, roleId, false);
     hub.dispatch(GatewayEvent.MemberUpdate, { userId });
     return reply.status(204).send();
   });
@@ -145,9 +149,9 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
   });
 
   app.delete('/api/v1/members/:userId/ban', async (request, reply) => {
-    requirePermission(request, Permission.BanMembers);
+    const auth = requirePermission(request, Permission.BanMembers);
     const { userId } = request.params as { userId: string };
-    moderation.unbanMember(userId);
+    moderation.unbanMember(auth, userId);
     return reply.status(204).send();
   });
 

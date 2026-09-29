@@ -30,6 +30,7 @@ code wins — please open an issue.
   - [Users and avatars](#users-and-avatars)
   - [Roles](#roles)
   - [Members](#members)
+  - [Audit log](#audit-log)
   - [Invites](#invites)
   - [Server settings](#server-settings)
   - [Retention](#retention)
@@ -115,7 +116,7 @@ implicit `@everyone` role grants every member `ViewChannels`, `SendMessages`, `A
 | `ManageChannels` | `1 << 6` | Creating, editing and deleting channels and categories |
 | `ManageRoles` | `1 << 7` | Managing roles and members' roles |
 | `ManageEmojis` | `1 << 8` | Uploading and deleting custom emoji |
-| `ManageServer` | `1 << 9` | Server settings, retention and the Discord bridge |
+| `ManageServer` | `1 << 9` | Server settings, retention, the Discord bridge and the audit log |
 | `KickMembers` | `1 << 10` | Ending a member's sessions |
 | `BanMembers` | `1 << 11` | Banning and unbanning members |
 | `CreateInvites` | `1 << 12` | Minting invite codes |
@@ -252,6 +253,33 @@ type Ban = {
   bannedBy: User | null;        // null if the moderator's account is gone
   reason: string | null;
   createdAt: string;
+};
+
+// One recorded admin or moderation action, see "Audit log".
+type AuditKind =
+  | 'message_delete' | 'message_edit'
+  | 'timeout_add' | 'timeout_clear'
+  | 'kick' | 'ban' | 'unban'
+  | 'role_add' | 'role_remove';
+
+type AuditDetail = {
+  channelName?: string;   // message kinds
+  before?: string;        // deleted text, or an edit's old text
+  after?: string;         // an edit's new text
+  durationMinutes?: number;
+  reason?: string | null;
+  roleName?: string;
+  actorName?: string;     // snapshots, so an entry stays readable after a rename
+  targetName?: string;
+};
+
+type AuditEntry = {
+  id: string;
+  kind: AuditKind;
+  actor: User | null;
+  target: User | null;
+  createdAt: string;
+  detail: AuditDetail;
 };
 ```
 
@@ -778,6 +806,37 @@ Lifts the ban (`404 not_banned` when there was none). Returns `204` and fires `M
 ```json
 { "bans": [ /* Ban */ ] }
 ```
+
+### Audit log
+
+The audit log records what was done, by whom and to whom. An instance gets five kinds of entry:
+
+a message being **deleted**, with the text that was removed; a message being **edited**, with the
+text either side of it; **timeouts** and their lifting; **kicks**; **bans** and unbans; and **role
+changes**.
+
+Entries are append-only and are never edited. Names and the channel are captured when the action
+happens, so an entry stays readable once a role is renamed, a channel is deleted or an account is
+removed. Message text is kept here even though the channel no longer shows it, which is the point of
+the feature and also why reading the log is restricted.
+
+Bridged traffic is not logged: a Discord-side edit or deletion arrives through the bridge rather than
+from a member, so it leaves the log to the Discord audit trail.
+
+#### `GET /api/v1/audit` — `ManageServer`
+
+```json
+{ "entries": [ /* AuditEntry */ ] }
+```
+
+Newest first, and read with `ManageServer` rather than any moderation flag, because deleted message
+text can be read back from here.
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `limit` | integer 1–100 | 50 | |
+| `before` | ISO 8601 string | — | Return entries older than this timestamp |
+| `beforeId` | string | — | Id of the entry `before` came from, to break ties |
 
 ### Invites
 

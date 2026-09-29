@@ -257,4 +257,24 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 11,
+    name: 'audit_log',
+    up(db) {
+      db.exec(`
+        CREATE TABLE audit_log (
+          id         TEXT PRIMARY KEY,
+          kind       TEXT NOT NULL,
+          /* Who acted, and who it happened to. Set NULL when that account goes. */
+          actor_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
+          target_id  TEXT REFERENCES users(id) ON DELETE SET NULL,
+          channel_id TEXT REFERENCES channels(id) ON DELETE SET NULL,
+          /* Kind-specific fields as JSON, e.g. the text before an edit. */
+          detail     TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_audit_created ON audit_log(created_at DESC);
+      `);
+    },
+  },
 ];

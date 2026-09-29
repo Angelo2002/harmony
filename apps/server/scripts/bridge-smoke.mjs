@@ -18,6 +18,7 @@ import { createAttachmentService } from '../src/attachments/service.ts';
 import { GatewayHub } from '../src/realtime/hub.ts';
 import { createSettingsService } from '../src/settings/service.ts';
 import { createMessageService } from '../src/messages/service.ts';
+import { createAuditService } from '../src/audit/service.ts';
 import { createUserService } from '../src/users/service.ts';
 import { createBridgeService } from '../src/bridge/service.ts';
 
@@ -143,7 +144,8 @@ const config = {
 const db = new Database(config);
 const settings = createSettingsService(db.sqlite, { serverName: 'Test', requireInvite: false });
 const hub = new GatewayHub();
-const messages = createMessageService(db.sqlite, hub);
+const audit = createAuditService(db.sqlite);
+const messages = createMessageService(db.sqlite, hub, audit);
 const attachments = createAttachmentService(db.sqlite, config);
 const users = createUserService(db.sqlite, config);
 const transport = createFakeTransport();

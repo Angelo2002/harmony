@@ -1,19 +1,44 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
-import type { BridgeResponse, DiscordChannelListResponse, Message } from '@harmony/shared';
+import sharp from 'sharp';
+import type { Metadata } from 'sharp';
+import {
+  ALLOWED_IMAGE_TYPES,
+  type BridgeResponse,
+  type DiscordChannelListResponse,
+  type ImageContentType,
+  type Message,
+  type MessageDeletePayload,
+} from '@harmony/shared';
+import type { Config } from '../config.ts';
+import { insertAttachment } from '../db/attachments.ts';
+import {
+  deleteBridgeMessage,
+  findBridgeMessageByDiscordId,
+  findBridgeMessageByHarmonyId,
+  insertBridgeMessage,
+} from '../db/bridge.ts';
 import { findChannel, findChannelByDiscordId, setChannelWebhook, type ChannelRow } from '../db/channels.ts';
-import { insertBridgeMessage } from '../db/bridge.ts';
 import { findUserByDiscordId, insertGhostUser, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import type { MessageService } from '../messages/service.ts';
 import type { SettingsService } from '../settings/service.ts';
+import { createBlobStore } from '../storage/blobs.ts';
 import type {
   BridgeLogger,
+  DiscordIncomingAttachment,
+  DiscordIncomingDelete,
+  DiscordIncomingEdit,
   DiscordIncomingMessage,
   DiscordTransport,
+  MirrorFile,
   MirrorResult,
   WebhookRef,
 } from './transport.ts';
+
+/** Discord's default upload ceiling for a non-boosted server. */
+const DISCORD_MAX_FILE_BYTES = 8 * 1024 * 1024;
 
 export interface BridgeService {
   status(): BridgeResponse;
@@ -27,6 +52,7 @@ export interface BridgeService {
 
 export interface BridgeDeps {
   sqlite: DatabaseSync;
+  config: Config;
   settings: SettingsService;
   messages: MessageService;
   logger: BridgeLogger;
@@ -35,6 +61,7 @@ export interface BridgeDeps {
 
 export function createBridgeService(deps: BridgeDeps): BridgeService {
   const { logger } = deps;
+  const blobs = createBlobStore(deps.config);
   let transport: DiscordTransport | null = null;
   let activeToken: string | null = null;
 
@@ -45,6 +72,16 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       enabled: config.enabled,
       status: transport?.status() ?? { ready: false, botTag: null, guildName: null, error: null },
     };
+  }
+
+  function webhookFor(channel: ChannelRow): WebhookRef | null {
+    return channel.discord_webhook_id && channel.discord_webhook_token
+      ? { id: channel.discord_webhook_id, token: channel.discord_webhook_token }
+      : null;
+  }
+
+  function authorName(message: Message): string {
+    return message.author?.displayName ?? message.author?.username ?? 'Harmony';
   }
 
   /** Finds the stand-in account for a Discord author, creating it on first sight. */
@@ -67,19 +104,15 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     return created;
   }
 
-  async function ingest(message: DiscordIncomingMessage): Promise<void> {
-    // Ignore bots, including our own mirrored webhook messages.
-    if (message.fromBot) return;
-
-    const channel = findChannelByDiscordId(deps.sqlite, message.channelId);
-    if (!channel) return;
-
-    const author = resolveGhostUser(message);
-    deps.messages.createBridged(channel.id, author.id, message.content);
-  }
+  // ---- Outbound: Harmony -> Discord ----
 
   /** Shared by normal mirroring and the admin's test message. */
-  async function sendToDiscord(channel: ChannelRow, username: string, content: string): Promise<MirrorResult> {
+  async function sendToDiscord(
+    channel: ChannelRow,
+    username: string,
+    content: string,
+    files: MirrorFile[],
+  ): Promise<MirrorResult> {
     if (!transport) {
       throw new HttpError(400, 'bridge_offline', 'The bridge is not connected. Save a token and enable it.');
     }
@@ -87,44 +120,61 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       throw new HttpError(400, 'channel_not_bridged', 'That channel is not linked to a Discord channel.');
     }
 
-    const cached: WebhookRef | null =
-      channel.discord_webhook_id && channel.discord_webhook_token
-        ? { id: channel.discord_webhook_id, token: channel.discord_webhook_token }
-        : null;
-
     const result = await transport.mirror({
       discordChannelId: channel.discord_channel_id,
-      webhook: cached,
+      webhook: webhookFor(channel),
       username,
       content,
+      files,
     });
 
-    if (!cached) setChannelWebhook(deps.sqlite, channel.id, result.webhook.id, result.webhook.token);
+    setChannelWebhook(deps.sqlite, channel.id, result.webhook.id, result.webhook.token);
     return result;
+  }
+
+  function collectMirrorFiles(message: Message): MirrorFile[] {
+    const files: MirrorFile[] = [];
+    for (const attachment of message.attachments) {
+      if (attachment.size > DISCORD_MAX_FILE_BYTES) {
+        logger.debug('skipping an attachment too large for discord', {
+          filename: attachment.filename,
+          size: attachment.size,
+        });
+        continue;
+      }
+      try {
+        files.push({
+          filename: attachment.filename,
+          contentType: attachment.contentType,
+          data: readFileSync(blobs.pathFor(attachment.hash)),
+        });
+      } catch (error) {
+        logger.debug('could not read an attachment blob', {
+          filename: attachment.filename,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return files;
   }
 
   async function mirror(message: Message): Promise<void> {
     if (!transport) return;
 
     const channel = findChannel(deps.sqlite, message.channelId);
-    if (!channel) return;
-    if (!channel.discord_channel_id) {
+    if (!channel?.discord_channel_id) {
       logger.debug('not mirroring: channel is not bridged', { channelId: message.channelId });
       return;
     }
 
     const content = message.content.trim();
-    if (!content) {
-      logger.debug('not mirroring: message has no text', { channelId: message.channelId });
+    const files = collectMirrorFiles(message);
+    if (!content && files.length === 0) {
+      logger.debug('not mirroring: message has no text or files', { channelId: message.channelId });
       return;
     }
 
-    const result = await sendToDiscord(
-      channel,
-      message.author?.displayName ?? message.author?.username ?? 'Harmony',
-      content,
-    );
-
+    const result = await sendToDiscord(channel, authorName(message), content, files);
     insertBridgeMessage(deps.sqlite, {
       harmonyMessageId: message.id,
       discordMessageId: result.messageId,
@@ -132,16 +182,143 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     });
   }
 
-  // Harmony messages are mirrored out; bridged-in messages are not, so they
-  // never bounce back to Discord.
-  deps.messages.onMessageCreated((message) => {
-    void mirror(message).catch((error: unknown) => {
-      logger.info('bridge could not mirror a message to Discord', {
-        channelId: message.channelId,
+  /** Where a bridged Harmony message lives on the Discord side, if anywhere. */
+  function mirrorTarget(harmonyMessageId: string, channelId: string) {
+    const mapping = findBridgeMessageByHarmonyId(deps.sqlite, harmonyMessageId);
+    if (!mapping) return null;
+
+    const channel = findChannel(deps.sqlite, channelId);
+    if (!channel) return null;
+
+    const webhook = webhookFor(channel);
+    if (!webhook) return null;
+
+    return { webhook, discordMessageId: mapping.discord_message_id };
+  }
+
+  async function mirrorEdit(message: Message): Promise<void> {
+    if (!transport) return;
+    const target = mirrorTarget(message.id, message.channelId);
+    if (!target) return;
+
+    await transport.editMessage({
+      webhook: target.webhook,
+      discordMessageId: target.discordMessageId,
+      content: message.content,
+    });
+  }
+
+  async function mirrorDelete(info: MessageDeletePayload): Promise<void> {
+    if (!transport) return;
+    const target = mirrorTarget(info.id, info.channelId);
+    if (!target) return;
+
+    await transport.deleteMessage({ webhook: target.webhook, discordMessageId: target.discordMessageId });
+    deleteBridgeMessage(deps.sqlite, info.id);
+  }
+
+  // ---- Inbound: Discord -> Harmony ----
+
+  async function storeInboundAttachment(
+    active: DiscordTransport,
+    author: UserRow,
+    attachment: DiscordIncomingAttachment,
+  ): Promise<string | null> {
+    if (!ALLOWED_IMAGE_TYPES.includes(attachment.contentType as ImageContentType)) return null;
+    if (attachment.size > deps.config.maxUploadBytes) return null;
+
+    try {
+      const data = await active.download(attachment.url);
+      if (data.length > deps.config.maxUploadBytes) return null;
+
+      let metadata: Metadata;
+      try {
+        metadata = await sharp(data).metadata();
+      } catch {
+        return null; // Not a real image.
+      }
+
+      const id = randomUUID();
+      insertAttachment(deps.sqlite, {
+        id,
+        uploaderId: author.id,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        size: data.length,
+        width: metadata.width ?? null,
+        height: metadata.height ?? null,
+        hash: blobs.save(data),
+        createdAt: new Date().toISOString(),
+      });
+      return id;
+    } catch (error) {
+      logger.debug('could not mirror a discord attachment', {
+        url: attachment.url,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  async function ingest(message: DiscordIncomingMessage): Promise<void> {
+    const active = transport;
+    // Ignore bots, including our own mirrored webhook messages.
+    if (!active || message.fromBot) return;
+
+    const channel = findChannelByDiscordId(deps.sqlite, message.channelId);
+    if (!channel) return;
+
+    const author = resolveGhostUser(message);
+
+    const attachmentIds: string[] = [];
+    const skipped: string[] = [];
+    for (const attachment of message.attachments) {
+      const stored = await storeInboundAttachment(active, author, attachment);
+      if (stored) attachmentIds.push(stored);
+      else skipped.push(attachment.url);
+    }
+
+    // Anything we cannot mirror is preserved as a link rather than dropped.
+    const content = [message.content, ...skipped].filter((part) => part.trim().length > 0).join('\n');
+    if (!content && attachmentIds.length === 0) return;
+
+    const created = deps.messages.createBridged(channel.id, author.id, content, attachmentIds);
+    insertBridgeMessage(deps.sqlite, {
+      harmonyMessageId: created.id,
+      discordMessageId: message.id,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async function ingestEdit(edit: DiscordIncomingEdit): Promise<void> {
+    const mapping = findBridgeMessageByDiscordId(deps.sqlite, edit.id);
+    if (!mapping) return;
+    deps.messages.editBridged(mapping.harmony_message_id, edit.content);
+  }
+
+  async function ingestDelete(deletion: DiscordIncomingDelete): Promise<void> {
+    const mapping = findBridgeMessageByDiscordId(deps.sqlite, deletion.id);
+    if (!mapping) return;
+
+    deps.messages.deleteBridged(mapping.harmony_message_id);
+    deleteBridgeMessage(deps.sqlite, mapping.harmony_message_id);
+  }
+
+  // Messages created or changed in Harmony are mirrored out; bridged-in changes
+  // are applied through the *Bridged methods, which never notify, so nothing
+  // ever bounces back to Discord.
+  function watch(action: () => Promise<void>, channelId: string | undefined): void {
+    void action().catch((error: unknown) => {
+      logger.info('bridge could not sync a message to Discord', {
+        channelId,
         error: error instanceof Error ? error.message : String(error),
       });
     });
-  });
+  }
+
+  deps.messages.onMessageCreated((message) => watch(() => mirror(message), message.channelId));
+  deps.messages.onMessageEdited((message) => watch(() => mirrorEdit(message), message.channelId));
+  deps.messages.onMessageDeleted((info) => watch(() => mirrorDelete(info), info.channelId));
 
   return {
     status,
@@ -163,6 +340,12 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       transport.onMessage((message) => {
         void ingest(message).catch((error: unknown) => logger.info('bridge ingest failed', error));
       });
+      transport.onMessageEdited((edit) => {
+        void ingestEdit(edit).catch((error: unknown) => logger.info('bridge edit sync failed', error));
+      });
+      transport.onMessageDeleted((deletion) => {
+        void ingestDelete(deletion).catch((error: unknown) => logger.info('bridge delete sync failed', error));
+      });
       activeToken = desired;
       await transport.start();
     },
@@ -176,7 +359,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       const channel = findChannel(deps.sqlite, channelId);
       if (!channel) throw new HttpError(404, 'channel_not_found', 'That channel does not exist.');
 
-      await sendToDiscord(channel, 'Harmony', 'Harmony bridge test — this channel is connected.');
+      await sendToDiscord(channel, 'Harmony', 'Harmony bridge test — this channel is connected.', []);
     },
 
     async shutdown() {

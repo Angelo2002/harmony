@@ -60,6 +60,7 @@ const bridgeLogger = {
 
 const bridge = createBridgeService({
   sqlite: db.sqlite,
+  config,
   settings: settingsService,
   messages: messageService,
   logger: bridgeLogger,

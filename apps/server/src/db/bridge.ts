@@ -40,3 +40,7 @@ export function findBridgeMessageByHarmonyId(
       | undefined) ?? null
   );
 }
+
+export function deleteBridgeMessage(sqlite: DatabaseSync, harmonyMessageId: string): void {
+  sqlite.prepare('DELETE FROM bridge_messages WHERE harmony_message_id = ?').run(harmonyMessageId);
+}

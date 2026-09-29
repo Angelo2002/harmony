@@ -1,13 +1,32 @@
 import type { BridgeStatus, DiscordChannelOption } from '@harmony/shared';
 
+export interface DiscordIncomingAttachment {
+  url: string;
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
 export interface DiscordIncomingMessage {
   id: string;
   channelId: string;
   authorId: string;
   authorName: string;
   content: string;
+  attachments: DiscordIncomingAttachment[];
   /** True for any bot, including our own webhook mirrors. Never re-bridged. */
   fromBot: boolean;
+}
+
+export interface DiscordIncomingEdit {
+  id: string;
+  channelId: string;
+  content: string;
+}
+
+export interface DiscordIncomingDelete {
+  id: string;
+  channelId: string;
 }
 
 export interface WebhookRef {
@@ -21,18 +40,36 @@ export interface BridgeLogger {
   debug(message: string, detail?: unknown): void;
 }
 
+export interface MirrorFile {
+  filename: string;
+  contentType: string;
+  data: Buffer;
+}
+
 export interface MirrorInput {
   discordChannelId: string;
   /** Cached webhook for the channel, if we have already created one. */
   webhook: WebhookRef | null;
   username: string;
   content: string;
+  files: MirrorFile[];
 }
 
 export interface MirrorResult {
   messageId: string;
   /** The webhook that was used, which may have just been created. */
   webhook: WebhookRef;
+}
+
+export interface EditInput {
+  webhook: WebhookRef;
+  discordMessageId: string;
+  content: string;
+}
+
+export interface DeleteInput {
+  webhook: WebhookRef;
+  discordMessageId: string;
 }
 
 /**
@@ -46,5 +83,11 @@ export interface DiscordTransport {
   status(): BridgeStatus;
   listTextChannels(): Promise<{ guildName: string | null; channels: DiscordChannelOption[] }>;
   onMessage(handler: (message: DiscordIncomingMessage) => void): void;
+  onMessageEdited(handler: (message: DiscordIncomingEdit) => void): void;
+  onMessageDeleted(handler: (message: DiscordIncomingDelete) => void): void;
   mirror(input: MirrorInput): Promise<MirrorResult>;
+  editMessage(input: EditInput): Promise<void>;
+  deleteMessage(input: DeleteInput): Promise<void>;
+  /** Fetches an attachment's bytes from the Discord CDN. */
+  download(url: string): Promise<Buffer>;
 }

@@ -6,6 +6,7 @@ import {
   hasPermission,
   type Attachment,
   type Message,
+  type MessageDeletePayload,
   type MessageHistoryQuery,
   type MessageListResponse,
 } from '@harmony/shared';
@@ -28,11 +29,17 @@ export interface MessageService {
   history(channelId: string, query: MessageHistoryQuery): MessageListResponse;
   create(auth: AuthContext, channelId: string, content: string, attachmentIds: string[]): Message;
   /** Inserts a message on behalf of the bridge, skipping permission checks. */
-  createBridged(channelId: string, authorId: string, content: string): Message;
+  createBridged(channelId: string, authorId: string, content: string, attachmentIds: string[]): Message;
   edit(auth: AuthContext, messageId: string, content: string): Message;
+  /** Applies a bridged edit, without notifying the outbound listeners. */
+  editBridged(messageId: string, content: string): Message | null;
   remove(auth: AuthContext, messageId: string): void;
+  /** Applies a bridged deletion, without notifying the outbound listeners. */
+  deleteBridged(messageId: string): void;
   /** Notified for locally created messages only, never for bridged ones. */
   onMessageCreated(listener: (message: Message) => void): void;
+  onMessageEdited(listener: (message: Message) => void): void;
+  onMessageDeleted(listener: (info: MessageDeletePayload) => void): void;
 }
 
 export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): MessageService {
@@ -99,17 +106,31 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
   }
 
   const createdListeners = new Set<(message: Message) => void>();
+  const editedListeners = new Set<(message: Message) => void>();
+  const deletedListeners = new Set<(info: MessageDeletePayload) => void>();
+
+  /** A misbehaving listener must never break the message operation itself. */
+  function safeNotify<T>(listener: (value: T) => void, value: T): void {
+    try {
+      listener(value);
+    } catch (error) {
+      void error;
+    }
+  }
 
   function announce(message: Message): void {
     hub.dispatch(GatewayEvent.MessageCreate, message);
-    for (const listener of createdListeners) {
-      try {
-        listener(message);
-      } catch (error) {
-        // A misbehaving listener must not break message creation.
-        void error;
-      }
-    }
+    for (const listener of createdListeners) safeNotify(listener, message);
+  }
+
+  function announceEdit(message: Message): void {
+    hub.dispatch(GatewayEvent.MessageUpdate, message);
+    for (const listener of editedListeners) safeNotify(listener, message);
+  }
+
+  function announceDelete(info: MessageDeletePayload): void {
+    hub.dispatch(GatewayEvent.MessageDelete, info);
+    for (const listener of deletedListeners) safeNotify(listener, info);
   }
 
   return {
@@ -130,9 +151,9 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       return message;
     },
 
-    createBridged(channelId, authorId, content) {
+    createBridged(channelId, authorId, content, attachmentIds) {
       requireChannel(channelId);
-      const message = insertWithAttachments(channelId, authorId, content, []);
+      const message = insertWithAttachments(channelId, authorId, content, attachmentIds);
       // Broadcast to clients, but do not announce: this came from Discord and
       // must not be mirrored straight back.
       hub.dispatch(GatewayEvent.MessageCreate, message);
@@ -143,9 +164,27 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       createdListeners.add(listener);
     },
 
+    onMessageEdited(listener) {
+      editedListeners.add(listener);
+    },
+
+    onMessageDeleted(listener) {
+      deletedListeners.add(listener);
+    },
+
     edit(auth, messageId, content) {
       const row = requireMessage(messageId);
       assertCanModify(auth, row);
+
+      updateMessageContent(sqlite, messageId, content, new Date().toISOString());
+      const message = toMessage(requireMessage(messageId), attachmentsFor(messageId));
+      announceEdit(message);
+      return message;
+    },
+
+    editBridged(messageId, content) {
+      const row = findMessage(sqlite, messageId);
+      if (!row || row.deleted_at) return null;
 
       updateMessageContent(sqlite, messageId, content, new Date().toISOString());
       const message = toMessage(requireMessage(messageId), attachmentsFor(messageId));
@@ -156,6 +195,14 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     remove(auth, messageId) {
       const row = requireMessage(messageId);
       assertCanModify(auth, row);
+
+      softDeleteMessage(sqlite, messageId, new Date().toISOString());
+      announceDelete({ id: messageId, channelId: row.channel_id });
+    },
+
+    deleteBridged(messageId) {
+      const row = findMessage(sqlite, messageId);
+      if (!row || row.deleted_at) return;
 
       softDeleteMessage(sqlite, messageId, new Date().toISOString());
       hub.dispatch(GatewayEvent.MessageDelete, { id: messageId, channelId: row.channel_id });

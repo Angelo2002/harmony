@@ -1,9 +1,21 @@
-import { ChannelType, Client, Events, GatewayIntentBits, type TextChannel } from 'discord.js';
+import {
+  ChannelType,
+  Client,
+  Events,
+  GatewayIntentBits,
+  Partials,
+  type Message as DiscordMessage,
+  type TextChannel,
+} from 'discord.js';
 import type { BridgeStatus, DiscordChannelOption } from '@harmony/shared';
 import type {
   BridgeLogger,
+  DiscordIncomingDelete,
+  DiscordIncomingEdit,
   DiscordIncomingMessage,
   DiscordTransport,
+  EditInput,
+  DeleteInput,
   MirrorInput,
   MirrorResult,
   WebhookRef,
@@ -16,9 +28,13 @@ const MAX_DISCORD_USERNAME = 80;
 export function createDiscordTransport(token: string, logger: BridgeLogger): DiscordTransport {
   const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    // Partials let us see edits and deletes of messages sent before startup.
+    partials: [Partials.Message, Partials.Channel],
   });
 
-  const handlers: Array<(message: DiscordIncomingMessage) => void> = [];
+  const createdHandlers: Array<(message: DiscordIncomingMessage) => void> = [];
+  const editedHandlers: Array<(message: DiscordIncomingEdit) => void> = [];
+  const deletedHandlers: Array<(message: DiscordIncomingDelete) => void> = [];
   let status: BridgeStatus = { ready: false, botTag: null, guildName: null, error: null };
 
   client.once(Events.ClientReady, (ready) => {
@@ -38,10 +54,37 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       authorId: message.author.id,
       authorName: message.member?.displayName ?? message.author.displayName,
       content: message.content,
+      attachments: [...message.attachments.values()].map((attachment) => ({
+        url: attachment.url,
+        filename: attachment.name,
+        contentType: attachment.contentType ?? 'application/octet-stream',
+        size: attachment.size,
+      })),
       // Webhook messages are ours; never echo them back.
       fromBot: message.author.bot || message.webhookId !== null,
     };
-    for (const handler of handlers) handler(incoming);
+    for (const handler of createdHandlers) handler(incoming);
+  });
+
+  client.on(Events.MessageUpdate, (_previous, next) => {
+    void (async () => {
+      try {
+        const message = (next.partial ? await next.fetch() : next) as DiscordMessage;
+        const edit: DiscordIncomingEdit = {
+          id: message.id,
+          channelId: message.channelId,
+          content: message.content,
+        };
+        for (const handler of editedHandlers) handler(edit);
+      } catch {
+        // The message was deleted before we could read the edit.
+      }
+    })();
+  });
+
+  client.on(Events.MessageDelete, (message) => {
+    const deletion = { id: message.id, channelId: message.channelId ?? '' };
+    for (const handler of deletedHandlers) handler(deletion);
   });
 
   function firstGuild() {
@@ -113,11 +156,22 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
     },
 
     onMessage(handler) {
-      handlers.push(handler);
+      createdHandlers.push(handler);
+    },
+
+    onMessageEdited(handler) {
+      editedHandlers.push(handler);
+    },
+
+    onMessageDeleted(handler) {
+      deletedHandlers.push(handler);
     },
 
     async mirror(input: MirrorInput): Promise<MirrorResult> {
-      logger.debug('mirroring to discord', { channelId: input.discordChannelId });
+      logger.debug('mirroring to discord', {
+        channelId: input.discordChannelId,
+        files: input.files.length,
+      });
 
       const channel = await client.channels.fetch(input.discordChannelId).catch(() => null);
       if (!channel || channel.type !== ChannelType.GuildText) {
@@ -126,13 +180,20 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       const textChannel = channel as TextChannel;
 
       const webhook = await ensureWebhook(textChannel, input.webhook);
+      const files = input.files.map((file) => ({
+        name: file.filename,
+        data: file.data,
+        contentType: file.contentType,
+      }));
 
       try {
         // Posting straight to the webhook endpoint is what discord.js's own
-        // Webhook#send does, and is the only way to override the name.
+        // Webhook#send does, and is the only way to override the name. When
+        // files are present the REST layer builds the multipart payload.
         const sent = (await client.rest.post(`/webhooks/${webhook.id}/${webhook.token}`, {
           auth: false,
           query: new URLSearchParams({ wait: 'true' }),
+          ...(files.length > 0 ? { files } : {}),
           body: {
             content: input.content.slice(0, MAX_DISCORD_CONTENT),
             username: input.username.slice(0, MAX_DISCORD_USERNAME),
@@ -151,6 +212,29 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
         const code = (error as { code?: number | string }).code;
         throw new Error(`Discord rejected the webhook message (${code ?? 'error'}): ${detail}`);
       }
+    },
+
+    async editMessage(input: EditInput) {
+      await client.rest.patch(`/webhooks/${input.webhook.id}/${input.webhook.token}/messages/${input.discordMessageId}`, {
+        auth: false,
+        body: {
+          content: input.content.slice(0, MAX_DISCORD_CONTENT),
+          allowed_mentions: { parse: [] },
+        },
+      });
+    },
+
+    async deleteMessage(input: DeleteInput) {
+      await client.rest.delete(
+        `/webhooks/${input.webhook.id}/${input.webhook.token}/messages/${input.discordMessageId}`,
+        { auth: false },
+      );
+    },
+
+    async download(url: string) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Discord returned ${response.status} for an attachment`);
+      return Buffer.from(await response.arrayBuffer());
     },
   };
 }

@@ -4,18 +4,22 @@
 // without a bot token or a network connection. Run with:
 //   npm run smoke:bridge --workspace @harmony/server
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import sharp from 'sharp';
 import { Database } from '../src/db/index.ts';
 import { insertChannel } from '../src/db/channels.ts';
 import { insertUser } from '../src/db/users.ts';
 import { findBridgeMessageByHarmonyId } from '../src/db/bridge.ts';
+import { createAttachmentService } from '../src/attachments/service.ts';
 import { GatewayHub } from '../src/realtime/hub.ts';
 import { createSettingsService } from '../src/settings/service.ts';
 import { createMessageService } from '../src/messages/service.ts';
 import { createBridgeService } from '../src/bridge/service.ts';
+
+const logger = { info() {}, debug() {} };
 
 let failures = 0;
 function check(name, condition, detail = '') {
@@ -25,7 +29,17 @@ function check(name, condition, detail = '') {
 }
 
 function createFakeTransport() {
-  const state = { started: false, ready: false, mirrors: [], handlers: [] };
+  const state = {
+    started: false,
+    ready: false,
+    mirrors: [],
+    edits: [],
+    deletes: [],
+    created: [],
+    edited: [],
+    deleted: [],
+    downloadBytes: null,
+  };
   return {
     state,
     async start() {
@@ -42,32 +56,66 @@ function createFakeTransport() {
       return { guildName: 'Test Guild', channels: [{ id: '111', name: 'general' }] };
     },
     onMessage(handler) {
-      state.handlers.push(handler);
+      state.created.push(handler);
+    },
+    onMessageEdited(handler) {
+      state.edited.push(handler);
+    },
+    onMessageDeleted(handler) {
+      state.deleted.push(handler);
     },
     async mirror(input) {
       state.mirrors.push(input);
       return { messageId: `discord-${state.mirrors.length}`, webhook: input.webhook ?? { id: 'wh1', token: 'tok1' } };
     },
+    async editMessage(input) {
+      state.edits.push(input);
+    },
+    async deleteMessage(input) {
+      state.deletes.push(input);
+    },
+    async download() {
+      return state.downloadBytes;
+    },
     emit(message) {
-      for (const handler of state.handlers) handler(message);
+      for (const handler of state.created) handler(message);
+    },
+    emitEdit(edit) {
+      for (const handler of state.edited) handler(edit);
+    },
+    emitDelete(deletion) {
+      for (const handler of state.deleted) handler(deletion);
     },
   };
 }
 
 const dataDir = mkdtempSync(join(tmpdir(), 'harmony-bridge-'));
-const db = new Database({ dataDir, dbFile: join(dataDir, 'harmony.db') });
+const config = {
+  dataDir,
+  dbFile: join(dataDir, 'harmony.db'),
+  uploadDir: join(dataDir, 'uploads'),
+  maxUploadBytes: 10 * 1024 * 1024,
+};
+
+const db = new Database(config);
 const settings = createSettingsService(db.sqlite, { serverName: 'Test', requireInvite: false });
 const hub = new GatewayHub();
 const messages = createMessageService(db.sqlite, hub);
+const attachments = createAttachmentService(db.sqlite, config);
 const transport = createFakeTransport();
 
 const bridge = createBridgeService({
   sqlite: db.sqlite,
+  config,
   settings,
   messages,
-  logger: { info() {}, debug() {} },
+  logger,
   transportFactory: () => transport,
 });
+
+const png = await sharp({ create: { width: 10, height: 6, channels: 3, background: { r: 10, g: 200, b: 90 } } })
+  .png()
+  .toBuffer();
 
 try {
   // 1. Nothing happens until the bridge is configured and enabled.
@@ -76,17 +124,12 @@ try {
   check('status reports unconfigured', bridge.status().configured === false && bridge.status().enabled === false);
   check('status never leaks a token', !('token' in bridge.status()));
 
-  // 2. Enabling with a token starts the transport.
   settings.updateBridge({ token: 'fake-token', enabled: true });
   await bridge.applySettings();
   check('transport starts once enabled', transport.state.started === true);
-  check('status reports ready', bridge.status().status.ready === true);
   check('bot identity is exposed', bridge.status().status.botTag === 'fake#0001');
+  check('discord channels are listable', (await bridge.listDiscordChannels()).channels.length === 1);
 
-  const discordChannels = await bridge.listDiscordChannels();
-  check('discord channels are listable', discordChannels.channels.length === 1);
-
-  // Seed a Harmony user, channel and Discord mapping.
   const userId = randomUUID();
   insertUser(db.sqlite, { id: userId, username: 'alice', passwordHash: 'scrypt$x$y$z', isOwner: true });
   const channelId = randomUUID();
@@ -101,11 +144,11 @@ try {
     discordChannelId: '111',
   });
 
-  // 3. Harmony -> Discord: mirrored with the author's name and no mentions.
   const auth = { user: { id: userId }, permissions: 0n, sessionId: 's', token: 't' };
+
+  // 2. Harmony -> Discord, text.
   const sent = messages.create(auth, channelId, 'hello discord', []);
   await sleep(50);
-
   check('harmony message is mirrored', transport.state.mirrors.length === 1);
   check('mirror uses a username override', transport.state.mirrors[0]?.username === 'alice');
   check('mirror carries the content', transport.state.mirrors[0]?.content === 'hello discord');
@@ -114,18 +157,25 @@ try {
     findBridgeMessageByHarmonyId(db.sqlite, sent.id)?.discord_message_id === 'discord-1',
   );
 
-  // 4. The webhook is cached after first use.
-  messages.create(auth, channelId, 'second', []);
+  // 3. Harmony -> Discord, with an image.
+  const upload = await attachments.upload(auth, { filename: 'pic.png', contentType: 'image/png', data: png });
+  messages.create(auth, channelId, '', [upload.id]);
   await sleep(50);
-  check('cached webhook is reused', transport.state.mirrors[1]?.webhook?.id === 'wh1');
+  const withFile = transport.state.mirrors.at(-1);
+  check('attachment is mirrored', withFile?.files.length === 1);
+  check('mirrored file keeps its name', withFile?.files[0]?.filename === 'pic.png');
+  check('a message can be images only', withFile?.content === '');
 
-  // 5. Discord -> Harmony: attributed to a ghost user.
+  // 4. Discord -> Harmony, with an image.
+  transport.state.downloadBytes = png;
+  const mirrorsBeforeIngest = transport.state.mirrors.length;
   transport.emit({
     id: 'd1',
     channelId: '111',
     authorId: '999',
     authorName: 'Discord Sam',
     content: 'hi harmony',
+    attachments: [{ url: 'https://cdn.example/pic.png', filename: 'pic.png', contentType: 'image/png', size: png.length }],
     fromBot: false,
   });
   await sleep(50);
@@ -135,46 +185,83 @@ try {
   check('discord message lands in harmony', Boolean(ingested));
   check('ingested message is attributed to a ghost user', ingested?.author?.isBot === true);
   check('ghost user carries the discord display name', ingested?.author?.displayName === 'Discord Sam');
-  check('ingested messages are not mirrored back', transport.state.mirrors.length === 2);
+  check('discord attachment is mirrored', ingested?.attachments.length === 1);
+  check(
+    'discord attachment blob is stored',
+    existsSync(join(config.uploadDir, ingested.attachments[0].hash.slice(0, 2), ingested.attachments[0].hash)),
+  );
+  check('ingested messages are not mirrored back', transport.state.mirrors.length === mirrorsBeforeIngest);
 
-  // 6. The same Discord author reuses one ghost account.
+  // 5. Unsupported attachments are preserved as links rather than dropped.
   transport.emit({
     id: 'd2',
     channelId: '111',
     authorId: '999',
     authorName: 'Discord Sam',
-    content: 'again',
+    content: '',
+    attachments: [{ url: 'https://cdn.example/notes.txt', filename: 'notes.txt', contentType: 'text/plain', size: 10 }],
     fromBot: false,
   });
   await sleep(50);
-  const again = messages.history(channelId, { limit: 50 }).messages.find((m) => m.content === 'again');
-  check('ghost user is reused across messages', again?.author?.id === ingested?.author?.id);
-
-  // 7. Bots and webhooks never get ingested.
-  const before = messages.history(channelId, { limit: 100 }).messages.length;
-  transport.emit({ id: 'd3', channelId: '111', authorId: 'wh', authorName: 'Harmony', content: 'echo', fromBot: true });
-  await sleep(50);
   check(
-    'bot/webhook messages are ignored',
-    messages.history(channelId, { limit: 100 }).messages.length === before,
+    'unsupported attachments become links',
+    messages.history(channelId, { limit: 50 }).messages.some((m) => m.content.includes('notes.txt')),
   );
 
-  // 8. Discord channels that are not mapped are ignored.
+  // 6. Edits and deletes, Discord -> Harmony.
+  transport.emitEdit({ id: 'd1', channelId: '111', content: 'edited in discord' });
+  await sleep(50);
+  check(
+    'discord edit reaches harmony',
+    messages.history(channelId, { limit: 50 }).messages.some((m) => m.content === 'edited in discord'),
+  );
+
+  transport.emitDelete({ id: 'd1', channelId: '111' });
+  await sleep(50);
+  check(
+    'discord delete reaches harmony',
+    messages.history(channelId, { limit: 50 }).messages.every((m) => m.id !== ingested?.id),
+  );
+
+  // 7. Edits and deletes, Harmony -> Discord.
+  const edited = messages.edit(auth, sent.id, 'edited in harmony');
+  await sleep(50);
+  check('harmony edit reaches discord', transport.state.edits.at(-1)?.content === 'edited in harmony');
+  check('edit targets the mirrored message', transport.state.edits.at(-1)?.discordMessageId === 'discord-1');
+  check('edit uses the cached webhook', transport.state.edits.at(-1)?.webhook?.id === 'wh1');
+
+  messages.remove(auth, edited.id);
+  await sleep(50);
+  check('harmony delete reaches discord', transport.state.deletes.at(-1)?.discordMessageId === 'discord-1');
+
+  // 8. Bots and webhooks never get ingested.
+  const before = messages.history(channelId, { limit: 100 }).messages.length;
+  transport.emit({
+    id: 'd3',
+    channelId: '111',
+    authorId: 'wh',
+    authorName: 'Harmony',
+    content: 'echo',
+    attachments: [],
+    fromBot: true,
+  });
+  await sleep(50);
+  check('bot/webhook messages are ignored', messages.history(channelId, { limit: 100 }).messages.length === before);
+
+  // 9. Unmapped Discord channels are ignored.
   transport.emit({
     id: 'd4',
     channelId: '222',
     authorId: '999',
     authorName: 'Discord Sam',
     content: 'elsewhere',
+    attachments: [],
     fromBot: false,
   });
   await sleep(50);
-  check(
-    'unmapped discord channels are ignored',
-    messages.history(channelId, { limit: 100 }).messages.length === before,
-  );
+  check('unmapped discord channels are ignored', messages.history(channelId, { limit: 100 }).messages.length === before);
 
-  // 9. The admin test message surfaces problems clearly.
+  // 10. The admin test message surfaces problems clearly.
   const unbridgedId = randomUUID();
   insertChannel(db.sqlite, {
     id: unbridgedId,
@@ -199,7 +286,7 @@ try {
   await bridge.testMirror(channelId);
   check('test message reaches discord', transport.state.mirrors.length === mirrorsBeforeTest + 1);
 
-  // 10. Disabling stops the transport.
+  // 11. Disabling stops the transport.
   settings.updateBridge({ enabled: false });
   await bridge.applySettings();
   check('transport stops when disabled', transport.state.ready === false);

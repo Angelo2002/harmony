@@ -413,6 +413,40 @@ try {
   const unreacted = messages.history(channelId, { limit: 50 }, userId).messages.find((m) => m.id === target.id);
   check('a removed discord reaction disappears', unreacted?.reactions.some((r) => r.emoji === '🎉') === false);
 
+  // 7f. Custom emoji are translated by name in both directions.
+  messages.create(auth, channelId, 'look :YES: and :NOPE:', [], null);
+  await sleep(50);
+  const emojiMirror = transport.state.mirrors.at(-1);
+  check(
+    'a known custom emoji is translated for discord',
+    emojiMirror?.content.includes('<:YES:700>') === true,
+    String(emojiMirror?.content),
+  );
+  check(
+    'an unknown custom emoji is left as text',
+    emojiMirror?.content.includes(':NOPE:') === true,
+    String(emojiMirror?.content),
+  );
+
+  transport.emit({
+    id: 'd5',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    content: 'hi <a:YES:700> and <:LATER:701> there',
+    attachments: [],
+    fromBot: false,
+  });
+  await sleep(50);
+  check(
+    'discord emoji tags become shortcodes',
+    messages
+      .history(channelId, { limit: 50 }, userId)
+      .messages.some((m) => m.content === 'hi :YES: and :LATER: there'),
+  );
+
   // 8. Bots and webhooks never get ingested.
   const before = messages.history(channelId, { limit: 100 }, userId).messages.length;
   transport.emit({

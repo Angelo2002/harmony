@@ -10,6 +10,7 @@ import {
   type ImageContentType,
   type Message,
   type MessageDeletePayload,
+  type MessageReference,
 } from '@harmony/shared';
 import type { Config } from '../config.ts';
 import { insertAttachment } from '../db/attachments.ts';
@@ -91,21 +92,45 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   }
 
   /**
+   * Replaces `:name:` shortcodes with the real `<:name:id>` tags Discord renders,
+   * using the guild's emoji of the same name. Unknown shortcodes are left alone.
+   */
+  async function translateOutboundEmoji(text: string): Promise<string> {
+    const map = await discordEmojiMap();
+    if (map.size === 0) return text;
+    return text.replace(/:([a-zA-Z0-9_]{2,32}):/g, (whole, name: string) => {
+      const emoji = map.get(name);
+      return emoji ? `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>` : whole;
+    });
+  }
+
+  /**
+   * Turns Discord's `<:name:id>` and `<a:name:id>` tags back into `:name:`
+   * shortcodes, so a matching Harmony emoji renders and an unknown one at least
+   * reads sensibly instead of showing a raw id.
+   */
+  function translateInboundEmoji(text: string): string {
+    return text.replace(/<a?:([a-zA-Z0-9_]{2,32}):\d+>/g, (_whole, name: string) => `:${name}:`);
+  }
+
+  /**
    * Discord webhooks cannot post real replies (Execute Webhook has no
    * message_reference), so a reply is mirrored as a quoted line above the text.
    * Discord renders `> ` as a blockquote, which reads like a reply.
    */
-  function outboundContent(message: Message): string {
+  async function outboundContent(message: Message): Promise<string> {
     const base = message.content.trim();
     const reply = message.replyTo;
-    if (!reply) return base;
+    const composed = reply ? `${quoteFor(reply)}\n${base}`.trim() : base;
+    return translateOutboundEmoji(composed);
+  }
 
+  function quoteFor(reply: MessageReference): string {
     const who = reply.author?.displayName ?? reply.author?.username ?? 'someone';
     const snippet = reply.deleted
       ? '(deleted message)'
       : reply.content.replace(/\s+/g, ' ').trim().slice(0, 120);
-    const quote = `> **${who}**${snippet ? `: ${snippet}` : ''}`;
-    return base ? `${quote}\n${base}` : quote;
+    return `> **${who}**${snippet ? `: ${snippet}` : ''}`;
   }
 
   /** Finds the stand-in account for a Discord author, creating it on first sight. */
@@ -234,7 +259,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       return;
     }
 
-    const content = outboundContent(message);
+    const content = await outboundContent(message);
     const files = collectMirrorFiles(message);
     if (!content && files.length === 0) {
       logger.debug('not mirroring: message has no text or files', { channelId: message.channelId });
@@ -271,7 +296,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     await transport.editMessage({
       webhook: target.webhook,
       discordMessageId: target.discordMessageId,
-      content: outboundContent(message),
+      content: await outboundContent(message),
     });
   }
 
@@ -391,7 +416,9 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     }
 
     // Anything we cannot mirror is preserved as a link rather than dropped.
-    const content = [message.content, ...skipped].filter((part) => part.trim().length > 0).join('\n');
+    const content = [translateInboundEmoji(message.content), ...skipped]
+      .filter((part) => part.trim().length > 0)
+      .join('\n');
     if (!content && attachmentIds.length === 0) return;
 
     // A Discord reply becomes a real Harmony reply when the parent was bridged.
@@ -410,7 +437,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   async function ingestEdit(edit: DiscordIncomingEdit): Promise<void> {
     const mapping = findBridgeMessageByDiscordId(deps.sqlite, edit.id);
     if (!mapping) return;
-    deps.messages.editBridged(mapping.harmony_message_id, edit.content);
+    deps.messages.editBridged(mapping.harmony_message_id, translateInboundEmoji(edit.content));
   }
 
   async function ingestDelete(deletion: DiscordIncomingDelete): Promise<void> {

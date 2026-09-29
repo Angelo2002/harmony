@@ -1008,6 +1008,48 @@ try {
     (await req('/members/directory', { token: ownerToken })).json?.users?.some((user) => user.id === modId) === true,
   );
 
+  // --- Admin media gallery ---
+  const galleryPng = await sharp({
+    create: { width: 20, height: 14, channels: 3, background: { r: 12, g: 34, b: 56 } },
+  })
+    .png()
+    .toBuffer();
+  const galleryForm = new FormData();
+  galleryForm.append('file', new Blob([galleryPng], { type: 'image/png' }), 'gallery.png');
+  const galleryUpload = await fetch(`${BASE}/attachments`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${ownerToken}` },
+    body: galleryForm,
+  });
+  const galleryAttachment = await galleryUpload.json();
+
+  const gallery = await req('/media', { token: ownerToken });
+  const galleryItem = gallery.json?.media?.find((item) => item.attachment.id === galleryAttachment.id);
+  check(
+    'the media gallery lists stored images',
+    gallery.status === 200 && galleryItem !== undefined,
+  );
+  check('a media item resolves its uploader', galleryItem?.uploader?.username === 'alice');
+  check('a member cannot read the media gallery (403)', (await req('/media', { token: bobToken })).status === 403);
+  check(
+    'a member cannot delete media (403)',
+    (await req(`/attachments/${galleryAttachment.id}`, { method: 'DELETE', token: bobToken })).status === 403,
+  );
+  check(
+    'an administrator can delete media',
+    (await req(`/attachments/${galleryAttachment.id}`, { method: 'DELETE', token: ownerToken })).status === 204,
+  );
+  check(
+    'deleted media leaves the gallery',
+    (await req('/media', { token: ownerToken })).json?.media?.some(
+      (item) => item.attachment.id === galleryAttachment.id,
+    ) === false,
+  );
+  check(
+    'deleting a missing attachment 404s',
+    (await req(`/attachments/${galleryAttachment.id}`, { method: 'DELETE', token: ownerToken })).status === 404,
+  );
+
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);
   check('session is dead after logout (401)', (await req('/auth/me', { cookie: login.cookie })).status === 401);
 } catch (error) {

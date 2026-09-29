@@ -17,6 +17,7 @@ import { createPruner } from './retention/pruner.ts';
 import { createBridgeService } from './bridge/service.ts';
 import { createDiscordTransport } from './bridge/discordjs.ts';
 import { createModerationService } from './moderation/service.ts';
+import { createMediaService } from './media/service.ts';
 import { registerErrorHandler } from './http/errors.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerMetaRoutes } from './routes/meta.ts';
@@ -29,6 +30,7 @@ import { registerChannelRoutes } from './routes/channels.ts';
 import { registerMessageRoutes } from './routes/messages.ts';
 import { registerAttachmentRoutes } from './routes/attachments.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
+import { registerMediaRoutes } from './routes/media.ts';
 import { registerUserRoutes } from './routes/users.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
 import { registerBridgeRoutes } from './routes/bridge.ts';
@@ -47,6 +49,7 @@ const emojiService = createEmojiService(db.sqlite, config);
 const userService = createUserService(db.sqlite, config);
 const messageService = createMessageService(db.sqlite, hub);
 const moderationService = createModerationService({ sqlite: db.sqlite, hub });
+const mediaService = createMediaService(db.sqlite, config);
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
 
@@ -92,6 +95,7 @@ registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub, bridge });
 registerMessageRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, attachmentService);
+registerMediaRoutes(app, { service: mediaService });
 registerEmojiRoutes(app, { service: emojiService, hub });
 registerUserRoutes(app, { db, users: userService });
 registerGateway(app, {

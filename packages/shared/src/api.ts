@@ -1,4 +1,4 @@
-import type { Ban, Category, Channel, Emoji, Invite, Message, Role, User } from './types.ts';
+import type { Attachment, Ban, Category, Channel, Emoji, Invite, Message, Role, User } from './types.ts';
 
 /** Response for a successful register or login. */
 export interface AuthResponse {
@@ -76,6 +76,20 @@ export interface UserDirectoryResponse {
 /** Banned users, for `GET /api/v1/bans`. */
 export interface BanListResponse {
   bans: Ban[];
+}
+
+/** One stored image, resolved for the admin media gallery. */
+export interface MediaItem {
+  attachment: Attachment;
+  uploader: User | null;
+  /** Channel holding the attachment's message, or null for an abandoned upload. */
+  channelId: string | null;
+  channelName: string | null;
+}
+
+/** A page of the media gallery, newest first. */
+export interface MediaListResponse {
+  media: MediaItem[];
 }
 
 export interface RoleListResponse {

@@ -96,17 +96,24 @@ export const reactionQuerySchema = z.object({
 });
 export type ReactionQuery = z.infer<typeof reactionQuerySchema>;
 
-export const messageHistoryQuerySchema = z.object({
+/**
+ * Cursor pagination, shared by message history and the media gallery: a page
+ * size, plus the timestamp and id of the oldest item already held. The id matters
+ * because a timestamp alone can tie.
+ */
+const cursorQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  /** Return messages created strictly before this ISO timestamp. */
+  /** Return items created strictly before this ISO timestamp. */
   before: z.string().optional(),
-  /**
-   * Id of the message `before` came from. Together they form a cursor that does
-   * not skip messages sharing the boundary millisecond.
-   */
+  /** Id of the item `before` came from, to break ties within a millisecond. */
   beforeId: z.string().optional(),
 });
+
+export const messageHistoryQuerySchema = cursorQuerySchema;
 export type MessageHistoryQuery = z.infer<typeof messageHistoryQuerySchema>;
+
+export const mediaQuerySchema = cursorQuerySchema;
+export type MediaQuery = z.infer<typeof mediaQuerySchema>;
 
 /** Permission bitfields cross the wire as decimal strings. */
 const permissionString = z.string().regex(/^\d+$/, 'Must be a decimal permission bitfield');

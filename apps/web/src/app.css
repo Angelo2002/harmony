@@ -1110,6 +1110,55 @@ button.danger {
   font-size: 0.8rem;
 }
 
+/* ---- Admin media gallery ---- */
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.media-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  background: var(--h-bg-deep);
+}
+
+.media-card img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--h-bg);
+}
+
+.media-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+
+.media-name {
+  overflow: hidden;
+  color: var(--h-text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-card button {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

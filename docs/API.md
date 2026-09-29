@@ -456,6 +456,45 @@ Uploads are two steps: upload the bytes, then attach the returned id to a messag
 Serves the image bytes with a long-lived immutable cache header. Uploads that are never attached
 to a message are eventually removed by [retention](#retention).
 
+#### `DELETE /api/v1/attachments/:id` — `ManageServer`
+
+Deletes a stored attachment; the message stays, minus the image. Storage is content-addressed, so
+the bytes are only removed once no attachment, emoji or avatar still points at them. Returns `204`,
+or `404 attachment_not_found`.
+
+### Media gallery
+
+The admin gallery lists every stored image in one place.
+
+#### `GET /api/v1/media` — `ManageServer`
+
+A page of stored media, **newest first**.
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `limit` | integer 1–100 | 50 | |
+| `before` | ISO 8601 string | — | Older than this timestamp |
+| `beforeId` | string | — | The attachment id `before` came from |
+
+The cursor works exactly like message history's: send the oldest item's `createdAt` and `id`
+together.
+
+```json
+{
+  "media": [
+    {
+      "attachment": { "...": "..." },
+      "uploader": { "...": "..." },
+      "channelId": "...",
+      "channelName": "general"
+    }
+  ]
+}
+```
+
+`uploader`, `channelId` and `channelName` are `null` for an upload that was never attached to a
+message.
+
 ### Custom emoji
 
 #### `GET /api/v1/emojis` — `ViewChannels`

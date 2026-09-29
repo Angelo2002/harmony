@@ -127,3 +127,46 @@ export function listAttachmentsForMessages(
   }
   return result;
 }
+
+/** An attachment plus where it was posted, for the admin media gallery. */
+export interface MediaRow extends AttachmentRow {
+  channel_id: string | null;
+  channel_name: string | null;
+}
+
+/**
+ * A page of stored media, newest first, with the channel each attachment's
+ * message belongs to. Abandoned uploads (no message yet) come back with null
+ * channel fields. The cursor mirrors message history: timestamp plus id.
+ */
+export function listMedia(
+  sqlite: DatabaseSync,
+  options: { limit: number; before?: string; beforeId?: string },
+): MediaRow[] {
+  const { limit, before, beforeId } = options;
+  const base = `SELECT a.*, m.channel_id AS channel_id, c.name AS channel_name
+                FROM attachments a
+                LEFT JOIN messages m ON m.id = a.message_id
+                LEFT JOIN channels c ON c.id = m.channel_id`;
+
+  const rows =
+    before && beforeId
+      ? sqlite
+          .prepare(
+            `${base}
+             WHERE a.created_at < ?
+                OR (a.created_at = ? AND a.rowid < (SELECT rowid FROM attachments WHERE id = ?))
+             ORDER BY a.created_at DESC, a.rowid DESC LIMIT ?`,
+          )
+          .all(before, before, beforeId, limit)
+      : before
+        ? sqlite.prepare(`${base} WHERE a.created_at < ? ORDER BY a.created_at DESC, a.rowid DESC LIMIT ?`).all(before, limit)
+        : sqlite.prepare(`${base} ORDER BY a.created_at DESC, a.rowid DESC LIMIT ?`).all(limit);
+
+  return rows as unknown as MediaRow[];
+}
+
+export function deleteAttachment(sqlite: DatabaseSync, id: string): boolean {
+  const result = sqlite.prepare('DELETE FROM attachments WHERE id = ?').run(id);
+  return Number(result.changes) > 0;
+}

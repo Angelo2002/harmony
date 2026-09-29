@@ -11,8 +11,8 @@ usernames, profile pictures and display names, moderation (timeouts, kicks and
 bans), configurable storage retention, a two-way Discord bridge (messages,
 images, replies, reactions, mentions, edits and deletes, with custom emoji
 matched by name), and an admin panel covering settings, roles, members, channels,
-emoji, retention, the bridge, invites and bans. The full HTTP and gateway API for
-custom clients and bots is documented in [`docs/API.md`](docs/API.md).
+emoji, media, retention, the bridge, invites and bans. The full HTTP and gateway API
+for custom clients and bots is documented in [`docs/API.md`](docs/API.md).
 
 ## Tech stack
 

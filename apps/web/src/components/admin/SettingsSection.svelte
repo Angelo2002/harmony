@@ -1,7 +1,15 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import type { Channel, ChannelListResponse, ServerSettingsResponse } from '@harmony/shared';
+  import { onDestroy, onMount } from 'svelte';
+  import {
+    DEFAULT_ACCENT,
+    DEFAULT_BACKGROUND,
+    type Channel,
+    type ChannelListResponse,
+    type ServerSettingsResponse,
+  } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
+  import { meta } from '../../lib/meta.svelte';
+  import { previewTheme, restoreTheme, setSavedTheme } from '../../lib/theme';
 
   let serverName = $state('');
   let requireInvite = $state(false);
@@ -9,6 +17,8 @@
   /** Empty string means "no default": fall back to the first channel. */
   let defaultChannelId = $state('');
   let channels = $state<Channel[]>([]);
+  let themeBackground = $state(DEFAULT_BACKGROUND);
+  let themeAccent = $state(DEFAULT_ACCENT);
   let busy = $state(false);
   let message = $state<string | null>(null);
   let error = $state<string | null>(null);
@@ -23,11 +33,32 @@
       requireInvite = settings.requireInvite;
       embedsEnabled = settings.embedsEnabled;
       defaultChannelId = settings.defaultChannelId ?? '';
+      themeBackground = settings.theme.background ?? DEFAULT_BACKGROUND;
+      themeAccent = settings.theme.accent ?? DEFAULT_ACCENT;
       channels = channelData.channels;
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
     }
   });
+
+  // Leaving the panel undoes any colour that was only being previewed.
+  onDestroy(restoreTheme);
+
+  function pickBackground(event: Event): void {
+    themeBackground = (event.currentTarget as HTMLInputElement).value;
+    previewTheme({ background: themeBackground, accent: themeAccent });
+  }
+
+  function pickAccent(event: Event): void {
+    themeAccent = (event.currentTarget as HTMLInputElement).value;
+    previewTheme({ background: themeBackground, accent: themeAccent });
+  }
+
+  function resetTheme(): void {
+    themeBackground = DEFAULT_BACKGROUND;
+    themeAccent = DEFAULT_ACCENT;
+    previewTheme({ background: themeBackground, accent: themeAccent });
+  }
 
   async function save(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -42,12 +73,19 @@
           requireInvite,
           embedsEnabled,
           defaultChannelId: defaultChannelId || null,
+          theme: { background: themeBackground, accent: themeAccent },
         }),
       });
       serverName = updated.serverName;
       requireInvite = updated.requireInvite;
       embedsEnabled = updated.embedsEnabled;
       defaultChannelId = updated.defaultChannelId ?? '';
+      themeBackground = updated.theme.background ?? DEFAULT_BACKGROUND;
+      themeAccent = updated.theme.accent ?? DEFAULT_ACCENT;
+      // Remember the saved palette, and keep the public meta in step, so the
+      // restore above falls back to what is actually stored.
+      setSavedTheme(updated.theme);
+      if (meta.data) meta.data = { ...meta.data, theme: updated.theme };
       message = 'Settings saved.';
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
@@ -89,6 +127,25 @@
       </select>
     </label>
     <p class="muted">The channel that opens automatically when someone enters the server.</p>
+
+    <fieldset>
+      <legend>Colours</legend>
+      <div class="inline">
+        <label>
+          Background
+          <input type="color" value={themeBackground} oninput={pickBackground} />
+        </label>
+        <label>
+          Accent
+          <input type="color" value={themeAccent} oninput={pickAccent} />
+        </label>
+        <button type="button" onclick={resetTheme}>Reset colours</button>
+      </div>
+      <p class="muted">
+        Panel shades, text and highlight tints are all derived from these two colours, and the text
+        flips between dark and light on its own. Changes preview here immediately; save to keep them.
+      </p>
+    </fieldset>
 
     {#if error}<p class="form-error">{error}</p>{/if}
     {#if message}<p class="ok-text">{message}</p>{/if}

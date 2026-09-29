@@ -14,7 +14,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import sharp from 'sharp';
-import { listEmbeddableUrls } from '@harmony/shared';
+import { listEmbeddableUrls, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -430,6 +430,22 @@ try {
   check('link previews can be turned off', embedsOff.json?.embedsEnabled === false);
   await req('/settings', { method: 'PATCH', token: ownerToken, body: { embedsEnabled: true } });
 
+  check('the instance starts on the built-in colours', settings.json?.theme?.background === null && settings.json?.theme?.accent === null);
+  const themed = await req('/settings', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { theme: { background: '#101018', accent: '#ff8800' } },
+  });
+  check(
+    'owner sets the instance colours',
+    themed.json?.theme?.background === '#101018' && themed.json?.theme?.accent === '#ff8800',
+  );
+  check('public meta carries the colours', (await req('/meta')).json?.theme?.accent === '#ff8800');
+
+  const badTheme = await req('/settings', { method: 'PATCH', token: ownerToken, body: { theme: { background: 'red' } } });
+  check('a colour that is not #rrggbb is rejected (400)', badTheme.status === 400, `status ${badTheme.status}`);
+  await req('/settings', { method: 'PATCH', token: ownerToken, body: { theme: { background: null, accent: null } } });
+
   // The default channel lives in settings and is echoed with the channel list so
   // clients can open it on load.
   const setDefault = await req('/settings', {
@@ -688,6 +704,26 @@ try {
     ),
   );
   presenceWatcher.ws.close();
+
+  // --- Theme derivation ---
+  const defaults = deriveTheme(null);
+  check(
+    'an untouched instance derives the built-in palette',
+    defaults.scheme === 'dark' && defaults.bg === DEFAULT_BACKGROUND && defaults.accent === DEFAULT_ACCENT,
+  );
+  check('dark backgrounds get light text', relativeLuminance(defaults.text) > 0.5);
+
+  const light = deriveTheme({ background: '#f5f5f5', accent: '#1a73e8' });
+  check('light backgrounds are detected', light.scheme === 'light');
+  check('light backgrounds get dark text', relativeLuminance(light.text) < 0.2);
+  check('light themes flip the overlay to black', light.hover.startsWith('rgb(0 0 0'));
+  check('dark themes keep a white overlay', defaults.hover.startsWith('rgb(255 255 255'));
+  check('panels stay distinct from the background', light.bgElevated !== light.bg && light.bgDeep !== light.bg);
+
+  check('an unparseable colour falls back to the default', deriveTheme({ background: 'nonsense' }).bg === DEFAULT_BACKGROUND);
+  check('a bright accent takes dark text', deriveTheme({ accent: '#ffd700' }).onAccent === '#000000');
+  check('a dark accent takes light text', deriveTheme({ accent: '#1a3ea8' }).onAccent === '#ffffff');
+  check('a near black background still separates its panels', deriveTheme({ background: '#050505' }).bgElevated !== '#050505');
 
   const patched = await req('/settings', {
     method: 'PATCH',

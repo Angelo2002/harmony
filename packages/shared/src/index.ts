@@ -1,6 +1,7 @@
 export * from './constants.ts';
 export * from './permissions.ts';
 export * from './types.ts';
+export * from './theme.ts';
 export * from './moderation.ts';
 export * from './mentions.ts';
 export * from './embeds.ts';

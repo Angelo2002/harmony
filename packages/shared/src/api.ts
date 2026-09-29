@@ -1,4 +1,5 @@
 import type { Attachment, Ban, Category, Channel, Emoji, Invite, Message, Role, User } from './types.ts';
+import type { ThemeSettings } from './theme.ts';
 
 /** Response for a successful register or login. */
 export interface AuthResponse {
@@ -37,6 +38,8 @@ export interface InstanceMeta {
   name: string;
   apiVersion: string;
   requireInvite: boolean;
+  /** Instance colours, so even the sign-in screen is themed. */
+  theme: ThemeSettings;
   maxUploadBytes: number;
   allowedImageTypes: readonly string[];
   limits: {
@@ -57,6 +60,8 @@ export interface ServerSettingsResponse {
   defaultChannelId: string | null;
   /** Whether the server unfurls link previews by fetching the linked pages. */
   embedsEnabled: boolean;
+  /** Instance colours; everything else in the palette is derived from these. */
+  theme: ThemeSettings;
 }
 
 /** A user together with the roles assigned to them. */

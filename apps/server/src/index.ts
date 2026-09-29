@@ -45,6 +45,7 @@ const settingsService = createSettingsService(db.sqlite, {
   requireInvite: config.requireInvite,
   defaultChannelId: null,
   embedsEnabled: true,
+  theme: { background: null, accent: null },
 });
 const authService = createAuthService(db.sqlite, config, settingsService);
 const attachmentService = createAttachmentService(db.sqlite, config);

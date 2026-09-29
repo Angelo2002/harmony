@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { RetentionSettings } from '@harmony/shared';
+import { HEX_COLOR_PATTERN, type RetentionSettings, type ThemeSettings } from '@harmony/shared';
 import { readAllSettings, writeSetting } from '../db/settings.ts';
 
 export interface ServerSettings {
@@ -9,6 +9,17 @@ export interface ServerSettings {
   defaultChannelId: string | null;
   /** Whether the server unfurls link previews by fetching the linked pages. */
   embedsEnabled: boolean;
+  /** Instance colours; the rest of the palette is derived from these two. */
+  theme: ThemeSettings;
+}
+
+/** A settings patch. `theme` is partial so one colour can be changed on its own. */
+export interface ServerSettingsUpdate {
+  serverName?: string;
+  requireInvite?: boolean;
+  defaultChannelId?: string | null;
+  embedsEnabled?: boolean;
+  theme?: Partial<ThemeSettings>;
 }
 
 export interface BridgeSettings {
@@ -31,7 +42,7 @@ export interface BridgePublicSettings {
 
 export interface SettingsService {
   get(): ServerSettings;
-  update(patch: Partial<ServerSettings>): ServerSettings;
+  update(patch: ServerSettingsUpdate): ServerSettings;
   getRetention(): RetentionSettings;
   updateRetention(patch: Partial<RetentionSettings>): RetentionSettings;
   getBridge(): BridgeSettings;
@@ -43,6 +54,8 @@ const KEY_SERVER_NAME = 'server_name';
 const KEY_REQUIRE_INVITE = 'require_invite';
 const KEY_DEFAULT_CHANNEL = 'default_channel_id';
 const KEY_EMBEDS_ENABLED = 'embeds_enabled';
+const KEY_THEME_BACKGROUND = 'theme_background';
+const KEY_THEME_ACCENT = 'theme_accent';
 const KEY_IMAGE_DAYS = 'retention_image_days';
 const KEY_MESSAGE_DAYS = 'retention_message_days';
 const KEY_STORAGE_LIMIT = 'storage_limit_bytes';
@@ -90,6 +103,12 @@ function parseStringOrNull(raw: string | undefined): string | null {
   }
 }
 
+/** A stored colour, or null when it is absent or not a `#rrggbb` value. */
+function parseHexOrNull(raw: string | undefined): string | null {
+  const value = parseStringOrNull(raw);
+  return value !== null && HEX_COLOR_PATTERN.test(value) ? value : null;
+}
+
 /**
  * Instance settings live in the database so admins can change them at runtime.
  * Environment values only provide the initial defaults.
@@ -106,6 +125,10 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       requireInvite: requireInvite ? parseBoolean(requireInvite, defaults.requireInvite) : defaults.requireInvite,
       defaultChannelId: parseStringOrNull(stored.get(KEY_DEFAULT_CHANNEL)),
       embedsEnabled: embeds ? parseBoolean(embeds, defaults.embedsEnabled) : defaults.embedsEnabled,
+      theme: {
+        background: parseHexOrNull(stored.get(KEY_THEME_BACKGROUND)),
+        accent: parseHexOrNull(stored.get(KEY_THEME_ACCENT)),
+      },
     };
   }
 
@@ -154,6 +177,12 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       }
       if (patch.embedsEnabled !== undefined) {
         writeSetting(sqlite, KEY_EMBEDS_ENABLED, JSON.stringify(patch.embedsEnabled));
+      }
+      if (patch.theme?.background !== undefined) {
+        writeSetting(sqlite, KEY_THEME_BACKGROUND, JSON.stringify(patch.theme.background));
+      }
+      if (patch.theme?.accent !== undefined) {
+        writeSetting(sqlite, KEY_THEME_ACCENT, JSON.stringify(patch.theme.accent));
       }
       return get();
     },

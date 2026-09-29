@@ -1,13 +1,22 @@
 :root {
   color-scheme: dark;
 
-  /* Design tokens — server owners will override these per instance. */
+  /*
+   * Design tokens. An instance may override the background and accent at
+   * runtime; everything derived from them, plus the hover/active overlays and
+   * the on-accent text, is set alongside these by the client.
+   */
   --h-bg: #313338;
   --h-bg-elevated: #2b2d31;
   --h-bg-deep: #1e1f22;
   --h-text: #dbdee1;
   --h-text-muted: #949ba4;
   --h-accent: #5865f2;
+  /* Text and icons placed on top of an accent-coloured surface. */
+  --h-on-accent: #fff;
+  /* Translucent overlays for hover and active states. */
+  --h-hover: rgb(255 255 255 / 4%);
+  --h-active: rgb(255 255 255 / 8%);
   --h-ok: #23a55a;
   --h-error: #f23f43;
   --h-radius: 8px;
@@ -128,7 +137,7 @@ button {
   border: none;
   border-radius: 6px;
   background: var(--h-accent);
-  color: #fff;
+  color: var(--h-on-accent);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
@@ -205,7 +214,7 @@ button.link:hover {
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
   background: var(--h-accent);
-  color: #fff;
+  color: var(--h-on-accent);
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -277,13 +286,13 @@ button.link:hover {
 }
 
 .channel:hover {
-  background: rgb(255 255 255 / 4%);
+  background: var(--h-hover);
   color: var(--h-text);
 }
 
 .channel.active {
-  background: rgb(255 255 255 / 8%);
-  color: #fff;
+  background: var(--h-active);
+  color: var(--h-text);
 }
 
 .channel .hash {
@@ -374,7 +383,7 @@ button.link:hover {
 }
 
 .roster-member:hover {
-  background: rgb(255 255 255 / 4%);
+  background: var(--h-hover);
 }
 
 .roster-member.offline {
@@ -456,7 +465,7 @@ button.link:hover {
 }
 
 .message:hover {
-  background: rgb(255 255 255 / 3%);
+  background: var(--h-hover);
 }
 
 .avatar {
@@ -470,7 +479,7 @@ button.link:hover {
   display: grid;
   place-items: center;
   background: var(--h-accent);
-  color: #fff;
+  color: var(--h-on-accent);
   font-weight: 700;
 }
 
@@ -529,7 +538,7 @@ img.avatar {
 
 .author {
   font-weight: 600;
-  color: #fff;
+  color: var(--h-text);
 }
 
 .meta time,
@@ -754,7 +763,7 @@ img.avatar {
 }
 
 .message-actions button:hover:not(:disabled) {
-  background: rgb(255 255 255 / 8%);
+  background: var(--h-active);
   color: var(--h-text);
   filter: none;
 }
@@ -830,7 +839,7 @@ button.ghost {
 
 .reaction.me {
   border-color: var(--h-accent);
-  background: rgb(88 101 242 / 18%);
+  background: color-mix(in srgb, var(--h-accent) 18%, transparent);
   color: var(--h-text);
 }
 
@@ -890,7 +899,7 @@ button.ghost {
 
 .autocomplete-item.active {
   background: var(--h-accent);
-  color: #fff;
+  color: var(--h-on-accent);
 }
 
 .autocomplete-item img {
@@ -913,7 +922,7 @@ button.ghost {
 }
 
 .autocomplete-item.active .autocomplete-detail {
-  color: rgb(255 255 255 / 80%);
+  color: color-mix(in srgb, var(--h-on-accent) 80%, transparent);
 }
 
 .autocomplete-initial {
@@ -924,7 +933,7 @@ button.ghost {
   height: 22px;
   border-radius: 50%;
   background: var(--h-accent);
-  color: #fff;
+  color: var(--h-on-accent);
   font-size: 0.7rem;
   font-weight: 700;
 }
@@ -934,21 +943,21 @@ button.ghost {
 .mention {
   padding: 0 0.15rem;
   border-radius: 3px;
-  background: rgb(88 101 242 / 22%);
-  color: #c9cdfb;
+  background: color-mix(in srgb, var(--h-accent) 22%, transparent);
+  color: color-mix(in srgb, var(--h-accent) 60%, var(--h-text));
   font-weight: 500;
 }
 
 /* An inset shadow avoids shifting the layout when a message mentions you. */
 .message.mentions-me {
   border-radius: 4px;
-  background: rgb(88 101 242 / 8%);
+  background: color-mix(in srgb, var(--h-accent) 8%, transparent);
   box-shadow: inset 2px 0 0 var(--h-accent);
 }
 
 /* The message being replied to stays lit up, brighter than a hover. */
 .message.selected {
-  background: rgb(88 101 242 / 18%);
+  background: color-mix(in srgb, var(--h-accent) 18%, transparent);
   box-shadow: inset 2px 0 0 var(--h-accent);
 }
 
@@ -1114,14 +1123,14 @@ select {
 }
 
 .admin-tab:hover {
-  background: rgb(255 255 255 / 5%);
+  background: var(--h-hover);
   color: var(--h-text);
   filter: none;
 }
 
 .admin-tab.active {
-  background: rgb(255 255 255 / 9%);
-  color: #fff;
+  background: var(--h-active);
+  color: var(--h-text);
 }
 
 .admin-close {
@@ -1233,7 +1242,7 @@ select {
 
 .row-main.active {
   background: var(--h-accent);
-  color: #fff;
+  color: var(--h-on-accent);
 }
 
 .role-item {
@@ -1510,7 +1519,7 @@ button.danger {
 }
 
 .emoji-option:hover {
-  background: rgb(255 255 255 / 8%);
+  background: var(--h-active);
   filter: none;
 }
 
@@ -1571,7 +1580,7 @@ button.danger {
 }
 
 .user-button:hover {
-  background: rgb(255 255 255 / 6%);
+  background: var(--h-hover);
   filter: none;
 }
 

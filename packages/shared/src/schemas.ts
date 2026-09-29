@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { LIMITS } from './constants.ts';
 import { TIMEOUT_MAX_MINUTES } from './moderation.ts';
+import { HEX_COLOR_PATTERN } from './theme.ts';
 
 export const usernameSchema = z
   .string()
@@ -143,6 +144,14 @@ export const updateSettingsSchema = z.object({
   defaultChannelId: z.string().nullable().optional(),
   /** Whether the server unfurls link previews by fetching the linked pages. */
   embedsEnabled: z.boolean().optional(),
+  /** Instance colours. Every other colour in the palette is derived from these. */
+  theme: z
+    .object({
+      background: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb colour').nullable(),
+      accent: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb colour').nullable(),
+    })
+    .partial()
+    .optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 

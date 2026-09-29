@@ -219,9 +219,15 @@ type Role = {
   color: number | null;         // packed RGB, or null for the default colour
   position: number;             // display/colour ordering only
   permissions: string;          // decimal bitfield string
-  hoist: boolean;
+  hoist: boolean;               // true gives the role its own member list group
   mentionable: boolean;
   isDefault: boolean;           // true only for @everyone
+};
+
+// The two colours an admin picks. Everything else is derived, see "Theming".
+type ThemeSettings = {
+  background: string | null;    // #rrggbb, or null for the built-in default
+  accent: string | null;
 };
 
 type Emoji = { id: string; name: string; hash: string; animated: boolean };
@@ -285,6 +291,7 @@ Public instance information a client needs before signing in.
   "name": "My Community",
   "apiVersion": "v1",
   "requireInvite": true,
+  "theme": { "background": null, "accent": null },
   "maxUploadBytes": 10485760,
   "allowedImageTypes": ["image/png", "image/jpeg", "image/gif", "image/webp"],
   "limits": {
@@ -766,15 +773,42 @@ Returns `204`.
 #### `GET /api/v1/settings` — `ManageServer`
 
 ```json
-{ "serverName": "My Community", "requireInvite": true, "defaultChannelId": null, "embedsEnabled": true }
+{
+  "serverName": "My Community",
+  "requireInvite": true,
+  "defaultChannelId": null,
+  "embedsEnabled": true,
+  "theme": { "background": "#1e1b2e", "accent": "#eb459e" }
+}
 ```
 
 #### `PATCH /api/v1/settings` — `ManageServer`
 
-`{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null, "embedsEnabled"?: boolean }`.
-Returns the updated settings. `serverName` changing also updates `GET /api/v1/meta`.
+`{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null,
+"embedsEnabled"?: boolean, "theme"?: { "background"?: string | null, "accent"?: string | null } }`.
+Returns the updated settings. `serverName` and `theme` changing also update `GET /api/v1/meta`.
 `defaultChannelId` must reference an existing channel, or `400 invalid_default_channel`; `null`
 clears the preference. `embedsEnabled` turns link previews on or off for the whole instance.
+
+### Theming
+
+An instance is themed with just two colours, both `#rrggbb` or `null` for the built-in default:
+
+```ts
+type ThemeSettings = { background: string | null; accent: string | null };
+```
+
+Everything else the client renders with is derived from those two, so an admin never has to reason
+about contrast. In short: the panel surfaces step away from the background, the text is mixed
+towards the opposite end so it stays readable on both dark and light backgrounds, the translucent
+hover and active overlays flip from white to black with the theme, and the colour placed on top of
+accent surfaces switches between black and white depending on how bright the accent is.
+
+The tokens a client should set are `--h-bg`, `--h-bg-elevated`, `--h-bg-deep`, `--h-text`,
+`--h-text-muted`, `--h-accent`, `--h-on-accent`, `--h-hover` and `--h-active`, each from the matching
+field of `deriveTheme`, plus `color-scheme` from its `scheme`. The server itself computes none of
+this: it stores the two colours and hands them to clients, which may use the exported `deriveTheme`
+from this package or simply read the tokens a Harmony client already publishes.
 
 ### Retention
 

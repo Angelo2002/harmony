@@ -1,5 +1,6 @@
 import type { Category, Channel, Message } from '@harmony/shared';
 import { api } from './api';
+import { emojis } from './emojis.svelte';
 import { GatewayClient, type GatewayFrame } from './gateway';
 
 /** Reactive state for the channel list and the currently open conversation. */
@@ -26,6 +27,7 @@ class ChatStore {
     this.#started = true;
     this.#gateway.onEvent((frame) => this.#handleEvent(frame));
     await this.loadChannels();
+    await emojis.load();
     this.#gateway.connect();
   }
 
@@ -109,6 +111,10 @@ class ChatStore {
       case 'MEMBER_UPDATE':
         // Username colours may have changed; refresh the open channel.
         if (this.activeChannelId) void this.loadHistory(this.activeChannelId);
+        break;
+      case 'EMOJI_CREATE':
+      case 'EMOJI_DELETE':
+        void emojis.load();
         break;
     }
   }

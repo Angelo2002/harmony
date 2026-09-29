@@ -26,3 +26,6 @@ export type ImageContentType = (typeof ALLOWED_IMAGE_TYPES)[number];
 
 /** Default maximum size of a single upload, in bytes (10 MiB). */
 export const DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+/** Maximum size of a custom emoji image, in bytes (256 KiB). */
+export const DEFAULT_MAX_EMOJI_BYTES = 256 * 1024;

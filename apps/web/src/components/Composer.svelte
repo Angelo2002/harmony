@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { ALLOWED_IMAGE_TYPES, LIMITS, type Attachment } from '@harmony/shared';
+  import { ALLOWED_IMAGE_TYPES, LIMITS, type Attachment, type Emoji } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
+  import { emojis } from '../lib/emojis.svelte';
 
   const acceptAttribute = ALLOWED_IMAGE_TYPES.join(',');
   const maxAttachments = LIMITS.attachmentsPerMessage;
@@ -12,6 +13,7 @@
   let error = $state<string | null>(null);
   let pending = $state<Attachment[]>([]);
   let fileInput = $state<HTMLInputElement | null>(null);
+  let showPicker = $state(false);
 
   async function onFiles(event: Event): Promise<void> {
     const input = event.currentTarget as HTMLInputElement;
@@ -38,6 +40,12 @@
 
   function removePending(id: string): void {
     pending = pending.filter((attachment) => attachment.id !== id);
+  }
+
+  function insertEmoji(emoji: Emoji): void {
+    const separator = value.length > 0 && !value.endsWith(' ') ? ' ' : '';
+    value = `${value}${separator}:${emoji.name}:`;
+    showPicker = false;
   }
 
   async function submit(event: SubmitEvent): Promise<void> {
@@ -68,6 +76,20 @@
     <p class="form-error">{error}</p>
   {/if}
 
+  {#if showPicker}
+    <div class="emoji-picker">
+      {#if emojis.list.length === 0}
+        <p class="muted">No custom emojis yet.</p>
+      {:else}
+        {#each emojis.list as emoji (emoji.id)}
+          <button type="button" class="emoji-option" title={`:${emoji.name}:`} onclick={() => insertEmoji(emoji)}>
+            <img src={`/api/v1/emojis/${emoji.id}`} alt={emoji.name} />
+          </button>
+        {/each}
+      {/if}
+    </div>
+  {/if}
+
   {#if pending.length > 0}
     <div class="pending">
       {#each pending as attachment (attachment.id)}
@@ -80,6 +102,7 @@
   {/if}
 
   <form onsubmit={submit}>
+    <button type="button" class="attach" title="Add emoji" onclick={() => (showPicker = !showPicker)}>☺</button>
     <button type="button" class="attach" title="Attach image" disabled={uploading} onclick={() => fileInput?.click()}>
       {uploading ? '…' : '+'}
     </button>

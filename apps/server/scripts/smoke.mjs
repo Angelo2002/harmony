@@ -439,6 +439,111 @@ try {
     `got ${colourMessage.json?.author?.roleColor}`,
   );
 
+  // --- Custom emoji ---
+  const emojiPng = await sharp({
+    create: { width: 24, height: 24, channels: 4, background: { r: 255, g: 200, b: 0, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+
+  const emojiForm = new FormData();
+  emojiForm.append('name', 'party');
+  emojiForm.append('file', new Blob([emojiPng], { type: 'image/png' }), 'party.png');
+  const emojiUpload = await fetch(`${BASE}/emojis`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${ownerToken}` },
+    body: emojiForm,
+  });
+  const emoji = await emojiUpload.json();
+  check('emoji uploads', emojiUpload.status === 200 && emoji?.name === 'party', `status ${emojiUpload.status}`);
+  check('static emoji is not marked animated', emoji?.animated === false);
+
+  const duplicateEmoji = new FormData();
+  duplicateEmoji.append('name', 'party');
+  duplicateEmoji.append('file', new Blob([emojiPng], { type: 'image/png' }), 'party.png');
+  check(
+    'duplicate emoji name rejected (409)',
+    (
+      await fetch(`${BASE}/emojis`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${ownerToken}` },
+        body: duplicateEmoji,
+      })
+    ).status === 409,
+  );
+
+  const shortName = new FormData();
+  shortName.append('name', 'x');
+  shortName.append('file', new Blob([emojiPng], { type: 'image/png' }), 'x.png');
+  check(
+    'invalid emoji name rejected (400)',
+    (
+      await fetch(`${BASE}/emojis`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${ownerToken}` },
+        body: shortName,
+      })
+    ).status === 400,
+  );
+
+  const notAnEmoji = new FormData();
+  notAnEmoji.append('name', 'nope');
+  notAnEmoji.append('file', new Blob([Buffer.from('plain text')], { type: 'text/plain' }), 'n.txt');
+  check(
+    'non-image emoji rejected (415)',
+    (
+      await fetch(`${BASE}/emojis`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${ownerToken}` },
+        body: notAnEmoji,
+      })
+    ).status === 415,
+  );
+
+  const emojiList = await req('/emojis', { token: bobToken });
+  check(
+    'members can list emoji',
+    emojiList.status === 200 && emojiList.json?.emojis?.some((entry) => entry.name === 'party') === true,
+  );
+
+  const servedEmoji = await fetch(`${BASE}/emojis/${emoji.id}`, {
+    headers: { authorization: `Bearer ${bobToken}` },
+  });
+  const servedEmojiBytes = Buffer.from(await servedEmoji.arrayBuffer());
+  check(
+    'emoji image is served back',
+    servedEmoji.status === 200 &&
+      servedEmoji.headers.get('content-type') === 'image/png' &&
+      servedEmojiBytes.equals(emojiPng),
+  );
+  check('emoji images require auth (401)', (await fetch(`${BASE}/emojis/${emoji.id}`)).status === 401);
+
+  const bobEmoji = new FormData();
+  bobEmoji.append('name', 'bobemoji');
+  bobEmoji.append('file', new Blob([emojiPng], { type: 'image/png' }), 'b.png');
+  check(
+    'member cannot upload emoji (403)',
+    (
+      await fetch(`${BASE}/emojis`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${bobToken}` },
+        body: bobEmoji,
+      })
+    ).status === 403,
+  );
+  check(
+    'member cannot delete emoji (403)',
+    (await req(`/emojis/${emoji.id}`, { method: 'DELETE', token: bobToken })).status === 403,
+  );
+  check(
+    'owner deletes emoji',
+    (await req(`/emojis/${emoji.id}`, { method: 'DELETE', token: ownerToken })).status === 204,
+  );
+  check(
+    'deleted emoji is gone',
+    (await req('/emojis', { token: ownerToken })).json?.emojis?.every((entry) => entry.name !== 'party') === true,
+  );
+
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);
   check('session is dead after logout (401)', (await req('/auth/me', { cookie: login.cookie })).status === 401);
 } catch (error) {

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { chat } from '../lib/chat.svelte';
+  import { tokenizeEmoji } from '../lib/emoji-text';
+  import { emojis } from '../lib/emojis.svelte';
 
   let scroller = $state<HTMLDivElement | null>(null);
 
@@ -24,6 +26,7 @@
         message.author?.roleColor == null
           ? null
           : `#${message.author.roleColor.toString(16).padStart(6, '0')}`}
+      {@const segments = tokenizeEmoji(message.content, emojis.lookup)}
       <article class="message">
         <div class="avatar">{(message.author?.username ?? '?').charAt(0).toUpperCase()}</div>
         <div class="body">
@@ -36,7 +39,20 @@
           </div>
 
           {#if message.content}
-            <p class="content">{message.content}</p>
+            <p class="content">
+              {#each segments as segment, i (i)}
+                {#if segment.type === 'emoji'}
+                  <img
+                    class="emoji"
+                    src={`/api/v1/emojis/${segment.emoji.id}`}
+                    alt={`:${segment.emoji.name}:`}
+                    title={`:${segment.emoji.name}:`}
+                  />
+                {:else}
+                  {segment.value}
+                {/if}
+              {/each}
+            </p>
           {/if}
 
           {#if message.attachments.length > 0}

@@ -152,4 +152,12 @@ export const migrations: Migration[] = [
       ).run(randomUUID(), categoryId, new Date().toISOString());
     },
   },
+  {
+    version: 3,
+    name: 'emoji_content_type',
+    up(db) {
+      // Needed to serve emoji images with the right Content-Type.
+      db.exec(`ALTER TABLE emojis ADD COLUMN content_type TEXT NOT NULL DEFAULT 'image/png'`);
+    },
+  },
 ];

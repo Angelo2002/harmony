@@ -1,6 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import sharp from 'sharp';
 import type { Metadata } from 'sharp';
@@ -9,6 +7,7 @@ import type { Config } from '../config.ts';
 import type { AuthContext } from '../auth/service.ts';
 import { findAttachment, insertAttachment, toAttachment, type AttachmentRow } from '../db/attachments.ts';
 import { HttpError } from '../http/errors.ts';
+import { createBlobStore } from '../storage/blobs.ts';
 
 export interface UploadInput {
   filename: string;
@@ -24,13 +23,10 @@ export interface AttachmentService {
 }
 
 export function createAttachmentService(sqlite: DatabaseSync, config: Config): AttachmentService {
-  function filePathFor(hash: string): string {
-    // Shard by the first byte so a single directory never holds every blob.
-    return join(config.uploadDir, hash.slice(0, 2), hash);
-  }
+  const blobs = createBlobStore(config);
 
   return {
-    filePathFor,
+    filePathFor: blobs.pathFor,
 
     find(id) {
       return findAttachment(sqlite, id);
@@ -61,10 +57,7 @@ export function createAttachmentService(sqlite: DatabaseSync, config: Config): A
         throw new HttpError(415, 'invalid_image', 'That file is not a readable image.');
       }
 
-      const hash = createHash('sha256').update(file.data).digest('hex');
-      const target = filePathFor(hash);
-      mkdirSync(dirname(target), { recursive: true });
-      if (!existsSync(target)) writeFileSync(target, file.data);
+      const hash = blobs.save(file.data);
 
       const id = randomUUID();
       insertAttachment(sqlite, {

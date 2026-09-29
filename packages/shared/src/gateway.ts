@@ -27,6 +27,8 @@ export const GatewayEvent = {
   RoleUpdate: 'ROLE_UPDATE',
   RoleDelete: 'ROLE_DELETE',
   MemberUpdate: 'MEMBER_UPDATE',
+  EmojiCreate: 'EMOJI_CREATE',
+  EmojiDelete: 'EMOJI_DELETE',
 } as const;
 export type GatewayEventName = (typeof GatewayEvent)[keyof typeof GatewayEvent];
 

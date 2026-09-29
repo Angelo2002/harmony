@@ -112,3 +112,13 @@ export const moveRoleSchema = z.object({
   direction: z.enum(['up', 'down']),
 });
 export type MoveRoleInput = z.infer<typeof moveRoleSchema>;
+
+/** Emoji shortcodes are written as `:name:` and use Discord's name rules. */
+export const emojiNameSchema = z
+  .string()
+  .regex(/^[a-zA-Z0-9_]{2,32}$/, 'Emoji names use 2-32 letters, numbers or underscores');
+
+export const createEmojiSchema = z.object({
+  name: emojiNameSchema,
+});
+export type CreateEmojiInput = z.infer<typeof createEmojiSchema>;

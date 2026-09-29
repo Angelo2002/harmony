@@ -1,4 +1,4 @@
-import type { Category, Channel, Invite, Message, Role, User } from './types.ts';
+import type { Category, Channel, Emoji, Invite, Message, Role, User } from './types.ts';
 
 /** Response for a successful register or login. */
 export interface AuthResponse {
@@ -71,4 +71,8 @@ export interface RoleListResponse {
 
 export interface InviteListResponse {
   invites: Invite[];
+}
+
+export interface EmojiListResponse {
+  emojis: Emoji[];
 }

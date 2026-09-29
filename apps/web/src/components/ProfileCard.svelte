@@ -99,18 +99,23 @@
         <span class="muted">@{user.username}</span>
       </div>
 
-      <div class="profile-card-fields">
-        <div class="profile-field">
-          <span class="profile-field-label">Member since</span>
-          <span>{new Date(user.createdAt).toLocaleDateString()}</span>
+      <!-- A Discord stand-in was never a member here, so it has no join date. -->
+      {#if !user.isBot || user.discordId}
+        <div class="profile-card-fields">
+          {#if !user.isBot}
+            <div class="profile-field">
+              <span class="profile-field-label">Member since</span>
+              <span>{new Date(user.createdAt).toLocaleDateString()}</span>
+            </div>
+          {/if}
+          {#if user.discordId}
+            <div class="profile-field">
+              <span class="profile-field-label">Discord</span>
+              <code class="profile-field-value">{user.discordId}</code>
+            </div>
+          {/if}
         </div>
-        {#if user.discordId}
-          <div class="profile-field">
-            <span class="profile-field-label">Discord</span>
-            <code class="profile-field-value">{user.discordId}</code>
-          </div>
-        {/if}
-      </div>
+      {/if}
 
       <div class="profile-card-roles">
         <span class="profile-field-label">Roles</span>

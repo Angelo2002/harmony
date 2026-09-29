@@ -47,6 +47,18 @@
     return gap >= 0 && gap <= groupingWindowMs;
   }
 
+  /**
+   * Messages paired with whether they continue the previous one. Computed in one
+   * place rather than per row, so the flag is always evaluated against the whole
+   * list and cannot go stale as messages arrive.
+   */
+  const rows = $derived.by(() =>
+    chat.messages.map((message, index) => ({
+      message,
+      grouped: isGrouped(index > 0 ? chat.messages[index - 1] : undefined, message),
+    })),
+  );
+
   function formatTime(iso: string): string {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
@@ -169,8 +181,9 @@
   {:else if chat.messages.length === 0}
     <p class="muted pad">No messages yet. Say hello!</p>
   {:else}
-    {#each chat.messages as message, index (message.id)}
-      {@const grouped = isGrouped(index > 0 ? chat.messages[index - 1] : undefined, message)}
+    {#each rows as row (row.message.id)}
+      {@const message = row.message}
+      {@const grouped = row.grouped}
       {@const authorColor =
         message.author?.roleColor == null
           ? null

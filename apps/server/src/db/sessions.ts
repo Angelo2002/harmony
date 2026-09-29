@@ -37,3 +37,9 @@ export function deleteSessionById(sqlite: DatabaseSync, id: string): void {
 export function deleteSessionByTokenHash(sqlite: DatabaseSync, tokenHash: string): void {
   sqlite.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash);
 }
+
+/** Ends every session a user has, e.g. when they are kicked or banned. */
+export function deleteSessionsForUser(sqlite: DatabaseSync, userId: string): number {
+  const result = sqlite.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  return Number(result.changes);
+}

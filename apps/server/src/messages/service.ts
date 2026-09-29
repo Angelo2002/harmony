@@ -15,6 +15,7 @@ import {
   type ReactionUpdatePayload,
 } from '@harmony/shared';
 import type { AuthContext } from '../auth/service.ts';
+import { assertNotTimedOut } from '../auth/guards.ts';
 import { attachToMessage, findAttachment, listAttachmentsForMessages } from '../db/attachments.ts';
 import { findChannel } from '../db/channels.ts';
 import { findEmoji } from '../db/emojis.ts';
@@ -278,6 +279,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     },
 
     create(auth, channelId, content, attachmentIds, replyToId) {
+      assertNotTimedOut(auth);
       requireChannel(channelId);
       const message = insertWithAttachments(channelId, auth.user.id, content, attachmentIds, replyToId);
       announce(message);
@@ -318,6 +320,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     },
 
     edit(auth, messageId, content) {
+      assertNotTimedOut(auth);
       const row = requireMessage(messageId);
       assertCanEdit(auth, row);
 
@@ -354,6 +357,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     },
 
     toggleReaction(auth, messageId, emoji, emojiId) {
+      assertNotTimedOut(auth);
       const row = requireMessage(messageId);
       const target = canonicalReaction(emoji, emojiId);
 

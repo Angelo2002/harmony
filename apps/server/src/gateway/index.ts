@@ -25,13 +25,22 @@ export interface GatewayOptions {
  */
 export function registerGateway(app: FastifyInstance, options: GatewayOptions): void {
   app.get('/gateway', { websocket: true }, (socket, request) => {
-    const clientId = options.hub.register((payload) => {
-      try {
-        socket.send(payload);
-      } catch {
-        // Socket is closing; its close handler will unregister it.
-      }
-    });
+    const clientId = options.hub.register(
+      (payload) => {
+        try {
+          socket.send(payload);
+        } catch {
+          // Socket is closing; its close handler will unregister it.
+        }
+      },
+      (code, reason) => {
+        try {
+          socket.close(code, reason);
+        } catch {
+          // Already closing.
+        }
+      },
+    );
 
     // Browser handshakes carry cookies, so allow cookie-based identification.
     const cookieToken = request.cookies?.[options.cookieName] ?? null;

@@ -16,6 +16,16 @@ export interface User {
   isBot: boolean;
   isOwner: boolean;
   createdAt: IsoTimestamp;
+  /** End of an active moderation timeout, or null when not timed out. */
+  timedOutUntil: IsoTimestamp | null;
+}
+
+/** A ban, with the user it applies to and who issued it. */
+export interface Ban {
+  user: User;
+  bannedBy: User | null;
+  reason: string | null;
+  createdAt: IsoTimestamp;
 }
 
 export interface Role {

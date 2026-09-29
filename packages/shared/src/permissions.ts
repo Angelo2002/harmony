@@ -23,6 +23,8 @@ export const Permission = {
   CreateInvites: 1n << 12n,
   MentionEveryone: 1n << 13n,
   Administrator: 1n << 14n,
+  /** Put members in a timeout: they keep read access but cannot post. */
+  ModerateMembers: 1n << 15n,
 } as const;
 
 export type PermissionName = keyof typeof Permission;

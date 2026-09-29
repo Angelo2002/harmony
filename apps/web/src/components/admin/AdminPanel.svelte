@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { Permission, hasPermission } from '@harmony/shared';
+  import { session } from '../../lib/session.svelte';
   import { ui } from '../../lib/ui.svelte';
+  import BansSection from './BansSection.svelte';
   import ChannelsSection from './ChannelsSection.svelte';
   import BridgeSection from './BridgeSection.svelte';
   import EmojisSection from './EmojisSection.svelte';
@@ -9,7 +12,18 @@
   import RolesSection from './RolesSection.svelte';
   import SettingsSection from './SettingsSection.svelte';
 
-  const tabs = [
+  type TabId =
+    | 'settings'
+    | 'roles'
+    | 'members'
+    | 'channels'
+    | 'emojis'
+    | 'retention'
+    | 'bridge'
+    | 'invites'
+    | 'bans';
+
+  const tabs: Array<{ id: TabId; label: string }> = [
     { id: 'settings', label: 'Settings' },
     { id: 'roles', label: 'Roles' },
     { id: 'members', label: 'Members' },
@@ -18,8 +32,14 @@
     { id: 'retention', label: 'Retention' },
     { id: 'bridge', label: 'Bridge' },
     { id: 'invites', label: 'Invites' },
-  ] as const;
-  type TabId = (typeof tabs)[number]['id'];
+    { id: 'bans', label: 'Bans' },
+  ];
+
+  const permissions = $derived(BigInt(session.permissions || '0'));
+  // The bans tab is only meaningful to someone who could lift a ban.
+  const visibleTabs = $derived(
+    tabs.filter((tab) => tab.id !== 'bans' || hasPermission(permissions, Permission.BanMembers)),
+  );
 
   let active = $state<TabId>('settings');
 </script>
@@ -28,7 +48,7 @@
   <div class="admin">
     <nav class="admin-nav">
       <h2>Admin</h2>
-      {#each tabs as tab (tab.id)}
+      {#each visibleTabs as tab (tab.id)}
         <button class="admin-tab" class:active={active === tab.id} type="button" onclick={() => (active = tab.id)}>
           {tab.label}
         </button>
@@ -51,6 +71,8 @@
         <RetentionSection />
       {:else if active === 'bridge'}
         <BridgeSection />
+      {:else if active === 'bans'}
+        <BansSection />
       {:else}
         <InvitesSection />
       {/if}

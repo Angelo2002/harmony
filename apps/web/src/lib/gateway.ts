@@ -55,8 +55,9 @@ export class GatewayClient {
     socket.addEventListener('close', (event) => {
       this.#socket = null;
       this.#emit({ op: -1, t: 'CLOSE', d: { code: event.code } });
-      // 4004 means the session was rejected — retrying would just loop.
-      if (!this.#stopped && event.code !== 4004) this.#scheduleReconnect();
+      // 4004 means the session was rejected, 4005 that it was ended by
+      // moderation; retrying either would just loop.
+      if (!this.#stopped && event.code !== 4004 && event.code !== 4005) this.#scheduleReconnect();
     });
   }
 

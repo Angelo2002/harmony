@@ -1,4 +1,4 @@
-import type { Category, Channel, Emoji, Invite, Message, Role, User } from './types.ts';
+import type { Ban, Category, Channel, Emoji, Invite, Message, Role, User } from './types.ts';
 
 /** Response for a successful register or login. */
 export interface AuthResponse {
@@ -71,6 +71,11 @@ export interface MemberListResponse {
  */
 export interface UserDirectoryResponse {
   users: User[];
+}
+
+/** Banned users, for `GET /api/v1/bans`. */
+export interface BanListResponse {
+  bans: Ban[];
 }
 
 export interface RoleListResponse {

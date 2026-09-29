@@ -19,6 +19,7 @@ import {
   touchSession,
 } from '../db/sessions.ts';
 import { findInvite, incrementInviteUses } from '../db/invites.ts';
+import { findBan } from '../db/bans.ts';
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from './passwords.ts';
 import { generateSessionToken, hashSessionToken } from './tokens.ts';
 import { resolvePermissions } from './permissions.ts';
@@ -102,6 +103,10 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
       if (!row || !ok) {
         throw new HttpError(401, 'invalid_credentials', 'Incorrect username or password.');
       }
+      // Checked after the password so a ban is only revealed to the account holder.
+      if (findBan(sqlite, row.id)) {
+        throw new HttpError(403, 'account_banned', 'You have been banned from this server.');
+      }
 
       return { user: presentUser(sqlite, row), token: issueSession(row, userAgent) };
     },
@@ -121,6 +126,10 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
 
       const row = findUserById(sqlite, session.user_id);
       if (!row) return null;
+
+      // A ban ends every session, but guard here too so a stale token can never
+      // outlive the ban that was meant to revoke it.
+      if (findBan(sqlite, row.id)) return null;
 
       touchSession(sqlite, session.id);
       return {

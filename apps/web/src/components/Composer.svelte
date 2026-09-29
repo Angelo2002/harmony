@@ -1,11 +1,12 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { ALLOWED_IMAGE_TYPES, LIMITS, type Attachment, type Emoji, type User } from '@harmony/shared';
+  import { ALLOWED_IMAGE_TYPES, LIMITS, isTimedOut, type Attachment, type Emoji, type User } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
   import { avatarUrl, initial } from '../lib/avatar';
   import { chat } from '../lib/chat.svelte';
   import { emojis } from '../lib/emojis.svelte';
   import { members } from '../lib/members.svelte';
+  import { session } from '../lib/session.svelte';
 
   const acceptAttribute = ALLOWED_IMAGE_TYPES.join(',');
   const maxAttachments = LIMITS.attachmentsPerMessage;
@@ -77,6 +78,13 @@
 
   const replyName = $derived(
     chat.replyTarget?.author?.displayName ?? chat.replyTarget?.author?.username ?? 'Unknown',
+  );
+
+  /** When the current user is timed out, the composer is locked with a note. */
+  const timeoutUntil = $derived(
+    session.user && isTimedOut(session.user) && session.user.timedOutUntil
+      ? new Date(session.user.timedOutUntil).toLocaleString()
+      : null,
   );
 
   /**
@@ -234,7 +242,7 @@
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     const content = value.trim();
-    if (busy || uploading) return;
+    if (busy || uploading || timeoutUntil !== null) return;
     if (!content && pending.length === 0) return;
 
     busy = true;
@@ -260,6 +268,10 @@
 <div class="composer">
   {#if error}
     <p class="form-error">{error}</p>
+  {/if}
+
+  {#if timeoutUntil}
+    <p class="form-error">You are timed out until {timeoutUntil}. You can still read along.</p>
   {/if}
 
   {#if showPicker}
@@ -323,7 +335,13 @@
 
   <form onsubmit={submit}>
     <button type="button" class="attach" title="Add emoji" onclick={() => (showPicker = !showPicker)}>☺</button>
-    <button type="button" class="attach" title="Attach image" disabled={uploading} onclick={() => fileInput?.click()}>
+    <button
+      type="button"
+      class="attach"
+      title="Attach image"
+      disabled={uploading || timeoutUntil !== null}
+      onclick={() => fileInput?.click()}
+    >
       {uploading ? '…' : '+'}
     </button>
     <input class="file-input" type="file" accept={acceptAttribute} multiple bind:this={fileInput} onchange={onFiles} />
@@ -335,6 +353,7 @@
       autocomplete="off"
       aria-label="Message"
       aria-autocomplete="list"
+      disabled={timeoutUntil !== null}
       oninput={updateAutocomplete}
       onkeydown={onKeydown}
       onclick={updateAutocomplete}
@@ -342,6 +361,6 @@
       onfocus={updateAutocomplete}
       onblur={() => (activeTrigger = null)}
     />
-    <button type="submit" disabled={busy || uploading}>Send</button>
+    <button type="submit" disabled={busy || uploading || timeoutUntil !== null}>Send</button>
   </form>
 </div>

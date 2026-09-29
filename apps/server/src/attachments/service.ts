@@ -5,6 +5,7 @@ import type { Metadata } from 'sharp';
 import { ALLOWED_IMAGE_TYPES, type Attachment, type ImageContentType } from '@harmony/shared';
 import type { Config } from '../config.ts';
 import type { AuthContext } from '../auth/service.ts';
+import { assertNotTimedOut } from '../auth/guards.ts';
 import { findAttachment, insertAttachment, toAttachment, type AttachmentRow } from '../db/attachments.ts';
 import { HttpError } from '../http/errors.ts';
 import { createBlobStore } from '../storage/blobs.ts';
@@ -33,6 +34,7 @@ export function createAttachmentService(sqlite: DatabaseSync, config: Config): A
     },
 
     async upload(auth, file) {
+      assertNotTimedOut(auth);
       if (!ALLOWED_IMAGE_TYPES.includes(file.contentType as ImageContentType)) {
         throw new HttpError(
           415,

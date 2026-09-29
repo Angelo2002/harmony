@@ -16,6 +16,7 @@ import { GatewayHub } from './realtime/hub.ts';
 import { createPruner } from './retention/pruner.ts';
 import { createBridgeService } from './bridge/service.ts';
 import { createDiscordTransport } from './bridge/discordjs.ts';
+import { createModerationService } from './moderation/service.ts';
 import { registerErrorHandler } from './http/errors.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerMetaRoutes } from './routes/meta.ts';
@@ -45,6 +46,7 @@ const attachmentService = createAttachmentService(db.sqlite, config);
 const emojiService = createEmojiService(db.sqlite, config);
 const userService = createUserService(db.sqlite, config);
 const messageService = createMessageService(db.sqlite, hub);
+const moderationService = createModerationService({ sqlite: db.sqlite, hub });
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
 
@@ -85,7 +87,7 @@ registerSettingsRoutes(app, settingsService);
 registerRetentionRoutes(app, { settings: settingsService, pruner });
 registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
-registerMemberRoutes(app, { db, hub });
+registerMemberRoutes(app, { db, hub, moderation: moderationService });
 registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub });
 registerMessageRoutes(app, { service: messageService });

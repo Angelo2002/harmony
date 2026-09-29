@@ -39,6 +39,8 @@ export type GatewayEventName = (typeof GatewayEvent)[keyof typeof GatewayEvent];
 /** WebSocket close codes used by the gateway (mirrors Discord's range). */
 export const GatewayCloseCode = {
   AuthenticationFailed: 4004,
+  /** The session was ended by moderation (kicked or banned). */
+  Removed: 4005,
 } as const;
 
 /** Server -> client payload sent immediately on connect. */

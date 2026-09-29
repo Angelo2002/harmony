@@ -1097,6 +1097,19 @@ button.danger {
   margin: 0.5rem 0;
 }
 
+.member-moderation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.member-moderation button,
+.member-moderation select {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

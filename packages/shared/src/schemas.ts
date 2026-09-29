@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LIMITS } from './constants.ts';
+import { TIMEOUT_MAX_MINUTES } from './moderation.ts';
 
 export const usernameSchema = z
   .string()
@@ -185,3 +186,15 @@ export const updateProfileSchema = z.object({
   displayName: z.string().trim().max(LIMITS.displayName.max).nullable(),
 });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+
+/** How long a moderation timeout lasts. */
+export const timeoutSchema = z.object({
+  durationMinutes: z.number().int().min(1).max(TIMEOUT_MAX_MINUTES),
+});
+export type TimeoutInput = z.infer<typeof timeoutSchema>;
+
+/** The reason shown alongside a ban is optional. */
+export const banSchema = z.object({
+  reason: z.string().trim().max(300).nullable().optional(),
+});
+export type BanInput = z.infer<typeof banSchema>;

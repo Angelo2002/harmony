@@ -865,6 +865,125 @@ try {
       ?.displayName === null,
   );
 
+  // --- Moderation: timeouts, kicks and bans ---
+  const modInvite = await req('/invites', { method: 'POST', token: ownerToken, body: {} });
+  const modTarget = await req('/auth/register', {
+    method: 'POST',
+    body: { username: 'modtarget', password: 'hunter2hunter2', inviteCode: modInvite.json?.code },
+  });
+  const modToken = modTarget.json?.token;
+  const modId = modTarget.json?.user?.id;
+  const ownerId = owner.json?.user?.id;
+
+  // Nobody may moderate an administrator (including the owner), themselves, or
+  // exercise a permission they do not hold.
+  const tempAdminRole = await req('/roles', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Temp Admin', permissions: '16384' },
+  });
+  await req(`/members/${bobId}/roles/${tempAdminRole.json?.id}`, { method: 'PUT', token: ownerToken });
+  check(
+    'an administrator cannot be timed out (403)',
+    (await req(`/members/${bobId}/timeout`, {
+      method: 'PUT',
+      token: ownerToken,
+      body: { durationMinutes: 5 },
+    })).status === 403,
+  );
+  check(
+    'an administrator cannot be kicked (403)',
+    (await req(`/members/${bobId}/kick`, { method: 'POST', token: ownerToken })).status === 403,
+  );
+  await req(`/members/${bobId}/roles/${tempAdminRole.json?.id}`, { method: 'DELETE', token: ownerToken });
+
+  check(
+    'you cannot kick yourself (400)',
+    (await req(`/members/${ownerId}/kick`, { method: 'POST', token: ownerToken })).status === 400,
+  );
+  check(
+    'a member without permission cannot kick (403)',
+    (await req(`/members/${modId}/kick`, { method: 'POST', token: modToken })).status === 403,
+  );
+
+  // A timeout stops posting but not reading.
+  check(
+    'an administrator can time out a member',
+    (await req(`/members/${modId}/timeout`, {
+      method: 'PUT',
+      token: ownerToken,
+      body: { durationMinutes: 5 },
+    })).status === 204,
+  );
+  check(
+    'a timed-out member cannot post (403)',
+    (await req(`/channels/${colourChannel.id}/messages`, {
+      method: 'POST',
+      token: modToken,
+      body: { content: 'nope' },
+    })).status === 403,
+  );
+  check(
+    'a timed-out member can still read',
+    (await req(`/channels/${colourChannel.id}/messages`, { token: modToken })).status === 200,
+  );
+  check(
+    'a timeout can be lifted',
+    (await req(`/members/${modId}/timeout`, { method: 'DELETE', token: ownerToken })).status === 204,
+  );
+  check(
+    'posting works again after a timeout',
+    (await req(`/channels/${colourChannel.id}/messages`, {
+      method: 'POST',
+      token: modToken,
+      body: { content: 'back' },
+    })).status === 200,
+  );
+
+  // A kick ends their session; they may sign back in.
+  check(
+    'an administrator can kick a member',
+    (await req(`/members/${modId}/kick`, { method: 'POST', token: ownerToken })).status === 204,
+  );
+  check('a kicked member is logged out (401)', (await req('/auth/me', { token: modToken })).status === 401);
+
+  // A ban blocks login until it is lifted.
+  check(
+    'an administrator can ban a member',
+    (await req(`/members/${modId}/ban`, {
+      method: 'PUT',
+      token: ownerToken,
+      body: { reason: 'testing' },
+    })).status === 204,
+  );
+  check(
+    'a banned member cannot sign in (403)',
+    (await req('/auth/login', { method: 'POST', body: { username: 'modtarget', password: 'hunter2hunter2' } })).status ===
+      403,
+  );
+  check(
+    'banned members leave the directory',
+    (await req('/members/directory', { token: ownerToken })).json?.users?.some((user) => user.id === modId) === false,
+  );
+  const banList = await req('/bans', { token: ownerToken });
+  check(
+    'bans are listed with their reason',
+    banList.json?.bans?.some((ban) => ban.user.id === modId && ban.reason === 'testing') === true,
+  );
+  check(
+    'an administrator can unban',
+    (await req(`/members/${modId}/ban`, { method: 'DELETE', token: ownerToken })).status === 204,
+  );
+  check(
+    'an unbanned member can sign in again',
+    (await req('/auth/login', { method: 'POST', body: { username: 'modtarget', password: 'hunter2hunter2' } })).status ===
+      200,
+  );
+  check(
+    'the directory includes them again',
+    (await req('/members/directory', { token: ownerToken })).json?.users?.some((user) => user.id === modId) === true,
+  );
+
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);
   check('session is dead after logout (401)', (await req('/auth/me', { cookie: login.cookie })).status === 401);
 } catch (error) {

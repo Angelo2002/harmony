@@ -1,6 +1,7 @@
 import type {
   Category,
   Channel,
+  MeResponse,
   Message,
   Reaction,
   ReactionsClearPayload,
@@ -143,6 +144,18 @@ class ChatStore {
     await api(`/messages/${messageId}`, { method: 'DELETE' });
   }
 
+  async #refreshSession(): Promise<void> {
+    try {
+      const me = await api<MeResponse>('/auth/me');
+      session.user = me.user;
+      session.permissions = me.permissions;
+    } catch {
+      // The session is gone (kicked, banned or expired).
+      session.user = null;
+      session.permissions = '0';
+    }
+  }
+
   #handleEvent(frame: GatewayFrame): void {
     switch (frame.t) {
       case 'MESSAGE_CREATE': {
@@ -201,10 +214,27 @@ class ChatStore {
       case 'ROLE_CREATE':
       case 'ROLE_UPDATE':
       case 'ROLE_DELETE':
-      case 'MEMBER_UPDATE':
         // Username colours may have changed; refresh the open channel.
         if (this.activeChannelId) void this.loadHistory(this.activeChannelId);
         break;
+      case 'MEMBER_UPDATE': {
+        const payload = frame.d as { userId: string };
+        // The roster and mention list may have changed, and if it was us the
+        // change could be our own timeout, so refresh our profile too.
+        void members.load();
+        if (payload.userId === session.user?.id) void this.#refreshSession();
+        if (this.activeChannelId) void this.loadHistory(this.activeChannelId);
+        break;
+      }
+      case 'CLOSE': {
+        const payload = frame.d as { code: number };
+        // 4004 and 4005 mean the session is gone: logged out, kicked or banned.
+        if (payload.code === 4004 || payload.code === 4005) {
+          session.user = null;
+          session.permissions = '0';
+        }
+        break;
+      }
       case 'EMOJI_CREATE':
       case 'EMOJI_DELETE':
         void emojis.load();

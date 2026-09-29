@@ -2,7 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import {
   GatewayEvent,
   Permission,
+  banSchema,
   permissionsToString,
+  timeoutSchema,
+  type BanListResponse,
   type MemberListResponse,
   type MemberSummary,
   type UserDirectoryResponse,
@@ -13,15 +16,18 @@ import type { Database } from '../db/index.ts';
 import { assignRole, findRole, listMemberRoles, unassignRole } from '../db/roles.ts';
 import { findUserById, listUsers, presentUser } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
+import { parseBody } from '../http/validation.ts';
+import type { ModerationService } from '../moderation/service.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 
 export interface MemberRouteDeps {
   db: Database;
   hub: GatewayHub;
+  moderation: ModerationService;
 }
 
 export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps): void {
-  const { db, hub } = deps;
+  const { db, hub, moderation } = deps;
 
   app.get('/api/v1/members', async (request) => {
     requirePermission(request, Permission.ManageRoles);
@@ -76,5 +82,56 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     unassignRole(db.sqlite, userId, roleId);
     hub.dispatch(GatewayEvent.MemberUpdate, { userId });
     return reply.status(204).send();
+  });
+
+  // ---- Moderation ----
+  //
+  // Timeouts, kicks and bans all refuse to act on administrators, so a moderator
+  // can never be removed by someone below them. There is no other hierarchy.
+
+  /** Applies a timeout: the member keeps read access but cannot post. */
+  app.put('/api/v1/members/:userId/timeout', async (request, reply) => {
+    const auth = requirePermission(request, Permission.ModerateMembers);
+    const { userId } = request.params as { userId: string };
+    const input = parseBody(timeoutSchema, request.body);
+    moderation.timeoutMember(auth, userId, input.durationMinutes);
+    return reply.status(204).send();
+  });
+
+  app.delete('/api/v1/members/:userId/timeout', async (request, reply) => {
+    const auth = requirePermission(request, Permission.ModerateMembers);
+    const { userId } = request.params as { userId: string };
+    moderation.clearTimeout(auth, userId);
+    return reply.status(204).send();
+  });
+
+  /** Ends the member's sessions and connections; they may still log back in. */
+  app.post('/api/v1/members/:userId/kick', async (request, reply) => {
+    const auth = requirePermission(request, Permission.KickMembers);
+    const { userId } = request.params as { userId: string };
+    moderation.kickMember(auth, userId);
+    return reply.status(204).send();
+  });
+
+  /** Bans the member, ending their sessions and blocking future logins. */
+  app.put('/api/v1/members/:userId/ban', async (request, reply) => {
+    const auth = requirePermission(request, Permission.BanMembers);
+    const { userId } = request.params as { userId: string };
+    const input = parseBody(banSchema, request.body ?? {});
+    moderation.banMember(auth, userId, input.reason ?? null);
+    return reply.status(204).send();
+  });
+
+  app.delete('/api/v1/members/:userId/ban', async (request, reply) => {
+    requirePermission(request, Permission.BanMembers);
+    const { userId } = request.params as { userId: string };
+    moderation.unbanMember(userId);
+    return reply.status(204).send();
+  });
+
+  app.get('/api/v1/bans', async (request) => {
+    requirePermission(request, Permission.BanMembers);
+    const body: BanListResponse = { bans: moderation.listBans() };
+    return body;
   });
 }

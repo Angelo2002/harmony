@@ -12,6 +12,7 @@ export interface UserRow {
   is_owner: number;
   created_at: string;
   discord_id: string | null;
+  timed_out_until: string | null;
 }
 
 export function toUser(row: UserRow, roleColor: number | null): User {
@@ -24,6 +25,7 @@ export function toUser(row: UserRow, roleColor: number | null): User {
     isBot: row.is_bot === 1,
     isOwner: row.is_owner === 1,
     createdAt: row.created_at,
+    timedOutUntil: row.timed_out_until,
   };
 }
 
@@ -46,7 +48,14 @@ export function findUserByUsername(sqlite: DatabaseSync, username: string): User
 }
 
 export function listUsers(sqlite: DatabaseSync): UserRow[] {
-  return sqlite.prepare('SELECT * FROM users ORDER BY created_at').all() as unknown as UserRow[];
+  // Banned users are no longer members, so they are left out of every roster.
+  return sqlite
+    .prepare('SELECT * FROM users WHERE id NOT IN (SELECT user_id FROM bans) ORDER BY created_at')
+    .all() as unknown as UserRow[];
+}
+
+export function setUserTimeout(sqlite: DatabaseSync, userId: string, until: string | null): void {
+  sqlite.prepare('UPDATE users SET timed_out_until = ? WHERE id = ?').run(until, userId);
 }
 
 export function findUserByDiscordId(sqlite: DatabaseSync, discordId: string): UserRow | null {

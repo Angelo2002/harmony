@@ -212,4 +212,21 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 7,
+    name: 'moderation',
+    up(db) {
+      db.exec(`
+        /* An active timeout, or NULL when the user is not timed out. */
+        ALTER TABLE users ADD COLUMN timed_out_until TEXT;
+
+        CREATE TABLE bans (
+          user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          banned_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+          reason     TEXT,
+          created_at TEXT NOT NULL
+        );
+      `);
+    },
+  },
 ];

@@ -85,10 +85,10 @@ status codes and their codes:
 
 | Status | Codes you may see |
 | --- | --- |
-| 400 | `validation_error`, `invalid_reply`, `invalid_emoji`, `invalid_attachment`, `invalid_upload`, `default_role` |
+| 400 | `validation_error`, `invalid_reply`, `invalid_emoji`, `invalid_attachment`, `invalid_upload`, `default_role`, `cannot_moderate_self`, `cannot_moderate_bot` |
 | 401 | `unauthorized`, `invalid_credentials` |
-| 403 | `forbidden`, `invite_required`, `invalid_invite`, `invite_expired`, `invite_exhausted`, `immutable_role`, `permission_escalation` |
-| 404 | `not_found`, `channel_not_found`, `message_not_found`, `role_not_found`, `user_not_found`, `emoji_not_found`, `attachment_not_found`, `avatar_not_found` |
+| 403 | `forbidden`, `timed_out`, `account_banned`, `target_is_admin`, `invite_required`, `invalid_invite`, `invite_expired`, `invite_exhausted`, `immutable_role`, `permission_escalation` |
+| 404 | `not_found`, `channel_not_found`, `message_not_found`, `role_not_found`, `user_not_found`, `emoji_not_found`, `attachment_not_found`, `avatar_not_found`, `not_banned` |
 | 409 | `username_taken`, `emoji_exists`, `discord_channel_taken` |
 | 413 | `payload_too_large` |
 | 415 | `unsupported_media_type`, `invalid_image` |
@@ -116,11 +116,12 @@ implicit `@everyone` role grants every member `ViewChannels`, `SendMessages`, `A
 | `ManageRoles` | `1 << 7` | Managing roles and members' roles |
 | `ManageEmojis` | `1 << 8` | Uploading and deleting custom emoji |
 | `ManageServer` | `1 << 9` | Server settings, retention and the Discord bridge |
-| `KickMembers` | `1 << 10` | *Reserved* — not enforced yet |
-| `BanMembers` | `1 << 11` | *Reserved* — not enforced yet |
+| `KickMembers` | `1 << 10` | Ending a member's sessions |
+| `BanMembers` | `1 << 11` | Banning and unbanning members |
 | `CreateInvites` | `1 << 12` | Minting invite codes |
 | `MentionEveryone` | `1 << 13` | *Reserved* — not enforced yet |
 | `Administrator` | `1 << 14` | Implies every flag above |
+| `ModerateMembers` | `1 << 15` | Putting members in a timeout |
 
 Over the wire, permission bitfields are **decimal strings** (`"1"`, `"2081"`), never JSON numbers,
 because JSON cannot carry a 64-bit integer. `GET /api/v1/auth/me` returns your effective
@@ -149,6 +150,7 @@ type User = {
   isBot: boolean;               // true for Discord stand-in accounts
   isOwner: boolean;
   createdAt: string;
+  timedOutUntil: string | null; // end of an active timeout, else null
 };
 
 type Category = { id: string; name: string; position: number };
@@ -221,6 +223,13 @@ type Invite = {
   expiresAt: string | null;     // null = never expires
   maxUses: number | null;       // null = unlimited
   uses: number;
+};
+
+type Ban = {
+  user: User;
+  bannedBy: User | null;        // null if the moderator's account is gone
+  reason: string | null;
+  createdAt: string;
 };
 ```
 
@@ -567,6 +576,53 @@ role is implicit and cannot be assigned (`400 default_role`).
 
 Removes a role. Returns `204` and fires `MEMBER_UPDATE`.
 
+### Moderation
+
+Timeouts, kicks and bans share one rule set, deliberately without a role hierarchy: **nobody may
+moderate themselves, a Discord stand-in account, or anyone holding `Administrator`** (which
+includes the instance owner). Those targets return `400 cannot_moderate_self`,
+`400 cannot_moderate_bot` and `403 target_is_admin`. The permission check runs first, so a member
+without the flag simply gets `403 forbidden`.
+
+#### `PUT /api/v1/members/:userId/timeout` — `ModerateMembers`
+
+```json
+{ "durationMinutes": 10 }
+```
+
+Puts the member in a timeout of 1 minute up to 28 days. A timed out member keeps read access but
+cannot post messages, edit them, react or upload attachments — each of those returns
+`403 timed_out`. Returns `204` and fires `MEMBER_UPDATE`.
+
+#### `DELETE /api/v1/members/:userId/timeout` — `ModerateMembers`
+
+Lifts the timeout. Returns `204` and fires `MEMBER_UPDATE`.
+
+#### `POST /api/v1/members/:userId/kick` — `KickMembers`
+
+Ends every session the member has and closes their gateway connections (close code `4005`). They
+may sign in again. Returns `204` and fires `MEMBER_UPDATE`.
+
+#### `PUT /api/v1/members/:userId/ban` — `BanMembers`
+
+```json
+{ "reason": "spamming" }
+```
+
+`reason` is optional (up to 300 characters). Bans the member: their sessions end, their connections
+close, and every future login fails with `403 account_banned`. They disappear from the member list
+and the directory. Returns `204` and fires `MEMBER_UPDATE`.
+
+#### `DELETE /api/v1/members/:userId/ban` — `BanMembers`
+
+Lifts the ban (`404 not_banned` when there was none). Returns `204` and fires `MEMBER_UPDATE`.
+
+#### `GET /api/v1/bans` — `BanMembers`
+
+```json
+{ "bans": [ /* Ban */ ] }
+```
+
 ### Invites
 
 #### `GET /api/v1/invites` — `ManageServer`
@@ -736,6 +792,9 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | `EMOJI_DELETE` | `{ id }` |
 | `RETENTION_APPLIED` | `PruneSummary` |
 
+`MEMBER_UPDATE` also fires for timeouts, kicks and bans, so a client should refetch the roster (and
+its own profile) whenever it sees one.
+
 `ReactionUpdatePayload` carries the reacting user so each client can decide whether the `me` flag
 applies to itself; the server broadcasts one payload to everyone:
 
@@ -760,11 +819,18 @@ type ReactionsClearPayload = {
 `TYPING_START` is defined in the protocol but is **not emitted yet** — reserved for a future
 release.
 
+### Close codes
+
+| Code | Meaning |
+| --- | --- |
+| `4004` | The session was rejected. Re-authenticate instead of retrying. |
+| `4005` | The session was ended by moderation (a kick or ban). |
+
 ### Reconnecting
 
 The gateway has no sequence numbers and no resume support. On reconnect, re-identify and refetch
-the state you care about (`GET /api/v1/channels`, the open channel's history). A `4004` close means
-your session is invalid; re-authenticate before retrying instead of reconnecting blindly.
+the state you care about (`GET /api/v1/channels`, the open channel's history). Do not reconnect
+after a `4004` or `4005` close: re-authenticate first.
 
 Events are broadcast to every authenticated client. There is no per-channel filtering, which is
 fine because Harmony's permissions are server-wide rather than per-channel.
@@ -815,8 +881,8 @@ ws.onmessage = (event) => {
 - **One server per instance.** There are no guilds, DMs, friend lists, voice or video.
 - **Text channels only.** `Channel.type` is always `"text"`.
 - **No resume on the gateway.** Reconnect and refetch.
-- **Reserved permissions.** `EmbedLinks`, `KickMembers`, `BanMembers` and `MentionEveryone` are
-  defined in the bitfield but not enforced by any endpoint yet.
+- **Reserved permissions.** `EmbedLinks` and `MentionEveryone` are defined in the bitfield but not
+  enforced by any endpoint yet.
 - **Bridged content is best-effort.** Discord's webhooks cannot post real replies or reactions, so
   replies are mirrored as quotes and reactions are placed by the bot. See the README's bridge
   section for the full picture.

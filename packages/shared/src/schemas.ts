@@ -28,6 +28,7 @@ export const createChannelSchema = z.object({
   name: z.string().min(LIMITS.channelName.min).max(LIMITS.channelName.max),
   topic: z.string().max(1024).nullable().optional(),
   categoryId: z.string().nullable().optional(),
+  discordChannelId: z.string().nullable().optional(),
 });
 export type CreateChannelInput = z.infer<typeof createChannelSchema>;
 
@@ -66,6 +67,7 @@ export const updateChannelSchema = z.object({
   topic: z.string().max(1024).nullable().optional(),
   categoryId: z.string().nullable().optional(),
   position: z.number().int().optional(),
+  discordChannelId: z.string().nullable().optional(),
 });
 export type UpdateChannelInput = z.infer<typeof updateChannelSchema>;
 
@@ -133,3 +135,10 @@ export const updateRetentionSchema = z.object({
   storageTargetBytes: retentionNumber,
 });
 export type UpdateRetentionInput = z.infer<typeof updateRetentionSchema>;
+
+export const updateBridgeSchema = z.object({
+  /** Omit to leave unchanged; an empty string clears the saved token. */
+  token: z.string().trim().max(500).optional(),
+  enabled: z.boolean().optional(),
+});
+export type UpdateBridgeInput = z.infer<typeof updateBridgeSchema>;

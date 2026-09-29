@@ -7,6 +7,7 @@
     "dev": "node --watch src/index.ts",
     "start": "node src/index.ts",
     "smoke": "node scripts/smoke.mjs",
+    "smoke:bridge": "node scripts/bridge-smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -14,6 +15,7 @@
     "@fastify/multipart": "^10.1.2",
     "@fastify/websocket": "^11.3.1",
     "@harmony/shared": "*",
+    "discord.js": "^14.27.0",
     "fastify": "^5.12.5",
     "sharp": "^0.35.5"
   },

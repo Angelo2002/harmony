@@ -11,6 +11,7 @@ export interface UserRow {
   is_bot: number;
   is_owner: number;
   created_at: string;
+  discord_id: string | null;
 }
 
 export function toUser(row: UserRow, roleColor: number | null): User {
@@ -46,6 +47,26 @@ export function findUserByUsername(sqlite: DatabaseSync, username: string): User
 
 export function listUsers(sqlite: DatabaseSync): UserRow[] {
   return sqlite.prepare('SELECT * FROM users ORDER BY created_at').all() as unknown as UserRow[];
+}
+
+export function findUserByDiscordId(sqlite: DatabaseSync, discordId: string): UserRow | null {
+  return (sqlite.prepare('SELECT * FROM users WHERE discord_id = ?').get(discordId) as UserRow | undefined) ?? null;
+}
+
+/**
+ * Creates a stand-in account for someone who only exists on the Discord side of
+ * a bridge. It has no usable password, so it can never be logged into.
+ */
+export function insertGhostUser(
+  sqlite: DatabaseSync,
+  input: { id: string; username: string; displayName: string; discordId: string; createdAt: string },
+): void {
+  sqlite
+    .prepare(
+      `INSERT INTO users (id, username, display_name, password_hash, is_bot, is_owner, created_at, discord_id)
+       VALUES (?, ?, ?, '!no-password', 1, 0, ?, ?)`,
+    )
+    .run(input.id, input.username, input.displayName, input.createdAt, input.discordId);
 }
 
 export function insertUser(

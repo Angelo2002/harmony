@@ -6,9 +6,9 @@ Selfhosted discord alternative, aimed to make migration painless
 
 Playable end to end: username/password auth with optional invites, channels and
 categories, realtime messaging, image attachments, custom emoji with
-role-coloured usernames, configurable storage retention, and an admin panel
-covering settings, roles, members, channels, emoji, retention and invites.
-Still to come: the Discord bridge and the public API docs.
+role-coloured usernames, configurable storage retention, a two-way Discord
+bridge, and an admin panel covering settings, roles, members, channels, emoji,
+retention, the bridge and invites. Still to come: the public API docs.
 
 ## Tech stack
 
@@ -40,6 +40,23 @@ Other useful scripts:
 - `npm run build:web` — production build of the web client
 - `npm run typecheck` — type-check every workspace
 - `npm run smoke` — boot a throwaway server and exercise the auth API end to end
+
+## Discord bridge
+
+The bridge mirrors messages both ways. On the Discord side you need to:
+
+1. Create an application and a bot at <https://discord.com/developers/applications>.
+2. Enable the **Message Content** intent on the Bot page. This is a privileged intent, so the
+   toggle only works for apps that Discord has approved for it.
+3. Invite the bot with at least **View Channels**, **Send Messages**, **Read Message History**
+   and **Manage Webhooks**.
+
+Then paste the token into **Admin → Bridge**, enable it, and pick a Discord channel when
+creating or editing a Harmony channel. Only bridged channels sync.
+
+Harmony users are mirrored to Discord as webhook messages, so they carry the author's display
+name; Discord always marks webhook messages with an "APP" tag. Discord users appear in Harmony
+as stand-in accounts created automatically the first time they post.
 
 ## Project layout
 

@@ -27,8 +27,12 @@ import type { GatewayHub } from '../realtime/hub.ts';
 export interface MessageService {
   history(channelId: string, query: MessageHistoryQuery): MessageListResponse;
   create(auth: AuthContext, channelId: string, content: string, attachmentIds: string[]): Message;
+  /** Inserts a message on behalf of the bridge, skipping permission checks. */
+  createBridged(channelId: string, authorId: string, content: string): Message;
   edit(auth: AuthContext, messageId: string, content: string): Message;
   remove(auth: AuthContext, messageId: string): void;
+  /** Notified for locally created messages only, never for bridged ones. */
+  onMessageCreated(listener: (message: Message) => void): void;
 }
 
 export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): MessageService {
@@ -68,6 +72,46 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     }
   }
 
+  function insertWithAttachments(
+    channelId: string,
+    authorId: string,
+    content: string,
+    attachmentIds: string[],
+  ): Message {
+    // Uploads belong to the message that claims them; reject anything already
+    // used or belonging to someone else.
+    for (const attachmentId of attachmentIds) {
+      const attachment = findAttachment(sqlite, attachmentId);
+      if (!attachment) throw new HttpError(400, 'invalid_attachment', 'One of the attachments does not exist.');
+      if (attachment.message_id) {
+        throw new HttpError(400, 'attachment_in_use', 'One of the attachments is already in use.');
+      }
+      if (attachment.uploader_id !== authorId) {
+        throw new HttpError(403, 'forbidden', 'You can only attach your own uploads.');
+      }
+    }
+
+    const id = randomUUID();
+    insertMessage(sqlite, { id, channelId, authorId, content, createdAt: new Date().toISOString() });
+    for (const attachmentId of attachmentIds) attachToMessage(sqlite, attachmentId, id);
+
+    return toMessage(requireMessage(id), attachmentsFor(id));
+  }
+
+  const createdListeners = new Set<(message: Message) => void>();
+
+  function announce(message: Message): void {
+    hub.dispatch(GatewayEvent.MessageCreate, message);
+    for (const listener of createdListeners) {
+      try {
+        listener(message);
+      } catch (error) {
+        // A misbehaving listener must not break message creation.
+        void error;
+      }
+    }
+  }
+
   return {
     history(channelId, query) {
       requireChannel(channelId);
@@ -81,33 +125,22 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
 
     create(auth, channelId, content, attachmentIds) {
       requireChannel(channelId);
+      const message = insertWithAttachments(channelId, auth.user.id, content, attachmentIds);
+      announce(message);
+      return message;
+    },
 
-      // Uploads belong to the message that claims them; reject anything already
-      // used or belonging to someone else.
-      for (const attachmentId of attachmentIds) {
-        const attachment = findAttachment(sqlite, attachmentId);
-        if (!attachment) throw new HttpError(400, 'invalid_attachment', 'One of the attachments does not exist.');
-        if (attachment.message_id) {
-          throw new HttpError(400, 'attachment_in_use', 'One of the attachments is already in use.');
-        }
-        if (attachment.uploader_id !== auth.user.id) {
-          throw new HttpError(403, 'forbidden', 'You can only attach your own uploads.');
-        }
-      }
-
-      const id = randomUUID();
-      insertMessage(sqlite, {
-        id,
-        channelId,
-        authorId: auth.user.id,
-        content,
-        createdAt: new Date().toISOString(),
-      });
-      for (const attachmentId of attachmentIds) attachToMessage(sqlite, attachmentId, id);
-
-      const message = toMessage(requireMessage(id), attachmentsFor(id));
+    createBridged(channelId, authorId, content) {
+      requireChannel(channelId);
+      const message = insertWithAttachments(channelId, authorId, content, []);
+      // Broadcast to clients, but do not announce: this came from Discord and
+      // must not be mirrored straight back.
       hub.dispatch(GatewayEvent.MessageCreate, message);
       return message;
+    },
+
+    onMessageCreated(listener) {
+      createdListeners.add(listener);
     },
 
     edit(auth, messageId, content) {

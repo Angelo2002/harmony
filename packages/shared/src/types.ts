@@ -45,6 +45,8 @@ export interface Channel {
   categoryId: SnowflakeId | null;
   position: number;
   createdAt: IsoTimestamp;
+  /** Discord channel this one is bridged with, or null when not bridged. */
+  discordChannelId: string | null;
 }
 
 export interface Attachment {

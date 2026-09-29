@@ -19,6 +19,7 @@
     "build:web": "npm run build --workspace @harmony/web",
     "start": "npm run start --workspace @harmony/server",
     "smoke": "npm run smoke --workspace @harmony/server",
+    "smoke:bridge": "npm run smoke:bridge --workspace @harmony/server",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {

@@ -23,6 +23,7 @@ import {
 import {
   deleteChannel,
   findChannel,
+  findChannelByDiscordId,
   insertChannel,
   listChannels,
   nextChannelPosition,
@@ -55,6 +56,14 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     return row;
   }
 
+  /** A Discord channel can only feed one Harmony channel. */
+  function assertDiscordChannelFree(discordChannelId: string, exceptChannelId: string | null): void {
+    const existing = findChannelByDiscordId(db.sqlite, discordChannelId);
+    if (existing && existing.id !== exceptChannelId) {
+      throw new HttpError(409, 'discord_channel_taken', 'That Discord channel is already bridged elsewhere.');
+    }
+  }
+
   app.get('/api/v1/channels', async (request) => {
     requirePermission(request, Permission.ViewChannels);
     const body: ChannelListResponse = {
@@ -70,6 +79,9 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     const categoryId = input.categoryId ?? null;
     if (categoryId) requireCategoryRow(categoryId);
 
+    const discordChannelId = input.discordChannelId ?? null;
+    if (discordChannelId) assertDiscordChannelFree(discordChannelId, null);
+
     const id = randomUUID();
     insertChannel(db.sqlite, {
       id,
@@ -79,6 +91,7 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
       type: 'text',
       position: nextChannelPosition(db.sqlite, categoryId),
       createdAt: new Date().toISOString(),
+      discordChannelId,
     });
 
     const channel = toChannel(requireChannelRow(id));
@@ -93,12 +106,14 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
 
     const input = parseBody(updateChannelSchema, request.body);
     if (input.categoryId) requireCategoryRow(input.categoryId);
+    if (input.discordChannelId) assertDiscordChannelFree(input.discordChannelId, id);
 
     updateChannel(db.sqlite, id, {
       name: input.name,
       topic: input.topic,
       categoryId: input.categoryId,
       position: input.position,
+      discordChannelId: input.discordChannelId,
     });
 
     const channel = toChannel(requireChannelRow(id));

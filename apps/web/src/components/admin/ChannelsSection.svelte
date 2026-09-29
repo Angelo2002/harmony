@@ -1,12 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { Category, Channel, ChannelListResponse } from '@harmony/shared';
+  import type {
+    Category,
+    Channel,
+    ChannelListResponse,
+    DiscordChannelListResponse,
+    DiscordChannelOption,
+  } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
 
   let categories = $state<Category[]>([]);
   let channels = $state<Channel[]>([]);
+  let discordChannels = $state<DiscordChannelOption[]>([]);
   let newChannelName = $state('');
   let newChannelCategory = $state('');
+  let newChannelDiscord = $state('');
   let newCategoryName = $state('');
   let editing = $state<{ kind: 'channel' | 'category'; id: string; name: string } | null>(null);
   let error = $state<string | null>(null);
@@ -22,6 +30,14 @@
     void load().catch((cause: unknown) => {
       error = cause instanceof ApiError ? cause.message : String(cause);
     });
+    // Only available once the Discord bridge is connected; ignore failures.
+    void api<DiscordChannelListResponse>('/bridge/channels')
+      .then((data) => {
+        discordChannels = data.channels;
+      })
+      .catch(() => {
+        discordChannels = [];
+      });
   });
 
   function channelsIn(categoryId: string | null): Channel[] {
@@ -48,9 +64,14 @@
     void run(async () => {
       await api('/channels', {
         method: 'POST',
-        body: JSON.stringify({ name, categoryId: newChannelCategory || null }),
+        body: JSON.stringify({
+          name,
+          categoryId: newChannelCategory || null,
+          discordChannelId: newChannelDiscord || null,
+        }),
       });
       newChannelName = '';
+      newChannelDiscord = '';
     });
   }
 
@@ -61,6 +82,15 @@
     void run(async () => {
       await api('/categories', { method: 'POST', body: JSON.stringify({ name }) });
       newCategoryName = '';
+    });
+  }
+
+  function setMapping(channel: Channel, discordChannelId: string): void {
+    void run(async () => {
+      await api(`/channels/${channel.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ discordChannelId: discordChannelId || null }),
+      });
     });
   }
 
@@ -75,6 +105,22 @@
   }
 </script>
 
+{#snippet discordSelect(channel: Channel)}
+  <select
+    title="Discord channel to sync with"
+    value={channel.discordChannelId ?? ''}
+    onchange={(event) => setMapping(channel, event.currentTarget.value)}
+  >
+    <option value="">Not bridged</option>
+    {#if channel.discordChannelId && !discordChannels.some((option) => option.id === channel.discordChannelId)}
+      <option value={channel.discordChannelId}>{channel.discordChannelId}</option>
+    {/if}
+    {#each discordChannels as option (option.id)}
+      <option value={option.id}>#{option.name}</option>
+    {/each}
+  </select>
+{/snippet}
+
 {#snippet channelRow(channel: Channel)}
   <div class="row">
     {#if editing?.kind === 'channel' && editing.id === channel.id}
@@ -83,6 +129,7 @@
       <button type="button" onclick={() => (editing = null)}>Cancel</button>
     {:else}
       <span class="grow"># {channel.name}</span>
+      {@render discordSelect(channel)}
       <button
         type="button"
         onclick={() => (editing = { kind: 'channel', id: channel.id, name: channel.name })}>Rename</button
@@ -114,9 +161,19 @@
           <option value={category.id}>{category.name}</option>
         {/each}
       </select>
+      <select bind:value={newChannelDiscord} title="Discord channel to sync with">
+        <option value="">Not bridged</option>
+        {#each discordChannels as option (option.id)}
+          <option value={option.id}>#{option.name}</option>
+        {/each}
+      </select>
       <button type="submit" disabled={busy}>Add channel</button>
     </form>
   </div>
+
+  {#if discordChannels.length === 0}
+    <p class="muted">Connect the Discord bridge to link channels for syncing.</p>
+  {/if}
 
   {#each categories as category (category.id)}
     <div class="group">

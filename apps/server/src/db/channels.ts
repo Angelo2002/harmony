@@ -9,6 +9,9 @@ export interface ChannelRow {
   category_id: string | null;
   position: number;
   created_at: string;
+  discord_channel_id: string | null;
+  discord_webhook_id: string | null;
+  discord_webhook_token: string | null;
 }
 
 export function toChannel(row: ChannelRow): Channel {
@@ -20,6 +23,7 @@ export function toChannel(row: ChannelRow): Channel {
     categoryId: row.category_id,
     position: row.position,
     createdAt: row.created_at,
+    discordChannelId: row.discord_channel_id,
   };
 }
 
@@ -29,6 +33,14 @@ export function listChannels(sqlite: DatabaseSync): ChannelRow[] {
 
 export function findChannel(sqlite: DatabaseSync, id: string): ChannelRow | null {
   return (sqlite.prepare('SELECT * FROM channels WHERE id = ?').get(id) as ChannelRow | undefined) ?? null;
+}
+
+export function findChannelByDiscordId(sqlite: DatabaseSync, discordChannelId: string): ChannelRow | null {
+  return (
+    (sqlite.prepare('SELECT * FROM channels WHERE discord_channel_id = ?').get(discordChannelId) as
+      | ChannelRow
+      | undefined) ?? null
+  );
 }
 
 export function nextChannelPosition(sqlite: DatabaseSync, categoryId: string | null): number {
@@ -48,20 +60,36 @@ export function insertChannel(
     type: string;
     position: number;
     createdAt: string;
+    discordChannelId: string | null;
   },
 ): void {
   sqlite
     .prepare(
-      `INSERT INTO channels (id, name, topic, type, category_id, position, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO channels (id, name, topic, type, category_id, position, created_at, discord_channel_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(input.id, input.name, input.topic, input.type, input.categoryId, input.position, input.createdAt);
+    .run(
+      input.id,
+      input.name,
+      input.topic,
+      input.type,
+      input.categoryId,
+      input.position,
+      input.createdAt,
+      input.discordChannelId,
+    );
 }
 
 export function updateChannel(
   sqlite: DatabaseSync,
   id: string,
-  patch: { name?: string; topic?: string | null; categoryId?: string | null; position?: number },
+  patch: {
+    name?: string;
+    topic?: string | null;
+    categoryId?: string | null;
+    position?: number;
+    discordChannelId?: string | null;
+  },
 ): void {
   const sets: string[] = [];
   const values: Array<string | number | null> = [];
@@ -81,10 +109,27 @@ export function updateChannel(
     sets.push('position = ?');
     values.push(patch.position);
   }
+  if (patch.discordChannelId !== undefined) {
+    sets.push('discord_channel_id = ?');
+    values.push(patch.discordChannelId);
+    // A webhook belongs to the Discord channel, so drop any cached one.
+    sets.push('discord_webhook_id = NULL', 'discord_webhook_token = NULL');
+  }
   if (sets.length === 0) return;
 
   values.push(id);
   sqlite.prepare(`UPDATE channels SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+}
+
+export function setChannelWebhook(
+  sqlite: DatabaseSync,
+  channelId: string,
+  webhookId: string,
+  webhookToken: string,
+): void {
+  sqlite
+    .prepare('UPDATE channels SET discord_webhook_id = ?, discord_webhook_token = ? WHERE id = ?')
+    .run(webhookId, webhookToken, channelId);
 }
 
 export function deleteChannel(sqlite: DatabaseSync, id: string): void {

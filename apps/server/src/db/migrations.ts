@@ -160,4 +160,28 @@ export const migrations: Migration[] = [
       db.exec(`ALTER TABLE emojis ADD COLUMN content_type TEXT NOT NULL DEFAULT 'image/png'`);
     },
   },
+  {
+    version: 4,
+    name: 'discord_bridge',
+    up(db) {
+      db.exec(`
+        ALTER TABLE channels ADD COLUMN discord_channel_id TEXT;
+        ALTER TABLE channels ADD COLUMN discord_webhook_id TEXT;
+        ALTER TABLE channels ADD COLUMN discord_webhook_token TEXT;
+        ALTER TABLE users ADD COLUMN discord_id TEXT;
+
+        CREATE UNIQUE INDEX idx_channels_discord
+          ON channels(discord_channel_id) WHERE discord_channel_id IS NOT NULL;
+        CREATE UNIQUE INDEX idx_users_discord
+          ON users(discord_id) WHERE discord_id IS NOT NULL;
+
+        CREATE TABLE bridge_messages (
+          harmony_message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+          discord_message_id TEXT NOT NULL,
+          created_at         TEXT NOT NULL
+        );
+        CREATE INDEX idx_bridge_messages_discord ON bridge_messages(discord_message_id);
+      `);
+    },
+  },
 ];

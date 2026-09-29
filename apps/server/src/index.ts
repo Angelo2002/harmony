@@ -13,6 +13,8 @@ import { createEmojiService } from './emojis/service.ts';
 import { createMessageService } from './messages/service.ts';
 import { GatewayHub } from './realtime/hub.ts';
 import { createPruner } from './retention/pruner.ts';
+import { createBridgeService } from './bridge/service.ts';
+import { createDiscordTransport } from './bridge/discordjs.ts';
 import { registerErrorHandler } from './http/errors.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerMetaRoutes } from './routes/meta.ts';
@@ -26,6 +28,7 @@ import { registerMessageRoutes } from './routes/messages.ts';
 import { registerAttachmentRoutes } from './routes/attachments.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
+import { registerBridgeRoutes } from './routes/bridge.ts';
 import { registerGateway } from './gateway/index.ts';
 
 const config = loadConfig();
@@ -50,6 +53,15 @@ const pruner = createPruner({
   log: (message, detail) => app.log.info(detail ?? {}, message),
 });
 
+const bridge = createBridgeService({
+  sqlite: db.sqlite,
+  settings: settingsService,
+  messages: messageService,
+  transportFactory: (token) =>
+    createDiscordTransport(token, (message, detail) => app.log.info(detail ?? {}, message)),
+  log: (message, detail) => app.log.info(detail ?? {}, message),
+});
+
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1 } });
 await app.register(websocket);
@@ -62,6 +74,7 @@ registerMetaRoutes(app, { config, settings: settingsService });
 registerAuthRoutes(app, { service: authService, config });
 registerSettingsRoutes(app, settingsService);
 registerRetentionRoutes(app, { settings: settingsService, pruner });
+registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
 registerMemberRoutes(app, { db, hub });
 registerInviteRoutes(app, db);
@@ -78,6 +91,7 @@ registerGateway(app, {
 
 app.addHook('onClose', async () => {
   pruner.stop();
+  await bridge.shutdown();
   db.close();
 });
 
@@ -100,3 +114,6 @@ try {
 
 // Pruning runs once at startup, then on the configured interval.
 pruner.start();
+
+// Connect the Discord bot if the bridge was left enabled.
+await bridge.applySettings();

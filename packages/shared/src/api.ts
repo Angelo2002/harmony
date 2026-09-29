@@ -114,3 +114,29 @@ export interface RetentionRunResponse {
   summary: PruneSummary;
   usage: RetentionUsage;
 }
+
+/** State of the Discord bot connection. */
+export interface BridgeStatus {
+  ready: boolean;
+  /** The bot's own tag, e.g. `harmony#1234`. */
+  botTag: string | null;
+  guildName: string | null;
+  error: string | null;
+}
+
+export interface BridgeResponse {
+  /** Whether a token has been saved. The token itself is never returned. */
+  configured: boolean;
+  enabled: boolean;
+  status: BridgeStatus;
+}
+
+export interface DiscordChannelOption {
+  id: string;
+  name: string;
+}
+
+export interface DiscordChannelListResponse {
+  guildName: string | null;
+  channels: DiscordChannelOption[];
+}

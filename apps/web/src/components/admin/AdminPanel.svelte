@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ui } from '../../lib/ui.svelte';
   import ChannelsSection from './ChannelsSection.svelte';
+  import BridgeSection from './BridgeSection.svelte';
   import EmojisSection from './EmojisSection.svelte';
   import InvitesSection from './InvitesSection.svelte';
   import MembersSection from './MembersSection.svelte';
@@ -15,6 +16,7 @@
     { id: 'channels', label: 'Channels' },
     { id: 'emojis', label: 'Emojis' },
     { id: 'retention', label: 'Retention' },
+    { id: 'bridge', label: 'Bridge' },
     { id: 'invites', label: 'Invites' },
   ] as const;
   type TabId = (typeof tabs)[number]['id'];
@@ -47,6 +49,8 @@
         <EmojisSection />
       {:else if active === 'retention'}
         <RetentionSection />
+      {:else if active === 'bridge'}
+        <BridgeSection />
       {:else}
         <InvitesSection />
       {/if}

@@ -53,13 +53,17 @@ const pruner = createPruner({
   log: (message, detail) => app.log.info(detail ?? {}, message),
 });
 
+const bridgeLogger = {
+  info: (message: string, detail?: unknown) => app.log.info(detail ?? {}, message),
+  debug: (message: string, detail?: unknown) => app.log.debug(detail ?? {}, message),
+};
+
 const bridge = createBridgeService({
   sqlite: db.sqlite,
   settings: settingsService,
   messages: messageService,
-  transportFactory: (token) =>
-    createDiscordTransport(token, (message, detail) => app.log.info(detail ?? {}, message)),
-  log: (message, detail) => app.log.info(detail ?? {}, message),
+  logger: bridgeLogger,
+  transportFactory: (token, logger) => createDiscordTransport(token, logger),
 });
 
 await app.register(cookie);

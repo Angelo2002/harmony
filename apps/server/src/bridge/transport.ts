@@ -15,6 +15,12 @@ export interface WebhookRef {
   token: string;
 }
 
+/** Minimal logger the bridge hands down to the transport. */
+export interface BridgeLogger {
+  info(message: string, detail?: unknown): void;
+  debug(message: string, detail?: unknown): void;
+}
+
 export interface MirrorInput {
   discordChannelId: string;
   /** Cached webhook for the channel, if we have already created one. */

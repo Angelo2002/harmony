@@ -1,7 +1,14 @@
 import type { FastifyInstance } from 'fastify';
-import { Permission, updateBridgeSchema, type BridgeResponse, type DiscordChannelListResponse } from '@harmony/shared';
+import {
+  Permission,
+  bridgeTestSchema,
+  updateBridgeSchema,
+  type BridgeResponse,
+  type DiscordChannelListResponse,
+} from '@harmony/shared';
 import { requirePermission } from '../auth/plugin.ts';
 import type { BridgeService } from '../bridge/service.ts';
+import { HttpError } from '../http/errors.ts';
 import { parseBody } from '../http/validation.ts';
 import type { SettingsService } from '../settings/service.ts';
 
@@ -30,5 +37,21 @@ export function registerBridgeRoutes(app: FastifyInstance, deps: BridgeRouteDeps
     requirePermission(request, Permission.ManageServer);
     const body: DiscordChannelListResponse = await deps.bridge.listDiscordChannels();
     return body;
+  });
+
+  /** Sends a test message so an admin can see exactly what Discord says. */
+  app.post('/api/v1/bridge/test', async (request) => {
+    requirePermission(request, Permission.ManageServer);
+    const input = parseBody(bridgeTestSchema, request.body);
+
+    try {
+      await deps.bridge.testMirror(input.channelId);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      // Surface the underlying Discord error verbatim.
+      throw new HttpError(502, 'bridge_test_failed', error instanceof Error ? error.message : String(error));
+    }
+
+    return { ok: true };
   });
 }

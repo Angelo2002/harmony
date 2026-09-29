@@ -65,8 +65,8 @@ const bridge = createBridgeService({
   sqlite: db.sqlite,
   settings,
   messages,
+  logger: { info() {}, debug() {} },
   transportFactory: () => transport,
-  log: () => {},
 });
 
 try {
@@ -174,7 +174,32 @@ try {
     messages.history(channelId, { limit: 100 }).messages.length === before,
   );
 
-  // 9. Disabling stops the transport.
+  // 9. The admin test message surfaces problems clearly.
+  const unbridgedId = randomUUID();
+  insertChannel(db.sqlite, {
+    id: unbridgedId,
+    name: 'unbridged',
+    topic: null,
+    categoryId: null,
+    type: 'text',
+    position: 1,
+    createdAt: new Date().toISOString(),
+    discordChannelId: null,
+  });
+
+  let testError = '';
+  try {
+    await bridge.testMirror(unbridgedId);
+  } catch (error) {
+    testError = error instanceof Error ? error.message : String(error);
+  }
+  check('test message explains an unbridged channel', testError.includes('not linked'), testError);
+
+  const mirrorsBeforeTest = transport.state.mirrors.length;
+  await bridge.testMirror(channelId);
+  check('test message reaches discord', transport.state.mirrors.length === mirrorsBeforeTest + 1);
+
+  // 10. Disabling stops the transport.
   settings.updateBridge({ enabled: false });
   await bridge.applySettings();
   check('transport stops when disabled', transport.state.ready === false);

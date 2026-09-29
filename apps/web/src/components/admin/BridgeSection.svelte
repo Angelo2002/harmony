@@ -1,12 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { BridgeResponse, DiscordChannelListResponse } from '@harmony/shared';
+  import type { BridgeResponse, Channel, ChannelListResponse, DiscordChannelListResponse } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
 
   let status = $state<BridgeResponse | null>(null);
   let token = $state('');
   let enabled = $state(false);
   let discord = $state<DiscordChannelListResponse | null>(null);
+  let harmonyChannels = $state<Channel[]>([]);
+  let testChannelId = $state('');
+  let testResult = $state<string | null>(null);
+  let testOk = $state(false);
   let error = $state<string | null>(null);
   let message = $state<string | null>(null);
   let busy = $state(false);
@@ -22,6 +26,13 @@
 
   onMount(() => {
     void api<BridgeResponse>('/bridge').then(apply).catch(fail);
+    void api<ChannelListResponse>('/channels')
+      .then((data) => {
+        harmonyChannels = data.channels;
+      })
+      .catch(() => {
+        harmonyChannels = [];
+      });
   });
 
   async function save(event: SubmitEvent): Promise<void> {
@@ -64,6 +75,25 @@
       discord = await api<DiscordChannelListResponse>('/bridge/channels');
     } catch (cause) {
       fail(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function sendTest(): Promise<void> {
+    if (!testChannelId) return;
+    busy = true;
+    error = null;
+    message = null;
+    testResult = null;
+    try {
+      await api('/bridge/test', { method: 'POST', body: JSON.stringify({ channelId: testChannelId }) });
+      testOk = true;
+      testResult = 'Test message sent — check the Discord channel.';
+    } catch (cause) {
+      // Show the underlying Discord error instead of a generic failure.
+      testOk = false;
+      testResult = cause instanceof ApiError ? cause.message : String(cause);
     } finally {
       busy = false;
     }
@@ -121,6 +151,22 @@
       <p class="muted">Configured, but the bridge is turned off.</p>
     {:else}
       <p class="muted">No bot token saved yet.</p>
+    {/if}
+  </div>
+
+  <div class="panel">
+    <h2>Test a channel</h2>
+    <div class="inline">
+      <select bind:value={testChannelId}>
+        <option value="">Pick a Harmony channel…</option>
+        {#each harmonyChannels as channel (channel.id)}
+          <option value={channel.id}>#{channel.name}{channel.discordChannelId ? ' (bridged)' : ''}</option>
+        {/each}
+      </select>
+      <button type="button" onclick={sendTest} disabled={busy || !testChannelId}>Send test message</button>
+    </div>
+    {#if testResult}
+      <p class={testOk ? 'ok-text' : 'form-error'}>{testResult}</p>
     {/if}
   </div>
 

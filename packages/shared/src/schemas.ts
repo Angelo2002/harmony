@@ -142,3 +142,8 @@ export const updateBridgeSchema = z.object({
   enabled: z.boolean().optional(),
 });
 export type UpdateBridgeInput = z.infer<typeof updateBridgeSchema>;
+
+export const bridgeTestSchema = z.object({
+  channelId: z.string().min(1),
+});
+export type BridgeTestInput = z.infer<typeof bridgeTestSchema>;

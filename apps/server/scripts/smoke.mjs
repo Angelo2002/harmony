@@ -7,7 +7,7 @@
 //
 // Run with: npm run smoke --workspace @harmony/server
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -24,8 +24,14 @@ import { createUserService } from '../src/users/service.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8791;
-const BASE = `http://127.0.0.1:${PORT}/api/v1`;
+const ORIGIN = `http://127.0.0.1:${PORT}`;
+const BASE = `${ORIGIN}/api/v1`;
 const dataDir = mkdtempSync(join(tmpdir(), 'harmony-smoke-'));
+
+// A stand-in for the built client, so the static serving and SPA fallback can be
+// exercised without depending on whether anyone ran `npm run build:web` first.
+const webDir = mkdtempSync(join(tmpdir(), 'harmony-web-'));
+writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>Harmony test shell</title><div id="app"></div>');
 
 const server = spawn('node', ['src/index.ts'], {
   cwd: serverDir,
@@ -33,6 +39,7 @@ const server = spawn('node', ['src/index.ts'], {
     ...process.env,
     HARMONY_PORT: String(PORT),
     HARMONY_DATA_DIR: dataDir,
+    HARMONY_WEB_DIR: webDir,
     HARMONY_REQUIRE_INVITE: 'true',
     HARMONY_LOG_LEVEL: 'error',
   },
@@ -142,6 +149,37 @@ async function waitForServer() {
 
 try {
   await waitForServer();
+
+  // --- The built client, served from this process ---
+  const shell = await fetch(`${ORIGIN}/`);
+  const shellBody = await shell.text();
+  check(
+    'the app shell is served at the root',
+    shell.status === 200 && shellBody.includes('Harmony test shell'),
+    `${shell.status} ${shellBody.slice(0, 120)}`,
+  );
+  const deepLink = await fetch(`${ORIGIN}/channels/123`);
+  check(
+    'a client-side route falls back to the app shell',
+    deepLink.status === 200 && (await deepLink.text()).includes('Harmony test shell'),
+  );
+  check('a missing asset is a real 404', (await fetch(`${ORIGIN}/assets/missing.js`)).status === 404);
+  const missingApi = await fetch(`${ORIGIN}/api/v1/not-a-route`);
+  check(
+    'an unknown API route is still a JSON 404',
+    missingApi.status === 404 && (missingApi.headers.get('content-type') ?? '').includes('application/json'),
+  );
+
+  // --- Hardening headers ---
+  const hardened = (await fetch(`${BASE}/health`)).headers;
+  check('responses are nosniff', hardened.get('x-content-type-options') === 'nosniff');
+  check('responses refuse framing', hardened.get('x-frame-options') === 'DENY');
+  check('responses hide the referrer', hardened.get('referrer-policy') === 'no-referrer');
+  check(
+    'a content security policy is sent',
+    (hardened.get('content-security-policy') ?? '').includes("default-src 'self'"),
+  );
+  check('HSTS is withheld over plain HTTP', hardened.get('strict-transport-security') === null);
 
   // --- Auth ---
   const owner = await req('/auth/register', {
@@ -2086,6 +2124,7 @@ try {
   console.error('UNEXPECTED ERROR:', error);
 } finally {
   server.kill('SIGTERM');
+  rmSync(webDir, { recursive: true, force: true });
   await sleep(200);
   console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
   process.exit(failures === 0 ? 0 : 1);

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
 import { resolve } from 'node:path';
 import { HARMONY_NAME } from '@harmony/shared';
+import { DEFAULT_CSP } from './http/security.ts';
 
 export interface Config {
   host: string;
@@ -13,6 +14,8 @@ export interface Config {
   dbFile: string;
   /** Directory holding content-addressed uploaded blobs. */
   uploadDir: string;
+  /** Directory holding the built web client, served by this process when present. */
+  webDir: string;
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   /** When true, registration demands a valid invite code (the first user is always exempt). */
   requireInvite: boolean;
@@ -25,6 +28,8 @@ export interface Config {
   trustProxy: boolean;
   /** How often automatic retention pruning runs, in minutes. */
   pruneIntervalMinutes: number;
+  /** `Content-Security-Policy` sent to browsers, or null to leave the header off. */
+  csp: string | null;
 }
 
 // Load `.env` if present, without pulling in a dotenv dependency.
@@ -53,6 +58,15 @@ function readBoolean(value: string | undefined, fallback: boolean): boolean {
 // Default to a `data/` directory at the repository root, so the database is
 // the same no matter which directory the server is started from.
 const defaultDataDir = resolve(import.meta.dirname, '..', '..', '..', 'data');
+// The client build sits beside the server in the workspace.
+const defaultWebDir = resolve(import.meta.dirname, '..', '..', 'web', 'dist');
+
+/** `off` (or an empty value) disables the header; anything else is used verbatim. */
+function readCsp(value: string | undefined): string | null {
+  if (value === undefined) return DEFAULT_CSP;
+  const trimmed = value.trim();
+  return trimmed.length === 0 || /^(off|none)$/i.test(trimmed) ? null : trimmed;
+}
 
 export function loadConfig(): Config {
   const dataDir = process.env.HARMONY_DATA_DIR
@@ -65,6 +79,9 @@ export function loadConfig(): Config {
     dataDir,
     dbFile: resolve(dataDir, 'harmony.db'),
     uploadDir: resolve(dataDir, 'uploads'),
+    webDir: process.env.HARMONY_WEB_DIR
+      ? resolve(process.cwd(), process.env.HARMONY_WEB_DIR)
+      : defaultWebDir,
     logLevel: (process.env.HARMONY_LOG_LEVEL as Config['logLevel']) ?? 'info',
     requireInvite: readBoolean(process.env.HARMONY_REQUIRE_INVITE, false),
     sessionTtlDays: readNumber(process.env.HARMONY_SESSION_TTL_DAYS, 30),
@@ -72,5 +89,6 @@ export function loadConfig(): Config {
     cookieSecure: readBoolean(process.env.HARMONY_COOKIE_SECURE, false),
     trustProxy: readBoolean(process.env.HARMONY_TRUST_PROXY, false),
     pruneIntervalMinutes: readNumber(process.env.HARMONY_PRUNE_INTERVAL_MINUTES, 60),
+    csp: readCsp(process.env.HARMONY_CSP),
   };
 }

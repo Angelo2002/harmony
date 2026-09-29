@@ -1,0 +1,211 @@
+# Deploying Harmony
+
+Harmony is built to be one small process: the same Node server serves the web
+client, the HTTP API and the WebSocket gateway on one origin. You do not need a
+separate static host, and you do not need Docker, Postgres or Redis.
+
+This guide covers running a real instance: building the client, putting it behind
+TLS, the settings that matter once other people can reach it, and backups.
+
+## How it runs
+
+- **One process, one origin.** `apps/server` serves everything. The Vite dev
+  server is only for development.
+- **The client is prebuilt.** `npm run build:web` writes `apps/web/dist`, and the
+  server serves that directory when it exists. Point it elsewhere with
+  `HARMONY_WEB_DIR` if you build outside the repo. Without a build, the server
+  serves only the API and says so on startup.
+- **All state is in `data/`.** The SQLite database (`data/harmony.db`) and the
+  uploaded blobs (`data/uploads/`). Move it with `HARMONY_DATA_DIR`.
+
+## Requirements
+
+- **Node.js 24 or newer.**
+- A reverse proxy for TLS in front of it. [Caddy](https://caddyserver.com) is the
+  least fuss; nginx works too. Both examples are below.
+
+## Build and run
+
+```sh
+npm ci
+npm run build:web
+npm start
+```
+
+`npm start` is `node apps/server/src/index.ts`. It reads `.env` from the working
+directory if present, so the same tree you develop in can be the one you deploy.
+
+The server binds loopback by default (`127.0.0.1:8787`), which is what you want:
+the reverse proxy is the only thing exposed, and it talks to the API over
+loopback. For a quick check without a proxy it is reachable at
+<http://127.0.0.1:8787> as-is.
+
+## Environment variables
+
+Copy `.env.example` to `.env` and set what you need. Everything has a default.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `HARMONY_HOST` | `127.0.0.1` | Interface to bind. Leave loopback and let the proxy front it. |
+| `HARMONY_PORT` | `8787` | Port to listen on. |
+| `HARMONY_SERVER_NAME` | `Harmony` | Initial server name; change it in the admin panel afterwards. |
+| `HARMONY_DATA_DIR` | `./data` | Where the database and blobs live. Useful outside the repo. |
+| `HARMONY_WEB_DIR` | `apps/web/dist` | The built client to serve. |
+| `HARMONY_REQUIRE_INVITE` | `false` | When true, registration needs an invite code. |
+| `HARMONY_SESSION_TTL_DAYS` | `30` | How long a login lasts. |
+| `HARMONY_COOKIE_NAME` | `harmony_session` | Session cookie name. |
+| `HARMONY_COOKIE_SECURE` | `false` | **Set true when served over HTTPS.** Marks the cookie `Secure`. |
+| `HARMONY_TRUST_PROXY` | `false` | **Set true behind a reverse proxy** so client IPs come from `X-Forwarded-For`. |
+| `HARMONY_PRUNE_INTERVAL_MINUTES` | `60` | How often automatic retention pruning runs. |
+| `HARMONY_LOG_LEVEL` | `info` | `fatal`…`trace`, or `silent`. |
+| `HARMONY_CSP` | built-in policy | `Content-Security-Policy` to send; `off` disables the header. |
+
+Two of these matter for safety and are easy to get wrong:
+
+- `HARMONY_COOKIE_SECURE=true` **only when the browser reaches the instance over
+  HTTPS** (normally via the proxy). Setting it while serving plain HTTP makes the
+  browser drop the cookie, and nobody can stay logged in.
+- `HARMONY_TRUST_PROXY=true` **only when there really is a proxy in front.** With
+  it off behind a proxy, every request looks like it comes from the proxy, so
+  login rate limiting is shared by everyone. With it on and no proxy, a client
+  can forge `X-Forwarded-For` to sidestep that limit.
+
+The server prints a warning at startup for the risky combinations it can detect.
+
+## Reverse proxy and TLS
+
+Point your hostname at the proxy, and have the proxy forward to
+`127.0.0.1:8787`. Three things must be forwarded for everything to work: the
+`Host` header, the client's address (`X-Forwarded-For`) and the original scheme
+(`X-Forwarded-Proto`). WebSocket upgrades must be allowed through for `/gateway`,
+which is how live messages arrive.
+
+### Caddy
+
+Caddy obtains and renews certificates on its own, proxies WebSockets with no extra
+configuration, and sets the forwarded headers for you.
+
+```caddy
+chat.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8787
+}
+```
+
+### nginx
+
+```nginx
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/chat.example.com/privkey.pem;
+
+    # At least as large as the biggest upload limit you configure in the admin
+    # panel. The server refuses anything above 100 MB regardless.
+    client_max_body_size 100m;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+
+        # The gateway is a WebSocket.
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # The gateway heartbeats every 45s; keep the connection open between them.
+        proxy_read_timeout 120s;
+    }
+}
+```
+
+Then set `HARMONY_TRUST_PROXY=true` and `HARMONY_COOKIE_SECURE=true` and restart.
+
+`encode`/`gzip` is worth having: the JavaScript bundle is around 250 kB before
+compression and about 75 kB after.
+
+## First run
+
+Do this **before** the instance is reachable from the internet.
+
+1. Start it on loopback (`npm start`) and open <http://127.0.0.1:8787>.
+2. **Register the first account.** The first person to register becomes the
+   instance owner. Until you have done this, anyone who can reach the server can
+   claim that account, so do not expose it first.
+3. Set the server name, icon and colours, and check the upload limits and
+   retention rules in the admin panel.
+4. Decide about registration. With `HARMONY_REQUIRE_INVITE=true` only people with
+   an invite code (Admin → Invites) can sign up; leave it off for an open server.
+5. Only now put it behind the proxy, set `HARMONY_COOKIE_SECURE=true` and
+   `HARMONY_TRUST_PROXY=true`, and restart.
+6. Invite everyone.
+
+## Backups
+
+Everything that matters is under `data/`. To back it up safely, either stop the
+service and copy the directory, or take a consistent database copy while it runs:
+
+```sh
+sqlite3 data/harmony.db ".backup '/backup/harmony.db'"
+cp -a data/uploads /backup/uploads
+```
+
+Restoring means putting the database and `uploads/` back with the service
+stopped. The uploaded blobs are content-addressed, so the database is the index:
+copy the two together and they stay consistent. Retention pruning removes blobs
+nothing references any more, so a backup is also a good time to let it run.
+
+## Running as a service
+
+A minimal systemd unit, assuming the checkout is at `/opt/harmony` and runs as a
+`harmony` user:
+
+```ini
+[Unit]
+Description=Harmony
+After=network.target
+
+[Service]
+Type=simple
+User=harmony
+WorkingDirectory=/opt/harmony
+ExecStart=/usr/bin/node apps/server/src/index.ts
+EnvironmentFile=/opt/harmony/.env
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The user needs write access to `data/` (or `HARMONY_DATA_DIR`) and read access to
+`apps/web/dist`.
+
+## Updating
+
+```sh
+git pull
+npm ci
+npm run build:web
+systemctl restart harmony
+```
+
+There are no build steps for the server itself; Node runs the TypeScript
+directly.
+
+## A note on the content security policy
+
+The server sends a strict `Content-Security-Policy` that allows only its own
+scripts and styles, its own API and gateway, and the YouTube player the link
+previews embed. If you run custom clients or add something the policy blocks, set
+`HARMONY_CSP` to a policy of your own, or to `off` to send none. The other
+hardening headers (`X-Content-Type-Options`, `X-Frame-Options`,
+`Referrer-Policy`, and HSTS over HTTPS) stay on either way.

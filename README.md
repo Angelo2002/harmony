@@ -47,6 +47,22 @@ proxy, so no other port needs opening.
 Configuration is read from environment variables. Copy `.env.example` to `.env`
 to override the defaults.
 
+### Running it for real
+
+In production a single process serves the built client, the API and the gateway
+on one origin. Build the client once, then start the server:
+
+```sh
+npm ci
+npm run build:web
+npm start
+```
+
+Put a reverse proxy in front for TLS, and set `HARMONY_COOKIE_SECURE` and
+`HARMONY_TRUST_PROXY` to match. [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) has the
+full walkthrough: the environment variables, Caddy and nginx examples, the
+first-run checklist, backups and a systemd unit.
+
 Other useful scripts:
 
 - `npm run dev:server` / `npm run dev:web` — run one side only
@@ -109,7 +125,8 @@ apps/
 packages/
   shared/   Types, permission bitfield, gateway protocol and zod schemas
 docs/
-  API.md    HTTP and gateway reference for custom clients and bots
+  API.md          HTTP and gateway reference for custom clients and bots
+  DEPLOYMENT.md   Running a real instance: TLS, settings, backups
 ```
 
 Runtime data — the SQLite database and uploaded files — lives in `data/` and is

@@ -10,6 +10,7 @@ import {
 } from '@harmony/shared';
 import { loadConfig } from './config.ts';
 import { Database } from './db/index.ts';
+import { countUsers } from './db/users.ts';
 import { canSeeResource, channelAccessFor } from './access/service.ts';
 import { createAuthService } from './auth/service.ts';
 import { registerAuth } from './auth/plugin.ts';
@@ -30,6 +31,8 @@ import { createEmbedService } from './embeds/service.ts';
 import { createModerationService } from './moderation/service.ts';
 import { createMediaService } from './media/service.ts';
 import { registerErrorHandler } from './http/errors.ts';
+import { registerSecurityHeaders, warnAboutExposure } from './http/security.ts';
+import { registerWebClient, webClientIndex } from './http/webclient.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerMetaRoutes } from './routes/meta.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
@@ -137,7 +140,21 @@ await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_CEILING_BYTES, files: 1 } });
 await app.register(websocket);
 
-registerErrorHandler(app);
+// Serve the built client from this process when there is one, so a production
+// instance is a single origin. In development there is no build and the Vite
+// dev server fronts the app instead.
+const servingClient = await registerWebClient(app, { dir: config.webDir });
+
+// Warn about settings that turn a working instance into an unsafe one.
+warnAboutExposure(app.log, {
+  host: config.host,
+  cookieSecure: config.cookieSecure,
+  requireInvite: config.requireInvite,
+  userCount: countUsers(db.sqlite),
+});
+
+registerErrorHandler(app, { spaIndex: webClientIndex(config.webDir) });
+registerSecurityHeaders(app, { csp: config.csp });
 registerAuth(app, { cookieName: config.cookieName, resolveToken: authService.resolveToken });
 
 registerHealthRoutes(app, db);
@@ -183,6 +200,11 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 try {
   const address = await app.listen({ host: config.host, port: config.port });
   app.log.info(`Harmony is listening on ${address}`);
+  if (servingClient) {
+    app.log.info(`Serving the web client from ${config.webDir}`);
+  } else {
+    app.log.info('No web client build found; serve apps/web/dist separately, or run npm run build:web');
+  }
 } catch (error) {
   app.log.error(error);
   process.exit(1);

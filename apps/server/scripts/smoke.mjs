@@ -291,6 +291,25 @@ try {
       })).json?.reactions?.length === 0,
     );
 
+    // Admins may delete another user's message, but like Discord, never edit it.
+    const bobMessage = await req(`/channels/${general.id}/messages`, {
+      method: 'POST',
+      token: bobToken,
+      body: { content: 'bob says hi' },
+    });
+    check(
+      "even an admin cannot edit another user's message (403)",
+      (await req(`/messages/${bobMessage.json?.id}`, {
+        method: 'PATCH',
+        token: ownerToken,
+        body: { content: 'rewritten' },
+      })).status === 403,
+    );
+    check(
+      "an admin can delete another user's message",
+      (await req(`/messages/${bobMessage.json?.id}`, { method: 'DELETE', token: ownerToken })).status === 204,
+    );
+
     const edited = await req(`/messages/${messageId}`, {
       method: 'PATCH',
       token: ownerToken,

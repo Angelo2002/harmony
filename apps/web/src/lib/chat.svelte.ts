@@ -130,6 +130,16 @@ class ChatStore {
     });
   }
 
+  /** Edits a message's text; the gateway echoes the update. */
+  async editMessage(messageId: string, content: string): Promise<void> {
+    await api(`/messages/${messageId}`, { method: 'PATCH', body: JSON.stringify({ content }) });
+  }
+
+  /** Deletes a message; the gateway echoes the removal. */
+  async deleteMessage(messageId: string): Promise<void> {
+    await api(`/messages/${messageId}`, { method: 'DELETE' });
+  }
+
   #handleEvent(frame: GatewayFrame): void {
     switch (frame.t) {
       case 'MESSAGE_CREATE': {

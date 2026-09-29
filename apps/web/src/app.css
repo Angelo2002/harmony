@@ -493,6 +493,48 @@ img.avatar {
   filter: none;
 }
 
+.message-actions button.danger {
+  background: var(--h-error);
+  color: #fff;
+}
+
+.edit-form {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0;
+}
+
+.edit-box {
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--h-bg-deep);
+  border-radius: var(--h-radius);
+  background: var(--h-bg-elevated);
+  color: var(--h-text);
+  font: inherit;
+  resize: vertical;
+}
+
+.edit-box:focus {
+  border-color: var(--h-accent);
+  outline: none;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.edit-actions button {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+button.ghost {
+  background: var(--h-bg-elevated);
+  color: var(--h-text);
+}
+
 .reactions {
   display: flex;
   flex-wrap: wrap;

@@ -151,10 +151,21 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     return listAttachmentsForMessages(sqlite, [messageId]).get(messageId) ?? [];
   }
 
-  function assertCanModify(auth: AuthContext, row: MessageRow): void {
-    const isAuthor = row.author_id === auth.user.id;
-    if (!isAuthor && !hasPermission(auth.permissions, Permission.ManageMessages)) {
-      throw new HttpError(403, 'forbidden', 'You can only modify your own messages.');
+  function isAuthor(auth: AuthContext, row: MessageRow): boolean {
+    return row.author_id === auth.user.id;
+  }
+
+  /** Like Discord, only the author may change a message's text. */
+  function assertCanEdit(auth: AuthContext, row: MessageRow): void {
+    if (!isAuthor(auth, row)) {
+      throw new HttpError(403, 'forbidden', 'You can only edit your own messages.');
+    }
+  }
+
+  /** The author, or anyone with Manage Messages, may delete it. */
+  function assertCanDelete(auth: AuthContext, row: MessageRow): void {
+    if (!isAuthor(auth, row) && !hasPermission(auth.permissions, Permission.ManageMessages)) {
+      throw new HttpError(403, 'forbidden', 'You can only delete your own messages.');
     }
   }
 
@@ -308,7 +319,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
 
     edit(auth, messageId, content) {
       const row = requireMessage(messageId);
-      assertCanModify(auth, row);
+      assertCanEdit(auth, row);
 
       updateMessageContent(sqlite, messageId, content, new Date().toISOString());
       const message = render(requireMessage(messageId), auth.user.id);
@@ -328,7 +339,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
 
     remove(auth, messageId) {
       const row = requireMessage(messageId);
-      assertCanModify(auth, row);
+      assertCanDelete(auth, row);
 
       softDeleteMessage(sqlite, messageId, new Date().toISOString());
       announceDelete({ id: messageId, channelId: row.channel_id });

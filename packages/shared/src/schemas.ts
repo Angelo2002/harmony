@@ -36,6 +36,8 @@ export const createMessageSchema = z
   .object({
     content: z.string().max(LIMITS.messageLength).default(''),
     attachmentIds: z.array(z.string()).max(LIMITS.attachmentsPerMessage).optional(),
+    /** Id of the message being replied to, if any. */
+    replyToId: z.string().nullable().optional(),
   })
   .refine((value) => value.content.trim().length > 0 || (value.attachmentIds?.length ?? 0) > 0, {
     message: 'A message needs text or at least one attachment.',

@@ -333,6 +333,7 @@ button.link:hover {
 }
 
 .message {
+  position: relative;
   display: flex;
   gap: 0.75rem;
   padding: 0.3rem 0;
@@ -398,6 +399,98 @@ img.avatar {
   margin: 0.1rem 0 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.reply-ref {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.1rem 0 0.15rem;
+  color: var(--h-text-muted);
+  font-size: 0.8rem;
+}
+
+.reply-ref::before {
+  content: '↰';
+  opacity: 0.7;
+}
+
+.reply-author {
+  font-weight: 600;
+  color: var(--h-text);
+}
+
+.reply-text {
+  overflow: hidden;
+  max-width: 60ch;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-ref.deleted .reply-text {
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.replying {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--h-radius);
+  background: var(--h-bg-elevated);
+  font-size: 0.85rem;
+}
+
+.remove-reply {
+  padding: 0 0.35rem;
+  border: none;
+  background: none;
+  color: var(--h-text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.remove-reply:hover {
+  color: var(--h-text);
+  filter: none;
+}
+
+.message-actions {
+  position: absolute;
+  top: -0.7rem;
+  right: 0.4rem;
+  display: flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border-radius: 6px;
+  background: var(--h-bg-elevated);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.message:hover .message-actions,
+.message:focus-within .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.message-actions button {
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: none;
+  color: var(--h-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.message-actions button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 8%);
+  color: var(--h-text);
+  filter: none;
 }
 
 .composer {

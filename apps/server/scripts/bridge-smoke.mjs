@@ -152,7 +152,7 @@ try {
   const auth = { user: { id: userId }, permissions: 0n, sessionId: 's', token: 't' };
 
   // 2. Harmony -> Discord, text.
-  const sent = messages.create(auth, channelId, 'hello discord', []);
+  const sent = messages.create(auth, channelId, 'hello discord', [], null);
   await sleep(50);
   check('harmony message is mirrored', transport.state.mirrors.length === 1);
   check('mirror uses a username override', transport.state.mirrors[0]?.username === 'alice');
@@ -165,7 +165,7 @@ try {
 
   // 3. Harmony -> Discord, with an image.
   const upload = await attachments.upload(auth, { filename: 'pic.png', contentType: 'image/png', data: png });
-  messages.create(auth, channelId, '', [upload.id]);
+  messages.create(auth, channelId, '', [upload.id], null);
   await sleep(50);
   const withFile = transport.state.mirrors.at(-1);
   check('attachment is mirrored', withFile?.files.length === 1);
@@ -181,6 +181,7 @@ try {
     authorId: '999',
     authorName: 'Discord Sam',
     authorAvatarUrl: 'https://cdn.example/avatar.png',
+    replyToDiscordId: null,
     content: 'hi harmony',
     attachments: [{ url: 'https://cdn.example/pic.png', filename: 'pic.png', contentType: 'image/png', size: png.length }],
     fromBot: false,
@@ -208,6 +209,24 @@ try {
   );
   check('discord avatar is fetched by URL', transport.state.downloads.includes('https://cdn.example/avatar.png'));
 
+  // 4b. A Discord reply becomes a real Harmony reply.
+  transport.emit({
+    id: 'd1r',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: 'd1',
+    content: 'a reply from discord',
+    attachments: [],
+    fromBot: false,
+  });
+  await sleep(50);
+  const replyIngested = messages
+    .history(channelId, { limit: 50 })
+    .messages.find((message) => message.content === 'a reply from discord');
+  check('discord reply references the bridged message', replyIngested?.replyTo?.id === ingested?.id);
+
   // 5. Unsupported attachments are preserved as links rather than dropped.
   transport.emit({
     id: 'd2',
@@ -215,6 +234,7 @@ try {
     authorId: '999',
     authorName: 'Discord Sam',
     authorAvatarUrl: null,
+    replyToDiscordId: null,
     content: '',
     attachments: [{ url: 'https://cdn.example/notes.txt', filename: 'notes.txt', contentType: 'text/plain', size: 10 }],
     fromBot: false,
@@ -256,13 +276,26 @@ try {
   await users.setAvatarFromData(userId, png);
   const aliceAvatarHash = findUserById(db.sqlite, userId)?.avatar_hash;
   settings.updateBridge({ publicBaseUrl: 'https://chat.example.com/' });
-  messages.create(auth, channelId, 'avatar check', []);
+  messages.create(auth, channelId, 'avatar check', [], null);
   await sleep(50);
   check(
     'outbound avatar URL uses the public base URL and hash capability',
     transport.state.mirrors.at(-1)?.avatarUrl ===
       `https://chat.example.com/api/v1/users/${userId}/avatar?v=${aliceAvatarHash}`,
     String(transport.state.mirrors.at(-1)?.avatarUrl),
+  );
+
+  // 7c. A Harmony reply is mirrored out as a quoted line, since Discord
+  // webhooks cannot post real replies.
+  const original = messages.create(auth, channelId, 'the original', [], null);
+  await sleep(50);
+  messages.create(auth, channelId, 'replying here', [], original.id);
+  await sleep(50);
+  const quoted = transport.state.mirrors.at(-1);
+  check(
+    'outbound reply is mirrored as a quote',
+    quoted?.content.startsWith('> **alice**') && quoted.content.includes('replying here'),
+    String(quoted?.content),
   );
 
   // 8. Bots and webhooks never get ingested.
@@ -273,6 +306,7 @@ try {
     authorId: 'wh',
     authorName: 'Harmony',
     authorAvatarUrl: null,
+    replyToDiscordId: null,
     content: 'echo',
     attachments: [],
     fromBot: true,
@@ -287,6 +321,7 @@ try {
     authorId: '999',
     authorName: 'Discord Sam',
     authorAvatarUrl: null,
+    replyToDiscordId: null,
     content: 'elsewhere',
     attachments: [],
     fromBot: false,

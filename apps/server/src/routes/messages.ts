@@ -27,7 +27,7 @@ export function registerMessageRoutes(app: FastifyInstance, deps: MessageRouteDe
     const auth = requirePermission(request, Permission.SendMessages);
     const { id } = request.params as { id: string };
     const input = parseBody(createMessageSchema, request.body);
-    return deps.service.create(auth, id, input.content, input.attachmentIds ?? []);
+    return deps.service.create(auth, id, input.content, input.attachmentIds ?? [], input.replyToId ?? null);
   });
 
   app.patch('/api/v1/messages/:id', async (request) => {

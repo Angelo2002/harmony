@@ -57,6 +57,7 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       // generic default avatars.
       authorAvatarUrl:
         message.member?.avatarURL({ size: 128 }) ?? message.author.avatarURL({ size: 128 }),
+      replyToDiscordId: message.reference?.messageId ?? null,
       content: message.content,
       attachments: [...message.attachments.values()].map((attachment) => ({
         url: attachment.url,

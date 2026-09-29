@@ -87,6 +87,24 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     return message.author?.displayName ?? message.author?.username ?? 'Harmony';
   }
 
+  /**
+   * Discord webhooks cannot post real replies (Execute Webhook has no
+   * message_reference), so a reply is mirrored as a quoted line above the text.
+   * Discord renders `> ` as a blockquote, which reads like a reply.
+   */
+  function outboundContent(message: Message): string {
+    const base = message.content.trim();
+    const reply = message.replyTo;
+    if (!reply) return base;
+
+    const who = reply.author?.displayName ?? reply.author?.username ?? 'someone';
+    const snippet = reply.deleted
+      ? '(deleted message)'
+      : reply.content.replace(/\s+/g, ' ').trim().slice(0, 120);
+    const quote = `> **${who}**${snippet ? `: ${snippet}` : ''}`;
+    return base ? `${quote}\n${base}` : quote;
+  }
+
   /** Finds the stand-in account for a Discord author, creating it on first sight. */
   function resolveGhostUser(message: DiscordIncomingMessage): UserRow {
     const existing = findUserByDiscordId(deps.sqlite, message.authorId);
@@ -184,7 +202,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       return;
     }
 
-    const content = message.content.trim();
+    const content = outboundContent(message);
     const files = collectMirrorFiles(message);
     if (!content && files.length === 0) {
       logger.debug('not mirroring: message has no text or files', { channelId: message.channelId });
@@ -221,7 +239,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     await transport.editMessage({
       webhook: target.webhook,
       discordMessageId: target.discordMessageId,
-      content: message.content,
+      content: outboundContent(message),
     });
   }
 
@@ -322,7 +340,12 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     const content = [message.content, ...skipped].filter((part) => part.trim().length > 0).join('\n');
     if (!content && attachmentIds.length === 0) return;
 
-    const created = deps.messages.createBridged(channel.id, author.id, content, attachmentIds);
+    // A Discord reply becomes a real Harmony reply when the parent was bridged.
+    const replyToId = message.replyToDiscordId
+      ? (findBridgeMessageByDiscordId(deps.sqlite, message.replyToDiscordId)?.harmony_message_id ?? null)
+      : null;
+
+    const created = deps.messages.createBridged(channel.id, author.id, content, attachmentIds, replyToId);
     insertBridgeMessage(deps.sqlite, {
       harmonyMessageId: created.id,
       discordMessageId: message.id,

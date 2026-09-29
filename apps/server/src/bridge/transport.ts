@@ -14,6 +14,8 @@ export interface DiscordIncomingMessage {
   authorName: string;
   /** Public avatar URL, or null when the author has no custom picture. */
   authorAvatarUrl: string | null;
+  /** Discord message this one replies to, or null. */
+  replyToDiscordId: string | null;
   content: string;
   attachments: DiscordIncomingAttachment[];
   /** True for any bot, including our own webhook mirrors. Never re-bridged. */

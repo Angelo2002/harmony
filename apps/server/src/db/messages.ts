@@ -8,18 +8,26 @@ export interface MessageRow {
   created_at: string;
   edited_at: string | null;
   deleted_at: string | null;
+  reply_to_id: string | null;
 }
 
 export function insertMessage(
   sqlite: DatabaseSync,
-  input: { id: string; channelId: string; authorId: string; content: string; createdAt: string },
+  input: {
+    id: string;
+    channelId: string;
+    authorId: string;
+    content: string;
+    createdAt: string;
+    replyToId?: string | null;
+  },
 ): void {
   sqlite
     .prepare(
-      `INSERT INTO messages (id, channel_id, author_id, content, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (id, channel_id, author_id, content, created_at, reply_to_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run(input.id, input.channelId, input.authorId, input.content, input.createdAt);
+    .run(input.id, input.channelId, input.authorId, input.content, input.createdAt, input.replyToId ?? null);
 }
 
 export function findMessage(sqlite: DatabaseSync, id: string): MessageRow | null {

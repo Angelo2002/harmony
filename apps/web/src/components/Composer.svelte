@@ -48,6 +48,17 @@
     showPicker = false;
   }
 
+  const replyName = $derived(
+    chat.replyTarget?.author?.displayName ?? chat.replyTarget?.author?.username ?? 'Unknown',
+  );
+
+  function onKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && chat.replyTarget) {
+      event.preventDefault();
+      chat.replyTarget = null;
+    }
+  }
+
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     const content = value.trim();
@@ -60,9 +71,11 @@
       await chat.sendMessage(
         content,
         pending.map((attachment) => attachment.id),
+        chat.replyTarget?.id ?? null,
       );
       value = '';
       pending = [];
+      chat.replyTarget = null;
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
     } finally {
@@ -101,6 +114,13 @@
     </div>
   {/if}
 
+  {#if chat.replyTarget}
+    <div class="replying">
+      <span class="muted">Replying to <strong>{replyName}</strong></span>
+      <button type="button" class="remove-reply" title="Cancel reply" onclick={() => (chat.replyTarget = null)}>×</button>
+    </div>
+  {/if}
+
   <form onsubmit={submit}>
     <button type="button" class="attach" title="Add emoji" onclick={() => (showPicker = !showPicker)}>☺</button>
     <button type="button" class="attach" title="Attach image" disabled={uploading} onclick={() => fileInput?.click()}>
@@ -113,6 +133,7 @@
       placeholder={`Message #${chat.activeChannel?.name ?? ''}`}
       autocomplete="off"
       aria-label="Message"
+      onkeydown={onKeydown}
     />
     <button type="submit" disabled={busy || uploading}>Send</button>
   </form>

@@ -219,6 +219,30 @@ try {
     );
     fanout.ws.close();
 
+    // --- Replies ---
+    const parent = await req(`/channels/${general.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'parent message' },
+    });
+    const reply = await req(`/channels/${general.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'a reply', replyToId: parent.json?.id },
+    });
+    check('a reply records its parent', reply.json?.replyTo?.id === parent.json?.id);
+    check('the reply preview carries the parent text', reply.json?.replyTo?.content === 'parent message');
+    check(
+      'replying to a missing message is rejected (400)',
+      (
+        await req(`/channels/${general.id}/messages`, {
+          method: 'POST',
+          token: ownerToken,
+          body: { content: 'x', replyToId: 'does-not-exist' },
+        })
+      ).status === 400,
+    );
+
     const edited = await req(`/messages/${messageId}`, {
       method: 'PATCH',
       token: ownerToken,

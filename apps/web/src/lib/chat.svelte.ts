@@ -10,6 +10,8 @@ class ChatStore {
   activeChannelId = $state<string | null>(null);
   messages = $state<Message[]>([]);
   loading = $state(false);
+  /** The message the composer is currently replying to, if any. */
+  replyTarget = $state<Message | null>(null);
 
   #gateway = new GatewayClient(GatewayClient.defaultUrl());
   #started = false;
@@ -38,6 +40,7 @@ class ChatStore {
     this.channels = [];
     this.messages = [];
     this.activeChannelId = null;
+    this.replyTarget = null;
   }
 
   async loadChannels(): Promise<void> {
@@ -53,6 +56,7 @@ class ChatStore {
   async selectChannel(channelId: string | null): Promise<void> {
     this.activeChannelId = channelId;
     this.messages = [];
+    this.replyTarget = null;
     if (channelId) await this.loadHistory(channelId);
   }
 
@@ -66,13 +70,17 @@ class ChatStore {
     }
   }
 
-  async sendMessage(content: string, attachmentIds: string[] = []): Promise<void> {
+  async sendMessage(content: string, attachmentIds: string[] = [], replyToId: string | null = null): Promise<void> {
     const channelId = this.activeChannelId;
     if (!channelId) return;
     // The message comes back over the gateway as MESSAGE_CREATE, so we don't append it here.
     await api(`/channels/${channelId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined }),
+      body: JSON.stringify({
+        content,
+        attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+        replyToId: replyToId ?? undefined,
+      }),
     });
   }
 

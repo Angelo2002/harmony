@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Message } from '@harmony/shared';
   import { chat } from '../lib/chat.svelte';
   import { avatarUrl, initial } from '../lib/avatar';
   import { tokenizeEmoji } from '../lib/emoji-text';
@@ -8,6 +9,20 @@
 
   function formatTime(iso: string): string {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function authorName(message: Message): string {
+    return message.author?.displayName ?? message.author?.username ?? 'Unknown';
+  }
+
+  function replyAuthorName(message: Message): string {
+    const author = message.replyTo?.author;
+    return author?.displayName ?? author?.username ?? 'Unknown';
+  }
+
+  function replySnippet(message: Message): string {
+    if (message.replyTo?.deleted) return 'original message was deleted';
+    return message.replyTo?.content.replace(/\s+/g, ' ').trim() ?? '';
   }
 
   // Keep the newest message in view as messages arrive.
@@ -36,9 +51,18 @@
           <div class="avatar fallback">{initial(message.author)}</div>
         {/if}
         <div class="body">
+          {#if message.replyTo}
+            <div class="reply-ref" class:deleted={message.replyTo.deleted}>
+              <span class="reply-author">{replyAuthorName(message)}</span>
+              {#if replySnippet(message)}
+                <span class="reply-text">{replySnippet(message)}</span>
+              {/if}
+            </div>
+          {/if}
+
           <div class="meta">
             <span class="author" style={authorColor ? `color: ${authorColor}` : ''}>
-              {message.author?.displayName ?? message.author?.username ?? 'Unknown'}
+              {authorName(message)}
             </span>
             <time>{formatTime(message.createdAt)}</time>
             {#if message.editedAt}<span class="edited">(edited)</span>{/if}
@@ -76,6 +100,10 @@
               {/each}
             </div>
           {/if}
+        </div>
+
+        <div class="message-actions">
+          <button type="button" title="Reply" onclick={() => (chat.replyTarget = message)}>Reply</button>
         </div>
       </article>
     {/each}

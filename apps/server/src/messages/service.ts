@@ -9,6 +9,7 @@ import {
   type MessageDeletePayload,
   type MessageHistoryQuery,
   type MessageListResponse,
+  type MessageReference,
 } from '@harmony/shared';
 import type { AuthContext } from '../auth/service.ts';
 import { attachToMessage, findAttachment, listAttachmentsForMessages } from '../db/attachments.ts';
@@ -27,9 +28,21 @@ import type { GatewayHub } from '../realtime/hub.ts';
 
 export interface MessageService {
   history(channelId: string, query: MessageHistoryQuery): MessageListResponse;
-  create(auth: AuthContext, channelId: string, content: string, attachmentIds: string[]): Message;
+  create(
+    auth: AuthContext,
+    channelId: string,
+    content: string,
+    attachmentIds: string[],
+    replyToId: string | null,
+  ): Message;
   /** Inserts a message on behalf of the bridge, skipping permission checks. */
-  createBridged(channelId: string, authorId: string, content: string, attachmentIds: string[]): Message;
+  createBridged(
+    channelId: string,
+    authorId: string,
+    content: string,
+    attachmentIds: string[],
+    replyToId: string | null,
+  ): Message;
   edit(auth: AuthContext, messageId: string, content: string): Message;
   /** Applies a bridged edit, without notifying the outbound listeners. */
   editBridged(messageId: string, content: string): Message | null;
@@ -43,6 +56,20 @@ export interface MessageService {
 }
 
 export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): MessageService {
+  function buildReply(row: MessageRow): MessageReference | null {
+    if (!row.reply_to_id) return null;
+    const parent = findMessage(sqlite, row.reply_to_id);
+    if (!parent) return null;
+    const authorRow = parent.author_id ? findUserById(sqlite, parent.author_id) : null;
+    return {
+      id: parent.id,
+      author: authorRow ? presentUser(sqlite, authorRow) : null,
+      // A deleted parent keeps its slot, but the text is gone.
+      content: parent.deleted_at ? '' : parent.content,
+      deleted: parent.deleted_at != null,
+    };
+  }
+
   function toMessage(row: MessageRow, attachments: Attachment[]): Message {
     const authorRow = row.author_id ? findUserById(sqlite, row.author_id) : null;
     return {
@@ -53,7 +80,21 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       createdAt: row.created_at,
       editedAt: row.edited_at,
       attachments,
+      replyTo: buildReply(row),
     };
+  }
+
+  /** Validates a reply target: it must exist, be visible and be in the same channel. */
+  function resolveReplyTo(channelId: string, replyToId: string | null): string | null {
+    if (!replyToId) return null;
+    const parent = findMessage(sqlite, replyToId);
+    if (!parent || parent.deleted_at) {
+      throw new HttpError(400, 'invalid_reply', 'The message you are replying to no longer exists.');
+    }
+    if (parent.channel_id !== channelId) {
+      throw new HttpError(400, 'invalid_reply', 'You can only reply to a message in the same channel.');
+    }
+    return parent.id;
   }
 
   function requireChannel(channelId: string): void {
@@ -84,6 +125,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     authorId: string,
     content: string,
     attachmentIds: string[],
+    replyToId: string | null,
   ): Message {
     // Uploads belong to the message that claims them; reject anything already
     // used or belonging to someone else.
@@ -99,7 +141,14 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     }
 
     const id = randomUUID();
-    insertMessage(sqlite, { id, channelId, authorId, content, createdAt: new Date().toISOString() });
+    insertMessage(sqlite, {
+      id,
+      channelId,
+      authorId,
+      content,
+      createdAt: new Date().toISOString(),
+      replyToId: resolveReplyTo(channelId, replyToId),
+    });
     for (const attachmentId of attachmentIds) attachToMessage(sqlite, attachmentId, id);
 
     return toMessage(requireMessage(id), attachmentsFor(id));
@@ -144,16 +193,16 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       return { messages: rows.map((row) => toMessage(row, byMessage.get(row.id) ?? [])) };
     },
 
-    create(auth, channelId, content, attachmentIds) {
+    create(auth, channelId, content, attachmentIds, replyToId) {
       requireChannel(channelId);
-      const message = insertWithAttachments(channelId, auth.user.id, content, attachmentIds);
+      const message = insertWithAttachments(channelId, auth.user.id, content, attachmentIds, replyToId);
       announce(message);
       return message;
     },
 
-    createBridged(channelId, authorId, content, attachmentIds) {
+    createBridged(channelId, authorId, content, attachmentIds, replyToId) {
       requireChannel(channelId);
-      const message = insertWithAttachments(channelId, authorId, content, attachmentIds);
+      const message = insertWithAttachments(channelId, authorId, content, attachmentIds, replyToId);
       // Broadcast to clients, but do not announce: this came from Discord and
       // must not be mirrored straight back.
       hub.dispatch(GatewayEvent.MessageCreate, message);

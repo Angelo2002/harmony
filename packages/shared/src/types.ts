@@ -69,6 +69,20 @@ export interface Message {
   createdAt: IsoTimestamp;
   editedAt: IsoTimestamp | null;
   attachments: Attachment[];
+  /** The message this one replies to, or null for a normal message. */
+  replyTo: MessageReference | null;
+}
+
+/**
+ * A compact view of the parent of a reply, enough to render the inline preview
+ * without shipping the whole message (and its attachments) again.
+ */
+export interface MessageReference {
+  id: SnowflakeId;
+  author: User | null;
+  /** The original text, or an empty string when it has been deleted. */
+  content: string;
+  deleted: boolean;
 }
 
 export interface Emoji {

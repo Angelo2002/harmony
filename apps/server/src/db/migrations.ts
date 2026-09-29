@@ -184,4 +184,13 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    name: 'message_replies',
+    up(db) {
+      // A reply points at its parent; if the parent is ever hard-deleted
+      // (retention), the reply simply becomes a normal message.
+      db.exec(`ALTER TABLE messages ADD COLUMN reply_to_id TEXT REFERENCES messages(id) ON DELETE SET NULL`);
+    },
+  },
 ];

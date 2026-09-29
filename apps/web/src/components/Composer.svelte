@@ -134,6 +134,16 @@
     return 2;
   }
 
+  /**
+   * Who can actually be mentioned here. Discord stand-in accounts only exist to
+   * represent people on the other side of a bridged channel, so they are hidden
+   * in every other channel: a mention there could never reach them.
+   */
+  const mentionableUsers = $derived.by((): User[] => {
+    if (chat.activeChannel?.discordChannelId != null) return members.list;
+    return members.list.filter((user) => !user.isBot);
+  });
+
   const suggestions = $derived.by((): Suggestion[] => {
     const trigger = activeTrigger;
     if (!trigger) return [];
@@ -157,7 +167,7 @@
       }));
     }
 
-    return members.list
+    return mentionableUsers
       .map((user) => ({ user, rank: rankMember(user, needle) }))
       .filter((entry) => entry.rank < 2)
       .sort((a, b) => a.rank - b.rank || a.user.username.localeCompare(b.user.username))

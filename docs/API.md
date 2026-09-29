@@ -115,7 +115,7 @@ implicit `@everyone` role grants every member `ViewChannels`, `SendMessages`, `A
 | `AddReactions` | `1 << 5` | Adding and removing your own reactions |
 | `ManageChannels` | `1 << 6` | Creating, editing and deleting channels and categories |
 | `ManageRoles` | `1 << 7` | Managing roles and members' roles |
-| `ManageEmojis` | `1 << 8` | Uploading and deleting custom emoji |
+| `ManageEmojis` | `1 << 8` | Uploading, importing and deleting custom emoji |
 | `ManageServer` | `1 << 9` | Server settings, retention, the Discord bridge and the audit log |
 | `KickMembers` | `1 << 10` | Ending a member's sessions |
 | `BanMembers` | `1 << 11` | Banning and unbanning members |
@@ -239,6 +239,26 @@ type ThemeSettings = {
 };
 
 type Emoji = { id: string; name: string; hash: string; animated: boolean };
+
+/** A custom emoji that exists in the linked Discord server. */
+type DiscordEmojiOption = {
+  id: string;
+  name: string;
+  animated: boolean;
+  imported: boolean;   // whether Harmony already has an emoji of this name
+};
+
+type DiscordEmojiListResponse = {
+  guildName: string | null;   // null when the Discord bridge is not connected
+  emojis: DiscordEmojiOption[];
+};
+
+/** How a Discord emoji import went. */
+type EmojiImportResponse = {
+  imported: number;   // emoji copied in
+  skipped: number;    // already present in Harmony
+  failed: number;     // unreadable: an unusable name, too large, and so on
+};
 
 type Invite = {
   code: string;
@@ -637,6 +657,26 @@ Serves the emoji image with an immutable cache header.
 #### `DELETE /api/v1/emojis/:id` — `ManageEmojis`
 
 Returns `204` and fires `EMOJI_DELETE` with `{ "id": "..." }`.
+
+#### `GET /api/v1/emojis/discord` — `ManageEmojis`
+
+Lists the custom emoji in the Discord server the bridge is connected to, so an admin can see what
+an import would bring. Returns a `DiscordEmojiListResponse`; `guildName` is `null` when the bridge
+is not running.
+
+```json
+{
+  "guildName": "My Discord Server",
+  "emojis": [{ "id": "700", "name": "YES", "animated": false, "imported": true }]
+}
+```
+
+#### `POST /api/v1/emojis/import` — `ManageEmojis`
+
+Downloads every guild emoji Harmony does not already have and stores it, returning an
+`EmojiImportResponse`. Names are the join key, so an emoji that already exists is skipped and the
+import is safe to run again. Each newly created emoji fires `EMOJI_CREATE`. Returns
+`503 bridge_offline` when the bridge is not connected.
 
 ### Users and avatars
 

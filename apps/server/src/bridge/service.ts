@@ -52,6 +52,10 @@ export interface BridgeService {
   /** Starts, stops or restarts the bot to match the saved settings. */
   applySettings(): Promise<void>;
   listDiscordChannels(): Promise<DiscordChannelListResponse>;
+  /** Custom emoji in the linked guild, for the emoji import. */
+  listGuildEmojis(): Promise<{ guildName: string | null; emojis: DiscordEmoji[] }>;
+  /** Downloads one guild emoji's image from the Discord CDN. */
+  downloadGuildEmoji(id: string, animated: boolean): Promise<{ data: Buffer; contentType: ImageContentType }>;
   /** Pulls recent Discord history into a bridged channel; returns how many. */
   importChannel(channelId: string, limit?: number): Promise<number>;
   /** Sends a test message so an admin can verify a mapping and see any error. */
@@ -683,6 +687,19 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     async listDiscordChannels() {
       if (!transport) return { guildName: null, channels: [] };
       return transport.listTextChannels();
+    },
+
+    async listGuildEmojis() {
+      if (!transport) return { guildName: null, emojis: [] };
+      return { guildName: transport.status().guildName, emojis: await transport.guildEmojis() };
+    },
+
+    async downloadGuildEmoji(id, animated) {
+      if (!transport) throw new HttpError(503, 'bridge_offline', 'The Discord bridge is not connected.');
+      // Discord serves animated emoji as GIF and everything else as PNG.
+      const ext = animated ? 'gif' : 'png';
+      const data = await transport.download(`https://cdn.discordapp.com/emojis/${id}.${ext}`);
+      return { data, contentType: animated ? 'image/gif' : 'image/png' };
     },
 
     importChannel,

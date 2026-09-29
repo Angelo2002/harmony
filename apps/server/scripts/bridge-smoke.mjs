@@ -15,6 +15,8 @@ import { findUserById, findUserByDiscordId, insertUser } from '../src/db/users.t
 import { findBridgeMessageByHarmonyId } from '../src/db/bridge.ts';
 import { insertEmoji } from '../src/db/emojis.ts';
 import { createAttachmentService } from '../src/attachments/service.ts';
+import { createEmojiService } from '../src/emojis/service.ts';
+import { createEmojiImportService } from '../src/emojis/import.ts';
 import { GatewayHub } from '../src/realtime/hub.ts';
 import { createSettingsService } from '../src/settings/service.ts';
 import { createMessageService } from '../src/messages/service.ts';
@@ -621,7 +623,52 @@ try {
   await bridge.testMirror(channelId);
   check('test message reaches discord', transport.state.mirrors.length === mirrorsBeforeTest + 1);
 
-  // 11. Disabling stops the transport.
+  // 11. Discord emoji import. YES already exists from the reaction test above, so
+  // it must be skipped; wave is new; X is too short for a Harmony emoji name.
+  const emojiService = createEmojiService(db.sqlite, config);
+  const emojiImport = createEmojiImportService({ emojis: emojiService, bridge, log: () => {} });
+  transport.state.downloadBytes = png;
+  transport.state.guildEmojis = [
+    { id: '700', name: 'YES', animated: false },
+    { id: '730', name: 'wave', animated: false },
+    { id: '731', name: 'X', animated: false },
+  ];
+
+  const preview = await emojiImport.discordEmojis();
+  check(
+    'the emoji preview names the guild',
+    preview.guildName === 'Test Guild' && preview.emojis.length === 3,
+  );
+  check(
+    'the preview marks an emoji Harmony already has',
+    preview.emojis.find((emoji) => emoji.name === 'YES')?.imported === true &&
+      preview.emojis.find((emoji) => emoji.name === 'wave')?.imported === false,
+  );
+
+  const firstImport = await emojiImport.importMissing(auth);
+  check('a new guild emoji is imported', firstImport.imported.length === 1 && firstImport.imported[0].name === 'wave');
+  check('an existing emoji is skipped', firstImport.skipped === 1);
+  check('an unusable discord name is counted as failed', firstImport.failed === 1);
+  check(
+    'the emoji bytes come from the discord cdn as png',
+    transport.state.downloads.at(-1) === 'https://cdn.discordapp.com/emojis/730.png',
+  );
+  check('the imported emoji is stored', emojiService.list().some((emoji) => emoji.name === 'wave'));
+
+  const secondImport = await emojiImport.importMissing(auth);
+  check(
+    'importing again skips everything already present',
+    secondImport.imported.length === 0 && secondImport.skipped === 2 && secondImport.failed === 1,
+  );
+
+  const animated = await bridge.downloadGuildEmoji('740', true);
+  check(
+    'an animated emoji is fetched as a gif',
+    animated.contentType === 'image/gif' &&
+      transport.state.downloads.at(-1) === 'https://cdn.discordapp.com/emojis/740.gif',
+  );
+
+  // 12. Disabling stops the transport.
   settings.updateBridge({ enabled: false });
   await bridge.applySettings();
   check('transport stops when disabled', transport.state.ready === false);

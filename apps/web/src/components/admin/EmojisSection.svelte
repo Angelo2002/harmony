@@ -1,23 +1,36 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { Emoji, EmojiListResponse } from '@harmony/shared';
+  import type {
+    DiscordEmojiListResponse,
+    Emoji,
+    EmojiImportResponse,
+    EmojiListResponse,
+  } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
   import { emojis } from '../../lib/emojis.svelte';
 
   let list = $state<Emoji[]>([]);
   let name = $state('');
   let fileInput = $state<HTMLInputElement | null>(null);
+  let discord = $state<DiscordEmojiListResponse | null>(null);
+  let importMessage = $state<string | null>(null);
+  let importOk = $state(false);
   let error = $state<string | null>(null);
   let busy = $state(false);
+
+  /** How many of the Discord emoji are not here yet. */
+  const newCount = $derived(discord?.emojis.filter((emoji) => !emoji.imported).length ?? 0);
+
+  function fail(cause: unknown): void {
+    error = cause instanceof ApiError ? cause.message : String(cause);
+  }
 
   async function load(): Promise<void> {
     list = (await api<EmojiListResponse>('/emojis')).emojis;
   }
 
   onMount(() => {
-    void load().catch((cause: unknown) => {
-      error = cause instanceof ApiError ? cause.message : String(cause);
-    });
+    void load().catch(fail);
   });
 
   async function upload(event: SubmitEvent): Promise<void> {
@@ -37,7 +50,7 @@
       await load();
       await emojis.load();
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : String(cause);
+      fail(cause);
     } finally {
       busy = false;
     }
@@ -51,7 +64,52 @@
       await load();
       await emojis.load();
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : String(cause);
+      fail(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Looks up the linked guild's emoji before importing, so the admin sees the count. */
+  async function checkDiscord(): Promise<void> {
+    busy = true;
+    error = null;
+    importMessage = null;
+    try {
+      discord = await api<DiscordEmojiListResponse>('/emojis/discord');
+    } catch (cause) {
+      fail(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
+  function describeImport(result: EmojiImportResponse): { text: string; ok: boolean } {
+    if (result.imported === 0 && result.failed === 0) {
+      return {
+        text: result.skipped > 0 ? 'Every Discord emoji is already here.' : 'That server has no custom emoji.',
+        ok: true,
+      };
+    }
+    const parts = [`imported ${result.imported}`];
+    if (result.skipped > 0) parts.push(`${result.skipped} already here`);
+    if (result.failed > 0) parts.push(`${result.failed} could not be read`);
+    return { text: `Import finished: ${parts.join(', ')}.`, ok: result.failed === 0 };
+  }
+
+  async function importEmoji(): Promise<void> {
+    busy = true;
+    error = null;
+    try {
+      const result = await api<EmojiImportResponse>('/emojis/import', { method: 'POST' });
+      const described = describeImport(result);
+      importOk = described.ok;
+      importMessage = described.text;
+      discord = null;
+      await load();
+      await emojis.load();
+    } catch (cause) {
+      fail(cause);
     } finally {
       busy = false;
     }
@@ -82,4 +140,42 @@
       {/each}
     </div>
   {/if}
+
+  <div class="panel">
+    <h2>Import from Discord</h2>
+    <p class="muted">
+      Copy the linked Discord server's custom emoji over in one go. Names that already exist are
+      left alone, so it is safe to run more than once. Needs the bridge to be connected.
+    </p>
+
+    <div class="editor-actions">
+      <button type="button" onclick={checkDiscord} disabled={busy}>Check Discord emoji</button>
+      {#if newCount > 0}
+        <button type="button" onclick={importEmoji} disabled={busy}>Import {newCount} emoji</button>
+        <button type="button" onclick={() => (discord = null)} disabled={busy}>Cancel</button>
+      {/if}
+    </div>
+
+    {#if discord}
+      {#if discord.guildName === null}
+        <p class="muted">The Discord bridge is not connected. Set a bot token in the Bridge panel first.</p>
+      {:else if discord.emojis.length === 0}
+        <p class="muted">No custom emoji found in <strong>{discord.guildName}</strong>.</p>
+      {:else}
+        <p class="muted">
+          {discord.emojis.length} emoji in <strong>{discord.guildName}</strong>{#if newCount > 0},
+            {newCount} new{:else}, all already here{/if}.
+        </p>
+        <ul class="chips">
+          {#each discord.emojis as emoji (emoji.id)}
+            <li class:imported={emoji.imported}>{emoji.name}{#if emoji.imported} ✓{/if}</li>
+          {/each}
+        </ul>
+      {/if}
+    {/if}
+
+    {#if importMessage}
+      <p class={importOk ? 'ok-text' : 'form-error'}>{importMessage}</p>
+    {/if}
+  </div>
 </section>

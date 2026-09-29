@@ -1,7 +1,15 @@
 import { createReadStream, existsSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
-import { GatewayEvent, Permission, createEmojiSchema, type EmojiListResponse } from '@harmony/shared';
+import {
+  GatewayEvent,
+  Permission,
+  createEmojiSchema,
+  type DiscordEmojiListResponse,
+  type EmojiImportResponse,
+  type EmojiListResponse,
+} from '@harmony/shared';
 import { requirePermission } from '../auth/plugin.ts';
+import type { EmojiImportService } from '../emojis/import.ts';
 import type { EmojiService, EmojiUpload } from '../emojis/service.ts';
 import { HttpError } from '../http/errors.ts';
 import { parseBody } from '../http/validation.ts';
@@ -9,6 +17,7 @@ import type { GatewayHub } from '../realtime/hub.ts';
 
 export interface EmojiRouteDeps {
   service: EmojiService;
+  importer: EmojiImportService;
   hub: GatewayHub;
 }
 
@@ -16,6 +25,32 @@ export function registerEmojiRoutes(app: FastifyInstance, deps: EmojiRouteDeps):
   app.get('/api/v1/emojis', async (request) => {
     requirePermission(request, Permission.ViewChannels);
     const body: EmojiListResponse = { emojis: deps.service.list() };
+    return body;
+  });
+
+  /** The linked Discord server's emoji, so an admin can see what an import would bring. */
+  app.get('/api/v1/emojis/discord', async (request) => {
+    requirePermission(request, Permission.ManageEmojis);
+    const body: DiscordEmojiListResponse = await deps.importer.discordEmojis();
+    return body;
+  });
+
+  /**
+   * Copies every guild emoji Harmony does not already have. Safe to run again:
+   * names that already exist are skipped, and each new emoji is announced on the
+   * gateway like a manual upload.
+   */
+  app.post('/api/v1/emojis/import', async (request) => {
+    const auth = requirePermission(request, Permission.ManageEmojis);
+    const outcome = await deps.importer.importMissing(auth);
+
+    for (const emoji of outcome.imported) deps.hub.dispatch(GatewayEvent.EmojiCreate, emoji);
+
+    const body: EmojiImportResponse = {
+      imported: outcome.imported.length,
+      skipped: outcome.skipped,
+      failed: outcome.failed,
+    };
     return body;
   });
 

@@ -1072,6 +1072,22 @@ try {
     (await req('/emojis', { token: ownerToken })).json?.emojis?.every((entry) => entry.name !== 'party') === true,
   );
 
+  // --- Discord emoji import, with no bridge configured ---
+  const discordEmoji = await req('/emojis/discord', { token: ownerToken });
+  check(
+    'the discord emoji preview reports no guild without a bridge',
+    discordEmoji.status === 200 && discordEmoji.json?.guildName === null && discordEmoji.json?.emojis?.length === 0,
+  );
+  check('member cannot preview discord emoji (403)', (await req('/emojis/discord', { token: bobToken })).status === 403);
+  check(
+    'importing with no bridge connected reports 503',
+    (await req('/emojis/import', { method: 'POST', token: ownerToken })).status === 503,
+  );
+  check(
+    'member cannot import discord emoji (403)',
+    (await req('/emojis/import', { method: 'POST', token: bobToken })).status === 403,
+  );
+
   // --- Retention and pruning ---
   const retention = await req('/retention', { token: ownerToken });
   check(

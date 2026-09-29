@@ -12,6 +12,7 @@ import { createAuditService } from './audit/service.ts';
 import { createSettingsService } from './settings/service.ts';
 import { createAttachmentService } from './attachments/service.ts';
 import { createEmojiService } from './emojis/service.ts';
+import { createEmojiImportService } from './emojis/import.ts';
 import { createUserService } from './users/service.ts';
 import { createMessageService } from './messages/service.ts';
 import { GatewayHub } from './realtime/hub.ts';
@@ -101,6 +102,13 @@ const bridge = createBridgeService({
   transportFactory: (token, logger) => createDiscordTransport(token, logger),
 });
 
+// Copies the linked guild's custom emoji in on demand from the emoji panel.
+const emojiImport = createEmojiImportService({
+  emojis: emojiService,
+  bridge,
+  log: (message, detail) => app.log.info(detail ?? {}, message),
+});
+
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1 } });
 await app.register(websocket);
@@ -122,7 +130,7 @@ registerChannelRoutes(app, { db, hub, bridge, settings: settingsService });
 registerMessageRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, attachmentService);
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
-registerEmojiRoutes(app, { service: emojiService, hub });
+registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
 registerUserRoutes(app, { db, users: userService });
 registerGateway(app, {
   heartbeatIntervalMs: GATEWAY_HEARTBEAT_MS,

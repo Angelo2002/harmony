@@ -135,6 +135,30 @@ export interface EmojiListResponse {
   emojis: Emoji[];
 }
 
+/** A custom emoji that exists in the linked Discord server. */
+export interface DiscordEmojiOption {
+  id: string;
+  name: string;
+  animated: boolean;
+  /** True when Harmony already has an emoji of this name. */
+  imported: boolean;
+}
+
+export interface DiscordEmojiListResponse {
+  /** The guild the bot is connected to, or null when the bridge is not running. */
+  guildName: string | null;
+  emojis: DiscordEmojiOption[];
+}
+
+/** How many Discord emoji an import created, skipped and could not read. */
+export interface EmojiImportResponse {
+  imported: number;
+  /** Already present in Harmony. */
+  skipped: number;
+  /** Could not be downloaded or stored, e.g. a bad name or an oversized file. */
+  failed: number;
+}
+
 /** When content is automatically deleted. `null` means "keep forever". */
 export interface RetentionSettings {
   /** Delete image attachments older than this many days. */

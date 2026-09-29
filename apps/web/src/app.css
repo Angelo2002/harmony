@@ -209,6 +209,11 @@ button.link:hover {
   font-size: 0.8rem;
 }
 
+/* A Discord emoji Harmony already has, so the import will skip it. */
+.chips li.imported {
+  opacity: 0.55;
+}
+
 .badge {
   margin-left: 0.4rem;
   padding: 0.1rem 0.45rem;

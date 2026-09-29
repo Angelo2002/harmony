@@ -1,19 +1,33 @@
 import type { FastifyInstance } from 'fastify';
-import { Permission, permissionsToString, type MemberListResponse, type MemberSummary } from '@harmony/shared';
+import {
+  GatewayEvent,
+  Permission,
+  permissionsToString,
+  type MemberListResponse,
+  type MemberSummary,
+} from '@harmony/shared';
 import { resolvePermissions } from '../auth/permissions.ts';
 import { requirePermission } from '../auth/plugin.ts';
 import type { Database } from '../db/index.ts';
 import { assignRole, findRole, listMemberRoles, unassignRole } from '../db/roles.ts';
-import { findUserById, listUsers, toUser } from '../db/users.ts';
+import { findUserById, listUsers, presentUser } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
+import type { GatewayHub } from '../realtime/hub.ts';
 
-export function registerMemberRoutes(app: FastifyInstance, db: Database): void {
+export interface MemberRouteDeps {
+  db: Database;
+  hub: GatewayHub;
+}
+
+export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps): void {
+  const { db, hub } = deps;
+
   app.get('/api/v1/members', async (request) => {
     requirePermission(request, Permission.ManageRoles);
     const rolesByUser = listMemberRoles(db.sqlite);
 
     const members: MemberSummary[] = listUsers(db.sqlite).map((row) => ({
-      user: toUser(row),
+      user: presentUser(db.sqlite, row),
       roleIds: rolesByUser.get(row.id) ?? [],
       permissions: permissionsToString(resolvePermissions(db.sqlite, row)),
     }));
@@ -37,6 +51,7 @@ export function registerMemberRoutes(app: FastifyInstance, db: Database): void {
     }
 
     assignRole(db.sqlite, userId, roleId);
+    hub.dispatch(GatewayEvent.MemberUpdate, { userId });
     return reply.status(204).send();
   });
 
@@ -45,6 +60,7 @@ export function registerMemberRoutes(app: FastifyInstance, db: Database): void {
     const { userId, roleId } = request.params as { userId: string; roleId: string };
 
     unassignRole(db.sqlite, userId, roleId);
+    hub.dispatch(GatewayEvent.MemberUpdate, { userId });
     return reply.status(204).send();
   });
 }

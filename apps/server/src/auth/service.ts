@@ -8,7 +8,7 @@ import {
   findUserById,
   findUserByUsername,
   insertUser,
-  toUser,
+  presentUser,
   type UserRow,
 } from '../db/users.ts';
 import {
@@ -91,7 +91,7 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
       const row = findUserById(sqlite, id);
       if (!row) throw new HttpError(500, 'internal_error', 'Failed to load the new account.');
 
-      return { user: toUser(row), token: issueSession(row, userAgent) };
+      return { user: presentUser(sqlite, row), token: issueSession(row, userAgent) };
     },
 
     async login(input, userAgent) {
@@ -103,7 +103,7 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
         throw new HttpError(401, 'invalid_credentials', 'Incorrect username or password.');
       }
 
-      return { user: toUser(row), token: issueSession(row, userAgent) };
+      return { user: presentUser(sqlite, row), token: issueSession(row, userAgent) };
     },
 
     logout(token) {
@@ -124,7 +124,7 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
 
       touchSession(sqlite, session.id);
       return {
-        user: toUser(row),
+        user: presentUser(sqlite, row),
         permissions: resolvePermissions(sqlite, row),
         sessionId: session.id,
         token,

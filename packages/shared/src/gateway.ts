@@ -23,6 +23,10 @@ export const GatewayEvent = {
   CategoryCreate: 'CATEGORY_CREATE',
   CategoryUpdate: 'CATEGORY_UPDATE',
   CategoryDelete: 'CATEGORY_DELETE',
+  RoleCreate: 'ROLE_CREATE',
+  RoleUpdate: 'ROLE_UPDATE',
+  RoleDelete: 'ROLE_DELETE',
+  MemberUpdate: 'MEMBER_UPDATE',
 } as const;
 export type GatewayEventName = (typeof GatewayEvent)[keyof typeof GatewayEvent];
 

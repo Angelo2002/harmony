@@ -12,6 +12,10 @@
       hasPermission(permissions, Permission.ManageRoles) ||
       hasPermission(permissions, Permission.ManageChannels),
   );
+  const myColor = $derived.by(() => {
+    const color = session.user?.roleColor;
+    return color == null ? null : `#${color.toString(16).padStart(6, '0')}`;
+  });
 
   async function logout(): Promise<void> {
     await api('/auth/logout', { method: 'POST' });
@@ -53,7 +57,7 @@
   </nav>
 
   <footer class="user-bar">
-    <span class="username">{session.user?.username}</span>
+    <span class="username" style={myColor ? `color: ${myColor}` : ''}>{session.user?.username}</span>
     <div class="user-actions">
       {#if canAdmin}
         <button class="link" type="button" onclick={() => ui.openAdmin()}>Admin</button>

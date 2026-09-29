@@ -107,3 +107,8 @@ export const updateSettingsSchema = z.object({
   requireInvite: z.boolean().optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+
+export const moveRoleSchema = z.object({
+  direction: z.enum(['up', 'down']),
+});
+export type MoveRoleInput = z.infer<typeof moveRoleSchema>;

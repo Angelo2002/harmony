@@ -20,11 +20,17 @@
     <p class="muted pad">No messages yet. Say hello!</p>
   {:else}
     {#each chat.messages as message (message.id)}
+      {@const authorColor =
+        message.author?.roleColor == null
+          ? null
+          : `#${message.author.roleColor.toString(16).padStart(6, '0')}`}
       <article class="message">
         <div class="avatar">{(message.author?.username ?? '?').charAt(0).toUpperCase()}</div>
         <div class="body">
           <div class="meta">
-            <span class="author">{message.author?.displayName ?? message.author?.username ?? 'Unknown'}</span>
+            <span class="author" style={authorColor ? `color: ${authorColor}` : ''}>
+              {message.author?.displayName ?? message.author?.username ?? 'Unknown'}
+            </span>
             <time>{formatTime(message.createdAt)}</time>
             {#if message.editedAt}<span class="edited">(edited)</span>{/if}
           </div>

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { User } from '@harmony/shared';
+import { getHighestRoleColor } from './roles.ts';
 
 export interface UserRow {
   id: string;
@@ -12,16 +13,22 @@ export interface UserRow {
   created_at: string;
 }
 
-export function toUser(row: UserRow): User {
+export function toUser(row: UserRow, roleColor: number | null): User {
   return {
     id: row.id,
     username: row.username,
     displayName: row.display_name,
     avatarHash: row.avatar_hash,
+    roleColor,
     isBot: row.is_bot === 1,
     isOwner: row.is_owner === 1,
     createdAt: row.created_at,
   };
+}
+
+/** A user DTO with their display colour resolved from their roles. */
+export function presentUser(sqlite: DatabaseSync, row: UserRow): User {
+  return toUser(row, getHighestRoleColor(sqlite, row.id));
 }
 
 export function countUsers(sqlite: DatabaseSync): number {

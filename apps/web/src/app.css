@@ -649,6 +649,35 @@ select {
   color: #fff;
 }
 
+.role-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.move {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: var(--h-bg-deep);
+  color: var(--h-text-muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.move:hover:not(:disabled) {
+  color: var(--h-text);
+  filter: none;
+}
+
+.move:disabled {
+  opacity: 0.35;
+}
+
 .swatch {
   display: inline-block;
   flex-shrink: 0;

@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import {
+  GatewayEvent,
   Permission,
   createRoleSchema,
   hasPermission,
+  moveRoleSchema,
   permissionsFromString,
   permissionsToString,
   updateRoleSchema,
@@ -18,6 +20,7 @@ import {
   findRole,
   insertRole,
   listRoles,
+  moveRole,
   nextRolePosition,
   toRole,
   updateRole,
@@ -25,8 +28,16 @@ import {
 } from '../db/roles.ts';
 import { HttpError } from '../http/errors.ts';
 import { parseBody } from '../http/validation.ts';
+import type { GatewayHub } from '../realtime/hub.ts';
 
-export function registerRoleRoutes(app: FastifyInstance, db: Database): void {
+export interface RoleRouteDeps {
+  db: Database;
+  hub: GatewayHub;
+}
+
+export function registerRoleRoutes(app: FastifyInstance, deps: RoleRouteDeps): void {
+  const { db, hub } = deps;
+
   function requireRoleRow(id: string): RoleRow {
     const row = findRole(db.sqlite, id);
     if (!row) throw new HttpError(404, 'role_not_found', 'That role does not exist.');
@@ -69,7 +80,9 @@ export function registerRoleRoutes(app: FastifyInstance, db: Database): void {
       createdAt: new Date().toISOString(),
     });
 
-    return toRole(requireRoleRow(id));
+    const role = toRole(requireRoleRow(id));
+    hub.dispatch(GatewayEvent.RoleCreate, role);
+    return role;
   });
 
   app.patch('/api/v1/roles/:id', async (request) => {
@@ -91,7 +104,27 @@ export function registerRoleRoutes(app: FastifyInstance, db: Database): void {
       mentionable: input.mentionable,
     });
 
-    return toRole(requireRoleRow(id));
+    const role = toRole(requireRoleRow(id));
+    hub.dispatch(GatewayEvent.RoleUpdate, role);
+    return role;
+  });
+
+  /** Moves a role one step up or down. Positions are display-only. */
+  app.post('/api/v1/roles/:id/move', async (request) => {
+    requirePermission(request, Permission.ManageRoles);
+    const { id } = request.params as { id: string };
+    const row = requireRoleRow(id);
+
+    if (row.is_default === 1) {
+      throw new HttpError(403, 'immutable_role', 'The @everyone role cannot be reordered.');
+    }
+
+    const input = parseBody(moveRoleSchema, request.body);
+    moveRole(db.sqlite, id, input.direction);
+
+    const body: RoleListResponse = { roles: listRoles(db.sqlite).map(toRole) };
+    hub.dispatch(GatewayEvent.RoleUpdate, { id });
+    return body;
   });
 
   app.delete('/api/v1/roles/:id', async (request, reply) => {
@@ -104,6 +137,7 @@ export function registerRoleRoutes(app: FastifyInstance, db: Database): void {
     }
 
     deleteRole(db.sqlite, id);
+    hub.dispatch(GatewayEvent.RoleDelete, { id });
     return reply.status(204).send();
   });
 }

@@ -389,6 +389,56 @@ try {
     (await req(`/roles/${roleId}`, { method: 'DELETE', token: ownerToken })).status === 204,
   );
 
+  // --- Username colours and role ordering ---
+  const red = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Red', color: 0xff0000 } });
+  const blue = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Blue', color: 0x0000ff } });
+  check('roles accept colours', red.json?.color === 0xff0000 && blue.json?.color === 0x0000ff);
+
+  await req(`/members/${bobId}/roles/${red.json?.id}`, { method: 'PUT', token: ownerToken });
+  await req(`/members/${bobId}/roles/${blue.json?.id}`, { method: 'PUT', token: ownerToken });
+
+  const bobColoured = await req('/auth/me', { token: bobToken });
+  check(
+    'the highest-positioned role decides the colour',
+    bobColoured.json?.user?.roleColor === 0x0000ff,
+    `got ${bobColoured.json?.user?.roleColor}`,
+  );
+
+  const reordered = await req(`/roles/${red.json?.id}/move`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { direction: 'up' },
+  });
+  check('moving a role reorders it', reordered.json?.roles?.[0]?.id === red.json?.id);
+
+  const bobAfterMove = await req('/auth/me', { token: bobToken });
+  check(
+    'the colour follows the new order',
+    bobAfterMove.json?.user?.roleColor === 0xff0000,
+    `got ${bobAfterMove.json?.user?.roleColor}`,
+  );
+
+  check(
+    '@everyone cannot be reordered (403)',
+    (
+      await req(`/roles/${everyoneRole.id}/move`, { method: 'POST', token: ownerToken, body: { direction: 'up' } })
+    ).status === 403,
+  );
+
+  const colourChannel = (await req('/channels', { token: bobToken })).json?.channels?.find(
+    (channel) => channel.name === 'general',
+  );
+  const colourMessage = await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: bobToken,
+    body: { content: 'colour check' },
+  });
+  check(
+    'message authors carry their role colour',
+    colourMessage.json?.author?.roleColor === 0xff0000,
+    `got ${colourMessage.json?.author?.roleColor}`,
+  );
+
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);
   check('session is dead after logout (401)', (await req('/auth/me', { cookie: login.cookie })).status === 401);
 } catch (error) {

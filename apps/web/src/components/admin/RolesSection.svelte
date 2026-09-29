@@ -103,6 +103,22 @@
     }
   }
 
+  async function move(role: Role, direction: 'up' | 'down'): Promise<void> {
+    busy = true;
+    error = null;
+    try {
+      const data = await api<RoleListResponse>(`/roles/${role.id}/move`, {
+        method: 'POST',
+        body: JSON.stringify({ direction }),
+      });
+      roles = data.roles;
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
   onMount(() => {
     void load().catch((cause: unknown) => {
       error = cause instanceof ApiError ? cause.message : String(cause);
@@ -122,13 +138,29 @@
 
   <div class="split">
     <ul class="rows">
-      {#each roles as role (role.id)}
-        <li>
+      {#each roles as role, index (role.id)}
+        <li class="role-item">
           <button type="button" class="row-main" class:active={role.id === selectedId} onclick={() => select(role)}>
             <span class="swatch" style={`background: ${roleColor(role.color)}`}></span>
             {role.name}
             {#if role.isDefault}<span class="muted">· default</span>{/if}
           </button>
+          {#if !role.isDefault}
+            <button
+              type="button"
+              class="move"
+              title="Move up"
+              disabled={busy || index === 0}
+              onclick={() => move(role, 'up')}>↑</button
+            >
+            <button
+              type="button"
+              class="move"
+              title="Move down"
+              disabled={busy || index === roles.length - 1}
+              onclick={() => move(role, 'down')}>↓</button
+            >
+          {/if}
         </li>
       {/each}
     </ul>

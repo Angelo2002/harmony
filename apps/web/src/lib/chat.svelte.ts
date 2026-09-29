@@ -103,6 +103,13 @@ class ChatStore {
       case 'CATEGORY_DELETE':
         void this.loadChannels();
         break;
+      case 'ROLE_CREATE':
+      case 'ROLE_UPDATE':
+      case 'ROLE_DELETE':
+      case 'MEMBER_UPDATE':
+        // Username colours may have changed; refresh the open channel.
+        if (this.activeChannelId) void this.loadHistory(this.activeChannelId);
+        break;
     }
   }
 }

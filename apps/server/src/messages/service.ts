@@ -20,7 +20,7 @@ import {
   updateMessageContent,
   type MessageRow,
 } from '../db/messages.ts';
-import { findUserById, toUser } from '../db/users.ts';
+import { findUserById, presentUser } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 
@@ -37,7 +37,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     return {
       id: row.id,
       channelId: row.channel_id,
-      author: authorRow ? toUser(authorRow) : null,
+      author: authorRow ? presentUser(sqlite, authorRow) : null,
       content: row.content,
       createdAt: row.created_at,
       editedAt: row.edited_at,

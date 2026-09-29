@@ -7,6 +7,12 @@ export interface User {
   username: string;
   displayName: string | null;
   avatarHash: string | null;
+  /**
+   * Colour of the user's highest-positioned coloured role, or null for the
+   * default text colour. Purely a display concern — it has no bearing on
+   * permissions.
+   */
+  roleColor: number | null;
   isBot: boolean;
   isOwner: boolean;
   createdAt: IsoTimestamp;

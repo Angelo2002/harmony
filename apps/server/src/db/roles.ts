@@ -165,3 +165,45 @@ export function assignRole(sqlite: DatabaseSync, userId: string, roleId: string)
 export function unassignRole(sqlite: DatabaseSync, userId: string, roleId: string): void {
   sqlite.prepare('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?').run(userId, roleId);
 }
+
+/**
+ * Colour of the highest-positioned role the user holds that defines a colour.
+ * `@everyone` counts, so a coloured default role applies to everyone.
+ */
+export function getHighestRoleColor(sqlite: DatabaseSync, userId: string): number | null {
+  const row = sqlite
+    .prepare(
+      `SELECT r.color AS color
+       FROM roles r
+       WHERE r.color IS NOT NULL
+         AND (r.is_default = 1 OR r.id IN (SELECT role_id FROM member_roles WHERE user_id = ?))
+       ORDER BY r.position DESC
+       LIMIT 1`,
+    )
+    .get(userId) as { color: number | null } | undefined;
+  return row?.color ?? null;
+}
+
+/**
+ * Swaps a role's position with its neighbour. Positions only order roles and
+ * decide username colour — they grant nothing — so this is safe to expose.
+ */
+export function moveRole(sqlite: DatabaseSync, id: string, direction: 'up' | 'down'): void {
+  const ordered = listRoles(sqlite); // highest position first
+  const index = ordered.findIndex((role) => role.id === id);
+  const current = ordered[index];
+  const neighbor = ordered[direction === 'up' ? index - 1 : index + 1];
+
+  if (!current || !neighbor) return;
+  if (neighbor.is_default === 1) return; // @everyone always stays at the bottom
+
+  sqlite.exec('BEGIN');
+  try {
+    sqlite.prepare('UPDATE roles SET position = ? WHERE id = ?').run(neighbor.position, current.id);
+    sqlite.prepare('UPDATE roles SET position = ? WHERE id = ?').run(current.position, neighbor.id);
+    sqlite.exec('COMMIT');
+  } catch (error) {
+    sqlite.exec('ROLLBACK');
+    throw error;
+  }
+}

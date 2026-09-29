@@ -937,7 +937,9 @@ password can be **written but never read**: no endpoint returns one, and only th
 
 Any account may be edited, including another administrator and the owner. The flat role model offers
 no hierarchy to fall back on, and it keeps the owner recoverable; every change is written to the
-[audit log](#audit-log) instead.
+[audit log](#audit-log) instead. The one exception is a Discord stand-in account, which the bridge
+creates and keeps in step: editing one returns `400 externally_managed`. Their roles are still
+managed like anyone else's.
 
 #### `PATCH /api/v1/members/:userId` — `ManageMembers`
 

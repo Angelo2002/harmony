@@ -218,7 +218,7 @@
         <strong>{member.user.displayName ?? member.user.username}</strong>
         {#if member.user.displayName}<span class="muted">@{member.user.username}</span>{/if}
         {#if member.user.isOwner}<span class="badge">owner</span>{/if}
-        {#if canEdit}
+        {#if canEdit && !member.user.isBot}
           <button
             type="button"
             class="member-edit-toggle"
@@ -229,7 +229,7 @@
         {/if}
       </div>
 
-      {#if canEdit && editingId === member.user.id}
+      {#if canEdit && !member.user.isBot && editingId === member.user.id}
         <form class="member-editor" onsubmit={(event) => saveEdit(event, member)}>
           <label>
             Username

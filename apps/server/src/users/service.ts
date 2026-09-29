@@ -52,6 +52,17 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
   }
 
   /**
+   * Discord stand-in accounts exist only because the bridge created them, and the
+   * bridge keeps their name and picture in step. Their roles are managed like
+   * anyone else's, but the profile itself is not ours to edit.
+   */
+  function assertEditable(row: UserRow): void {
+    if (row.is_bot === 1) {
+      throw new HttpError(400, 'externally_managed', 'Discord stand-in accounts are managed by the bridge.');
+    }
+  }
+
+  /**
    * Avatars are small and always shown at a fixed size, so they are normalised
    * to a square WebP. That keeps storage tiny and means we never have to store
    * a content type alongside them.
@@ -93,6 +104,7 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
 
     async adminUpdate(userId, patch) {
       const row = require(userId);
+      assertEditable(row);
 
       if (patch.username !== undefined && patch.username !== row.username) {
         const taken = findUserByUsername(sqlite, patch.username);
@@ -116,6 +128,7 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
 
     async updateAvatar(userId, file) {
       const row = require(userId);
+      assertEditable(row);
 
       if (!ALLOWED_IMAGE_TYPES.includes(file.contentType as ImageContentType)) {
         throw new HttpError(
@@ -154,6 +167,7 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
 
     clearAvatar(userId) {
       const row = require(userId);
+      assertEditable(row);
       updateUserProfile(sqlite, row.id, { avatarHash: null });
       return require(userId);
     },

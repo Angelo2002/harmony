@@ -7,7 +7,7 @@
 //
 // Run with: npm run smoke --workspace @harmony/server
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -18,6 +18,9 @@ import { listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminan
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
 import { tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
+import { Database } from '../src/db/index.ts';
+import { insertGhostUser } from '../src/db/users.ts';
+import { createUserService } from '../src/users/service.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8791;
@@ -1813,6 +1816,39 @@ try {
     'an administrator can clear a member picture',
     (await req(`/members/${editId}/avatar`, { method: 'DELETE', token: ownerToken })).status === 200,
   );
+
+  // A Discord stand-in account belongs to the bridge: its profile is not the
+  // admin panel's to edit, though its roles still are.
+  const ghostDir = mkdtempSync(join(tmpdir(), 'harmony-ghost-'));
+  const ghostStore = new Database({
+    dataDir: ghostDir,
+    dbFile: join(ghostDir, 'harmony.db'),
+    uploadDir: join(ghostDir, 'uploads'),
+  });
+  insertGhostUser(ghostStore.sqlite, {
+    id: 'ghost-account',
+    username: 'discordfan',
+    displayName: 'Discord Fan',
+    discordId: '999999',
+    createdAt: new Date().toISOString(),
+  });
+  const ghostUsers = createUserService(ghostStore.sqlite, {
+    dataDir: ghostDir,
+    uploadDir: join(ghostDir, 'uploads'),
+  });
+  let ghostEditError = null;
+  try {
+    await ghostUsers.adminUpdate('ghost-account', { displayName: 'Renamed' });
+  } catch (error) {
+    ghostEditError = error;
+  }
+  check(
+    'editing a discord stand-in account is refused',
+    ghostEditError?.statusCode === 400,
+    String(ghostEditError),
+  );
+  ghostStore.close();
+  rmSync(ghostDir, { recursive: true, force: true });
 
   // --- Audit log ---
   check('the audit log needs ManageServer (403)', (await req('/audit', { token: bobToken })).status === 403);

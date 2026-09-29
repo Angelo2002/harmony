@@ -22,6 +22,7 @@ import {
   type CategoryRow,
 } from '../db/categories.ts';
 import {
+  countChannelsInCategory,
   deleteChannel,
   findChannel,
   findChannelByDiscordId,
@@ -179,6 +180,13 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     requirePermission(request, Permission.ManageChannels);
     const { id } = request.params as { id: string };
     requireCategoryRow(id);
+
+    // Deleting a category would orphan its channels, which then show up in no
+    // category at all. Refuse instead, and let the admin move or delete them.
+    const orphans = countChannelsInCategory(db.sqlite, id);
+    if (orphans > 0) {
+      throw new HttpError(409, 'category_not_empty', 'Move or delete the channels in this category first.');
+    }
 
     deleteCategory(db.sqlite, id);
     hub.dispatch(GatewayEvent.CategoryDelete, { id });

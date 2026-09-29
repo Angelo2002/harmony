@@ -456,6 +456,35 @@ try {
     (await req('/settings', { token: ownerToken })).json?.defaultChannelId === null,
   );
 
+  // A category that still holds channels cannot be deleted, so nothing is orphaned.
+  const busyCategory = await req('/categories', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'busy-category' },
+  });
+  const busyChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'busy-channel', categoryId: busyCategory.json.id },
+  });
+  const refusedCategory = await req(`/categories/${busyCategory.json.id}`, {
+    method: 'DELETE',
+    token: ownerToken,
+  });
+  check(
+    'a non-empty category cannot be deleted (409)',
+    refusedCategory.status === 409 && refusedCategory.json?.error?.code === 'category_not_empty',
+    `status ${refusedCategory.status}`,
+  );
+
+  // Emptying it out allows the delete.
+  await req(`/channels/${busyChannel.json.id}`, { method: 'DELETE', token: ownerToken });
+  const emptiedCategory = await req(`/categories/${busyCategory.json.id}`, {
+    method: 'DELETE',
+    token: ownerToken,
+  });
+  check('an empty category can be deleted', emptiedCategory.status === 204, `status ${emptiedCategory.status}`);
+
   const patched = await req('/settings', {
     method: 'PATCH',
     token: ownerToken,

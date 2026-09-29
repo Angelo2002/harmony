@@ -135,3 +135,11 @@ export function setChannelWebhook(
 export function deleteChannel(sqlite: DatabaseSync, id: string): void {
   sqlite.prepare('DELETE FROM channels WHERE id = ?').run(id);
 }
+
+/** How many channels still live in a category, used to refuse deleting a busy one. */
+export function countChannelsInCategory(sqlite: DatabaseSync, categoryId: string): number {
+  const row = sqlite.prepare('SELECT COUNT(*) AS count FROM channels WHERE category_id = ?').get(categoryId) as {
+    count: number;
+  };
+  return row.count;
+}

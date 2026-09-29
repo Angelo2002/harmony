@@ -372,8 +372,9 @@ Returns the new `Category`, fires `CATEGORY_CREATE`.
 
 #### `DELETE /api/v1/categories/:id` — `ManageChannels`
 
-Returns `204`, fires `CATEGORY_DELETE` with `{ "id": "..." }`. Channels in the category become
-uncategorised.
+Returns `204`, fires `CATEGORY_DELETE` with `{ "id": "..." }`. A category that still holds
+channels cannot be deleted: the request is refused with `409 category_not_empty`. Move or delete its
+channels first.
 
 ### Messages
 

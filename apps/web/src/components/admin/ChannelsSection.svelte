@@ -176,6 +176,7 @@
   {/if}
 
   {#each categories as category (category.id)}
+    {@const isEmpty = channelsIn(category.id).length === 0}
     <div class="group">
       <div class="group-head">
         {#if editing?.kind === 'category' && editing.id === category.id}
@@ -191,6 +192,8 @@
           <button
             type="button"
             class="danger"
+            disabled={busy || !isEmpty}
+            title={isEmpty ? 'Delete this category' : 'Move or delete its channels first'}
             onclick={() => run(() => api(`/categories/${category.id}`, { method: 'DELETE' }))}>Delete</button
           >
         {/if}

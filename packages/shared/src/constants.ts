@@ -1,0 +1,21 @@
+/** Product-wide constants shared by the server, web client and bridge bot. */
+
+export const HARMONY_NAME = 'Harmony';
+
+/** Version prefix for all REST routes, e.g. `/api/v1`. */
+export const API_VERSION = 'v1';
+
+/** Bumped whenever the gateway event protocol changes incompatibly. */
+export const GATEWAY_VERSION = 1;
+
+/** Default heartbeat cadence for the gateway, in milliseconds. */
+export const GATEWAY_HEARTBEAT_MS = 45_000;
+
+/** Limits enforced by the API and mirrored by the UI. */
+export const LIMITS = {
+  username: { min: 2, max: 32 },
+  password: { min: 8, max: 200 },
+  channelName: { min: 1, max: 64 },
+  messageLength: 4_000,
+  attachmentsPerMessage: 10,
+} as const;

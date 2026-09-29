@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.npm-cache/
+
+# Runtime data: the SQLite database and uploaded files.
+data/
+
+# Local environment overrides.
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store

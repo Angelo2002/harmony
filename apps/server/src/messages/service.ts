@@ -61,6 +61,7 @@ export interface MessageService {
     content: string,
     attachmentIds: string[],
     replyToId: string | null,
+    createdAt?: string,
   ): Message;
   edit(auth: AuthContext, messageId: string, content: string): Message;
   /** Applies a bridged edit, without notifying the outbound listeners. */
@@ -188,6 +189,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     content: string,
     attachmentIds: string[],
     replyToId: string | null,
+    createdAt?: string,
   ): Message {
     // Uploads belong to the message that claims them; reject anything already
     // used or belonging to someone else.
@@ -208,7 +210,8 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       channelId,
       authorId,
       content,
-      createdAt: new Date().toISOString(),
+      // Imported history keeps its original Discord timestamp.
+      createdAt: createdAt ?? new Date().toISOString(),
       replyToId: resolveReplyTo(channelId, replyToId),
     });
     for (const attachmentId of attachmentIds) attachToMessage(sqlite, attachmentId, id);
@@ -267,7 +270,11 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
   return {
     history(channelId, query, viewerId) {
       requireChannel(channelId);
-      const rows = listMessages(sqlite, channelId, { limit: query.limit, before: query.before });
+      const rows = listMessages(sqlite, channelId, {
+        limit: query.limit,
+        before: query.before,
+        beforeId: query.beforeId,
+      });
       const ids = rows.map((row) => row.id);
       const byMessage = listAttachmentsForMessages(sqlite, ids);
       const reactions = listReactionsForMessages(sqlite, ids, viewerId);
@@ -286,9 +293,9 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       return message;
     },
 
-    createBridged(channelId, authorId, content, attachmentIds, replyToId) {
+    createBridged(channelId, authorId, content, attachmentIds, replyToId, createdAt) {
       requireChannel(channelId);
-      const message = insertWithAttachments(channelId, authorId, content, attachmentIds, replyToId);
+      const message = insertWithAttachments(channelId, authorId, content, attachmentIds, replyToId, createdAt);
       // Broadcast to clients, but do not announce: this came from Discord and
       // must not be mirrored straight back.
       hub.dispatch(GatewayEvent.MessageCreate, message);

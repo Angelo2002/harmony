@@ -10,6 +10,7 @@ import {
   type ChannelListResponse,
 } from '@harmony/shared';
 import { requirePermission } from '../auth/plugin.ts';
+import type { BridgeService } from '../bridge/service.ts';
 import {
   deleteCategory,
   findCategory,
@@ -39,10 +40,20 @@ import type { GatewayHub } from '../realtime/hub.ts';
 export interface ChannelRouteDeps {
   db: Database;
   hub: GatewayHub;
+  bridge: BridgeService;
 }
 
 export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDeps): void {
   const { db, hub } = deps;
+
+  /**
+   * Best effort: pull the Discord channel's recent history once it is linked, so
+   * a new bridge does not start out empty. It is idempotent, and a disabled
+   * bridge simply fails here and is ignored.
+   */
+  function backfill(channelId: string): void {
+    void deps.bridge.importChannel(channelId).catch(() => undefined);
+  }
 
   function requireChannelRow(id: string): ChannelRow {
     const row = findChannel(db.sqlite, id);
@@ -96,6 +107,7 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
 
     const channel = toChannel(requireChannelRow(id));
     hub.dispatch(GatewayEvent.ChannelCreate, channel);
+    if (channel.discordChannelId) backfill(channel.id);
     return channel;
   });
 
@@ -118,6 +130,7 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
 
     const channel = toChannel(requireChannelRow(id));
     hub.dispatch(GatewayEvent.ChannelUpdate, channel);
+    if (input.discordChannelId) backfill(channel.id);
     return channel;
   });
 

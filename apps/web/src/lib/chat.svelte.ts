@@ -13,6 +13,9 @@ import { members } from './members.svelte';
 import { session } from './session.svelte';
 import { GatewayClient, type GatewayFrame } from './gateway';
 
+/** How many messages one history page holds, for both directions. */
+const historyPageSize = 50;
+
 /** Merges a single reaction event into a message's reaction list. */
 function applyReactionDelta(
   reactions: Reaction[],
@@ -51,6 +54,9 @@ class ChatStore {
   activeChannelId = $state<string | null>(null);
   messages = $state<Message[]>([]);
   loading = $state(false);
+  /** Whether older messages exist beyond the oldest one loaded. */
+  hasMore = $state(false);
+  loadingOlder = $state(false);
   /** The message the composer is currently replying to, if any. */
   replyTarget = $state<Message | null>(null);
 
@@ -83,6 +89,8 @@ class ChatStore {
     this.messages = [];
     this.activeChannelId = null;
     this.replyTarget = null;
+    this.hasMore = false;
+    this.loadingOlder = false;
   }
 
   async loadChannels(): Promise<void> {
@@ -98,6 +106,8 @@ class ChatStore {
   async selectChannel(channelId: string | null): Promise<void> {
     this.activeChannelId = channelId;
     this.messages = [];
+    this.hasMore = false;
+    this.loadingOlder = false;
     this.replyTarget = null;
     if (channelId) await this.loadHistory(channelId);
   }
@@ -105,10 +115,40 @@ class ChatStore {
   async loadHistory(channelId: string): Promise<void> {
     this.loading = true;
     try {
-      const data = await api<{ messages: Message[] }>(`/channels/${channelId}/messages`);
-      if (channelId === this.activeChannelId) this.messages = data.messages;
+      const data = await api<{ messages: Message[] }>(`/channels/${channelId}/messages?limit=${historyPageSize}`);
+      if (channelId === this.activeChannelId) {
+        this.messages = data.messages;
+        this.hasMore = data.messages.length >= historyPageSize;
+      }
     } finally {
       this.loading = false;
+    }
+  }
+
+  /**
+   * Fetches the page of messages just before the oldest one loaded and prepends
+   * it. The cursor is the oldest message's timestamp together with its id, so a
+   * burst of messages sharing a millisecond is never skipped.
+   */
+  async loadOlder(): Promise<void> {
+    const channelId = this.activeChannelId;
+    const oldest = this.messages[0];
+    if (!channelId || !oldest || this.loadingOlder || !this.hasMore) return;
+
+    this.loadingOlder = true;
+    try {
+      const query = new URLSearchParams({
+        limit: String(historyPageSize),
+        before: oldest.createdAt,
+        beforeId: oldest.id,
+      });
+      const data = await api<{ messages: Message[] }>(`/channels/${channelId}/messages?${query}`);
+      // A channel switch while this was in flight must not splice in old history.
+      if (channelId !== this.activeChannelId) return;
+      this.messages = [...data.messages, ...this.messages];
+      this.hasMore = data.messages.length >= historyPageSize;
+    } finally {
+      this.loadingOlder = false;
     }
   }
 
@@ -160,7 +200,19 @@ class ChatStore {
     switch (frame.t) {
       case 'MESSAGE_CREATE': {
         const message = frame.d as Message;
-        if (message.channelId === this.activeChannelId) this.messages = [...this.messages, message];
+        if (message.channelId !== this.activeChannelId) break;
+        if (this.messages.some((existing) => existing.id === message.id)) break;
+        // A history import can deliver older messages, so insert by timestamp
+        // rather than always appending, keeping the list chronological.
+        const next = [...this.messages];
+        let index = next.length;
+        while (index > 0) {
+          const previous = next[index - 1];
+          if (!previous || previous.createdAt <= message.createdAt) break;
+          index--;
+        }
+        next.splice(index, 0, message);
+        this.messages = next;
         break;
       }
       case 'MESSAGE_UPDATE': {

@@ -379,13 +379,17 @@ Returns up to 100 messages in ascending order (oldest first).
 | Query | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `limit` | integer 1–100 | 50 | |
-| `before` | ISO 8601 string | — | Return messages created strictly before this time |
+| `before` | ISO 8601 string | — | Return messages older than this timestamp |
+| `beforeId` | string | — | Id of the message `before` came from |
 
 ```json
 { "messages": [ /* Message */ ] }
 ```
 
-`before` is how you page backwards: pass the `createdAt` of the oldest message you have.
+To page backwards, pass the `createdAt` **and** the `id` of the oldest message you already have as
+`before` and `beforeId`. The id matters: `createdAt` only has millisecond precision, so a burst of
+messages (a bridge history import, for instance) can share a timestamp, and a timestamp-only cursor
+would skip the rest of that millisecond.
 
 #### `POST /api/v1/channels/:id/messages` — `SendMessages`
 
@@ -736,6 +740,22 @@ Discord text channels the bot can see, for linking to a Harmony channel.
 
 Sends a test message to the linked Discord channel so an administrator can verify the setup.
 Returns `{ "ok": true }`, or `502 bridge_test_failed` with Discord's own error message.
+
+#### `POST /api/v1/bridge/import` — `ManageServer`
+
+```json
+{ "channelId": "<harmony channel id>", "limit": 50 }
+```
+
+Pulls the most recent Discord messages into a bridged channel, oldest first, keeping their original
+timestamps, authors, attachments, replies and mentions. Linking a channel already triggers this,
+and the bridge backfills every bridged channel when it connects, so this endpoint is for pulling
+history again on demand. `limit` defaults to 50 (1–100). Messages already imported are recognised
+by their Discord id and skipped, so it is safe to call repeatedly. Returns
+`{ "imported": 2 }` with how many new messages landed.
+
+Note that imported messages carry their original (possibly old) timestamps, so a retention rule that
+deletes old messages will apply to them.
 
 ## The gateway (WebSocket)
 

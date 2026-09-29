@@ -98,8 +98,13 @@ export type ReactionQuery = z.infer<typeof reactionQuerySchema>;
 
 export const messageHistoryQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  /** Return messages strictly older than this ISO timestamp. */
+  /** Return messages created strictly before this ISO timestamp. */
   before: z.string().optional(),
+  /**
+   * Id of the message `before` came from. Together they form a cursor that does
+   * not skip messages sharing the boundary millisecond.
+   */
+  beforeId: z.string().optional(),
 });
 export type MessageHistoryQuery = z.infer<typeof messageHistoryQuerySchema>;
 
@@ -180,6 +185,14 @@ export const bridgeTestSchema = z.object({
   channelId: z.string().min(1),
 });
 export type BridgeTestInput = z.infer<typeof bridgeTestSchema>;
+
+/** Pull recent Discord history into a bridged channel. */
+export const bridgeImportSchema = z.object({
+  channelId: z.string().min(1),
+  /** How many recent Discord messages to pull, 1-100. */
+  limit: z.number().int().min(1).max(100).optional(),
+});
+export type BridgeImportInput = z.infer<typeof bridgeImportSchema>;
 
 export const updateProfileSchema = z.object({
   /** `null` (or an empty string) clears it and falls back to the username. */

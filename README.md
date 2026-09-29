@@ -75,7 +75,9 @@ and a Discord `<:YES:id>` tag is turned back into `:YES:` on the way in, renderi
 emoji of the same name. Reactions work both ways too. Mentions sync as well: a Discord `<@id>`
 becomes a Harmony `@username` (creating a stand-in account if needed), and mentioning a bridged
 user in Harmony pings them on Discord — only bridged users can ever be pinged, so no stray
-notification escapes. Two limitations come from mirroring through a single app account: Discord
+notification escapes. Linking a channel, or starting the bridge, backfills the Discord channel's
+recent history (bounded, idempotent, oldest first); there is also an **Admin → Bridge** button to
+pull it again on demand. Two limitations come from mirroring through a single app account: Discord
 webhooks cannot post real replies, so a Harmony reply is mirrored as a quoted line, and Discord
 has no webhook reaction route at all, so the bot places reactions itself — they appear as the
 bot, and one reaction stands in for however many Harmony users reacted.

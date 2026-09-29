@@ -58,8 +58,9 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
     logger.info('discord bridge connected', { botTag: status.botTag, guildName: status.guildName });
   });
 
-  client.on(Events.MessageCreate, (message) => {
-    const incoming: DiscordIncomingMessage = {
+  /** Maps a discord.js message onto the shape the bridge works with. */
+  function toIncomingMessage(message: DiscordMessage): DiscordIncomingMessage {
+    return {
       id: message.id,
       channelId: message.channelId,
       authorId: message.author.id,
@@ -73,6 +74,7 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
         id: user.id,
         name: message.mentions.members?.get(user.id)?.displayName ?? user.globalName ?? user.username,
       })),
+      createdAt: message.createdAt.toISOString(),
       content: message.content,
       attachments: [...message.attachments.values()].map((attachment) => ({
         url: attachment.url,
@@ -83,6 +85,10 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       // Webhook messages are ours; never echo them back.
       fromBot: message.author.bot || message.webhookId !== null,
     };
+  }
+
+  client.on(Events.MessageCreate, (message) => {
+    const incoming = toIncomingMessage(message);
     for (const handler of createdHandlers) handler(incoming);
   });
 
@@ -365,6 +371,16 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Discord returned ${response.status} for an attachment`);
       return Buffer.from(await response.arrayBuffer());
+    },
+
+    async fetchRecentMessages(channelId, limit) {
+      const channel = await client.channels.fetch(channelId).catch(() => null);
+      if (!channel || channel.type !== ChannelType.GuildText) return [];
+
+      const fetched = await channel.messages.fetch({ limit: Math.min(Math.max(limit, 1), 100) });
+      // Discord returns newest first; importing oldest first keeps a reply after
+      // the message it answers.
+      return [...fetched.values()].map(toIncomingMessage).reverse();
     },
   };
 }

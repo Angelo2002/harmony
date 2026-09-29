@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import {
   Permission,
+  bridgeImportSchema,
   bridgeTestSchema,
   updateBridgeSchema,
+  type BridgeImportResponse,
   type BridgeResponse,
   type DiscordChannelListResponse,
 } from '@harmony/shared';
@@ -53,5 +55,13 @@ export function registerBridgeRoutes(app: FastifyInstance, deps: BridgeRouteDeps
     }
 
     return { ok: true };
+  });
+
+  /** Pulls recent Discord history into a bridged channel. Idempotent. */
+  app.post('/api/v1/bridge/import', async (request) => {
+    requirePermission(request, Permission.ManageServer);
+    const input = parseBody(bridgeImportSchema, request.body);
+    const body: BridgeImportResponse = { imported: await deps.bridge.importChannel(input.channelId, input.limit) };
+    return body;
   });
 }

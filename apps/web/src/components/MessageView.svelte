@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { Permission, hasPermission, type Message } from '@harmony/shared';
   import { ApiError } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
@@ -10,6 +11,12 @@
   import EmojiPicker from './EmojiPicker.svelte';
 
   let scroller = $state<HTMLDivElement | null>(null);
+  /** Whether the view is still pinned to the newest message. */
+  let atBottom = $state(true);
+  /** Ids of the first and last rendered messages, to tell appends from prepends. */
+  let firstId: string | null = null;
+  let lastId: string | null = null;
+  let watchedChannelId: string | null = null;
   /** The message whose reaction picker is open, if any. */
   let pickerFor = $state<string | null>(null);
   /** The message currently being edited, and its draft text. */
@@ -86,15 +93,60 @@
     }
   }
 
-  // Keep the newest message in view as messages arrive.
+  function onScroll(): void {
+    const element = scroller;
+    if (!element) return;
+    atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 60;
+    if (element.scrollTop < 80) void loadOlder();
+  }
+
+  /** Loads an older page while holding the messages already on screen in place. */
+  async function loadOlder(): Promise<void> {
+    const element = scroller;
+    if (!element) return;
+
+    const previousHeight = element.scrollHeight;
+    const previousTop = element.scrollTop;
+    await chat.loadOlder();
+    await tick();
+
+    // The prepend made the list taller; keep the viewport over the same message.
+    const grown = element.scrollHeight - previousHeight;
+    if (grown > 0) element.scrollTop = previousTop + grown;
+  }
+
+  // Follow the newest message, but never yank the view when older pages load.
   $effect(() => {
-    if (chat.messages.length > 0) scroller?.scrollTo({ top: scroller.scrollHeight });
+    const element = scroller;
+    const channelId = chat.activeChannelId;
+    const newest = chat.messages.at(-1)?.id ?? null;
+    const oldest = chat.messages[0]?.id ?? null;
+
+    if (channelId !== watchedChannelId) {
+      watchedChannelId = channelId;
+      firstId = null;
+      lastId = null;
+    }
+
+    const prepended = firstId !== null && oldest !== firstId;
+    const previousNewest = lastId;
+    firstId = oldest;
+    lastId = newest;
+
+    if (!element || prepended) return;
+    if (newest !== null && newest !== previousNewest && (previousNewest === null || atBottom)) {
+      element.scrollTo({ top: element.scrollHeight });
+    }
   });
 </script>
 
-<div class="messages" bind:this={scroller}>
+<div class="messages" bind:this={scroller} onscroll={onScroll}>
   {#if actionError}
     <p class="form-error pad">{actionError}</p>
+  {/if}
+
+  {#if chat.loadingOlder}
+    <p class="muted pad">Loading older messages…</p>
   {/if}
 
   {#if chat.loading}

@@ -155,3 +155,8 @@ export interface DiscordChannelListResponse {
   guildName: string | null;
   channels: DiscordChannelOption[];
 }
+
+/** How many Discord messages a history import pulled in. */
+export interface BridgeImportResponse {
+  imported: number;
+}

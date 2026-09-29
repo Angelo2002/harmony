@@ -89,7 +89,7 @@ registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
 registerMemberRoutes(app, { db, hub, moderation: moderationService });
 registerInviteRoutes(app, db);
-registerChannelRoutes(app, { db, hub });
+registerChannelRoutes(app, { db, hub, bridge });
 registerMessageRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, attachmentService);
 registerEmojiRoutes(app, { service: emojiService, hub });

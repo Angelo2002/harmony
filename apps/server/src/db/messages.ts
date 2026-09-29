@@ -36,28 +36,45 @@ export function findMessage(sqlite: DatabaseSync, id: string): MessageRow | null
 
 /**
  * Returns the newest `limit` messages for a channel in ascending order.
- * `rowid` breaks ties so messages sent within the same millisecond keep order.
+ *
+ * Paging backwards takes a cursor of the oldest message you have: its
+ * `createdAt` plus its id. The id matters because `created_at` only has
+ * millisecond precision — a burst of messages (a bridge history import, say) can
+ * share a timestamp, and a timestamp-only cursor would skip the rest of that
+ * millisecond. `rowid` ties them back to insertion order.
  */
 export function listMessages(
   sqlite: DatabaseSync,
   channelId: string,
-  options: { limit: number; before?: string },
+  options: { limit: number; before?: string; beforeId?: string },
 ): MessageRow[] {
-  const rows = options.before
-    ? sqlite
-        .prepare(
-          `SELECT * FROM messages
-           WHERE channel_id = ? AND deleted_at IS NULL AND created_at < ?
-           ORDER BY created_at DESC, rowid DESC LIMIT ?`,
-        )
-        .all(channelId, options.before, options.limit)
-    : sqlite
-        .prepare(
-          `SELECT * FROM messages
-           WHERE channel_id = ? AND deleted_at IS NULL
-           ORDER BY created_at DESC, rowid DESC LIMIT ?`,
-        )
-        .all(channelId, options.limit);
+  const { limit, before, beforeId } = options;
+
+  const rows =
+    before && beforeId
+      ? sqlite
+          .prepare(
+            `SELECT * FROM messages
+             WHERE channel_id = ? AND deleted_at IS NULL
+               AND (created_at < ? OR (created_at = ? AND rowid < (SELECT rowid FROM messages WHERE id = ?)))
+             ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+          )
+          .all(channelId, before, before, beforeId, limit)
+      : before
+        ? sqlite
+            .prepare(
+              `SELECT * FROM messages
+               WHERE channel_id = ? AND deleted_at IS NULL AND created_at < ?
+               ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+            )
+            .all(channelId, before, limit)
+        : sqlite
+            .prepare(
+              `SELECT * FROM messages
+               WHERE channel_id = ? AND deleted_at IS NULL
+               ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+            )
+            .all(channelId, limit);
 
   return (rows as unknown as MessageRow[]).reverse();
 }

@@ -21,7 +21,7 @@ import {
   findBridgeMessageByHarmonyId,
   insertBridgeMessage,
 } from '../db/bridge.ts';
-import { findChannel, findChannelByDiscordId, setChannelWebhook, type ChannelRow } from '../db/channels.ts';
+import { findChannel, findChannelByDiscordId, listChannels, setChannelWebhook, type ChannelRow } from '../db/channels.ts';
 import { findEmojiByName } from '../db/emojis.ts';
 import { findUserByDiscordId, findUserByUsername, insertGhostUser, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
@@ -52,6 +52,8 @@ export interface BridgeService {
   /** Starts, stops or restarts the bot to match the saved settings. */
   applySettings(): Promise<void>;
   listDiscordChannels(): Promise<DiscordChannelListResponse>;
+  /** Pulls recent Discord history into a bridged channel; returns how many. */
+  importChannel(channelId: string, limit?: number): Promise<number>;
   /** Sends a test message so an admin can verify a mapping and see any error. */
   testMirror(channelId: string): Promise<void>;
   shutdown(): Promise<void>;
@@ -468,13 +470,15 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     }
   }
 
-  async function ingest(message: DiscordIncomingMessage): Promise<void> {
+  async function ingest(message: DiscordIncomingMessage): Promise<boolean> {
     const active = transport;
     // Ignore bots, including our own mirrored webhook messages.
-    if (!active || message.fromBot) return;
+    if (!active || message.fromBot) return false;
+    // Already bridged: a live event and a history import can race here.
+    if (findBridgeMessageByDiscordId(deps.sqlite, message.id)) return false;
 
     const channel = findChannelByDiscordId(deps.sqlite, message.channelId);
-    if (!channel) return;
+    if (!channel) return false;
 
     const author = resolveGhostUser(message.authorId, message.authorName);
     await mirrorGhostAvatar(active, author, message);
@@ -494,19 +498,73 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     ]
       .filter((part) => part.trim().length > 0)
       .join('\n');
-    if (!content && attachmentIds.length === 0) return;
+    if (!content && attachmentIds.length === 0) return false;
 
     // A Discord reply becomes a real Harmony reply when the parent was bridged.
     const replyToId = message.replyToDiscordId
       ? (findBridgeMessageByDiscordId(deps.sqlite, message.replyToDiscordId)?.harmony_message_id ?? null)
       : null;
 
-    const created = deps.messages.createBridged(channel.id, author.id, content, attachmentIds, replyToId);
+    const created = deps.messages.createBridged(
+      channel.id,
+      author.id,
+      content,
+      attachmentIds,
+      replyToId,
+      message.createdAt,
+    );
     insertBridgeMessage(deps.sqlite, {
       harmonyMessageId: created.id,
       discordMessageId: message.id,
       createdAt: new Date().toISOString(),
     });
+    return true;
+  }
+
+  /** How many recent Discord messages a plain backfill pulls in. */
+  const HISTORY_IMPORT_LIMIT = 50;
+
+  /**
+   * Pulls recent Discord history into a bridged channel. Messages already known
+   * are skipped by their Discord id, so this is safe to run on every link, on
+   * startup and on demand.
+   */
+  async function importChannel(channelId: string, requestedLimit?: number): Promise<number> {
+    const active = transport;
+    if (!active) {
+      throw new HttpError(400, 'bridge_offline', 'The bridge is not connected. Save a token and enable it.');
+    }
+
+    const channel = findChannel(deps.sqlite, channelId);
+    if (!channel) throw new HttpError(404, 'channel_not_found', 'That channel does not exist.');
+    if (!channel.discord_channel_id) {
+      throw new HttpError(400, 'channel_not_bridged', 'That channel is not linked to a Discord channel.');
+    }
+
+    const limit = Math.min(Math.max(requestedLimit ?? HISTORY_IMPORT_LIMIT, 1), 100);
+    const messages = await active.fetchRecentMessages(channel.discord_channel_id, limit);
+
+    let imported = 0;
+    for (const message of messages) {
+      if (await ingest(message)) imported++;
+    }
+    if (imported > 0) logger.info('imported discord history', { channelId, imported });
+    return imported;
+  }
+
+  /** Backfills every bridged channel, best effort, without blocking startup. */
+  async function importAllBridged(): Promise<void> {
+    for (const channel of listChannels(deps.sqlite)) {
+      if (!channel.discord_channel_id) continue;
+      try {
+        await importChannel(channel.id);
+      } catch (error) {
+        logger.debug('could not import discord history', {
+          channelId: channel.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 
   async function ingestEdit(edit: DiscordIncomingEdit): Promise<void> {
@@ -618,12 +676,16 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       });
       activeToken = desired;
       await transport.start();
+      // Backfill any history we have not seen yet, without blocking startup.
+      void importAllBridged();
     },
 
     async listDiscordChannels() {
       if (!transport) return { guildName: null, channels: [] };
       return transport.listTextChannels();
     },
+
+    importChannel,
 
     async testMirror(channelId) {
       const channel = findChannel(deps.sqlite, channelId);

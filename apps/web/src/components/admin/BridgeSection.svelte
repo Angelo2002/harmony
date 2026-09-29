@@ -1,6 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { BridgeResponse, Channel, ChannelListResponse, DiscordChannelListResponse } from '@harmony/shared';
+  import type {
+    BridgeImportResponse,
+    BridgeResponse,
+    Channel,
+    ChannelListResponse,
+    DiscordChannelListResponse,
+  } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
 
   let status = $state<BridgeResponse | null>(null);
@@ -12,6 +18,9 @@
   let testChannelId = $state('');
   let testResult = $state<string | null>(null);
   let testOk = $state(false);
+  let importChannelId = $state('');
+  let importResult = $state<string | null>(null);
+  let importOk = $state(false);
   let error = $state<string | null>(null);
   let message = $state<string | null>(null);
   let busy = $state(false);
@@ -65,6 +74,29 @@
       message = 'Token cleared.';
     } catch (cause) {
       fail(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function importHistory(): Promise<void> {
+    if (!importChannelId) return;
+    busy = true;
+    error = null;
+    importResult = null;
+    try {
+      const result = await api<BridgeImportResponse>('/bridge/import', {
+        method: 'POST',
+        body: JSON.stringify({ channelId: importChannelId }),
+      });
+      importOk = true;
+      importResult =
+        result.imported === 0
+          ? 'Nothing new to import — that channel is already up to date.'
+          : `Imported ${result.imported} message${result.imported === 1 ? '' : 's'}.`;
+    } catch (cause) {
+      importOk = false;
+      importResult = cause instanceof ApiError ? cause.message : String(cause);
     } finally {
       busy = false;
     }
@@ -183,6 +215,26 @@
     </div>
     {#if testResult}
       <p class={testOk ? 'ok-text' : 'form-error'}>{testResult}</p>
+    {/if}
+  </div>
+
+  <div class="panel">
+    <h2>Import history</h2>
+    <p class="muted">
+      Newly linked channels backfill automatically, but you can also pull a bridged channel's recent
+      Discord messages on demand. Anything already imported is skipped, so it is safe to run again.
+    </p>
+    <div class="inline">
+      <select bind:value={importChannelId}>
+        <option value="">Pick a bridged Harmony channel…</option>
+        {#each harmonyChannels.filter((channel) => channel.discordChannelId) as channel (channel.id)}
+          <option value={channel.id}>#{channel.name}</option>
+        {/each}
+      </select>
+      <button type="button" onclick={importHistory} disabled={busy || !importChannelId}>Import recent messages</button>
+    </div>
+    {#if importResult}
+      <p class={importOk ? 'ok-text' : 'form-error'}>{importResult}</p>
     {/if}
   </div>
 

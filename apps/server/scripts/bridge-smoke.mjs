@@ -45,6 +45,7 @@ function createFakeTransport() {
     reactionRemoved: [],
     reactionCleared: [],
     guildEmojis: [{ id: '700', name: 'YES', animated: false }],
+    recentMessages: [],
     downloadBytes: null,
     downloads: [],
   };
@@ -84,6 +85,9 @@ function createFakeTransport() {
     async guildEmojis() {
       return state.guildEmojis;
     },
+    async fetchRecentMessages() {
+      return state.recentMessages;
+    },
     async addReaction(input) {
       state.reactions.push({ kind: 'add', ...input });
     },
@@ -106,7 +110,9 @@ function createFakeTransport() {
     },
     emit(message) {
       // Message fields the tests omit default to sensible values.
-      for (const handler of state.created) handler({ mentions: [], ...message });
+      for (const handler of state.created) {
+        handler({ mentions: [], createdAt: new Date().toISOString(), ...message });
+      }
     },
     emitEdit(edit) {
       for (const handler of state.edited) handler(edit);
@@ -386,6 +392,50 @@ try {
       transport.state.reactions.at(-1)?.emoji === encodeURIComponent('🔥'),
     String(transport.state.reactions.at(-1)?.emoji),
   );
+
+  // 7i. Importing a channel backfills recent Discord history, idempotently.
+  transport.state.recentMessages = [
+    {
+      id: 'h1',
+      channelId: '111',
+      authorId: '888',
+      authorName: 'Discord History',
+      authorAvatarUrl: null,
+      replyToDiscordId: null,
+      mentions: [],
+      createdAt: '2024-01-01T10:00:00.000Z',
+      content: 'the first ever message',
+      attachments: [],
+      fromBot: false,
+    },
+    {
+      id: 'h2',
+      channelId: '111',
+      authorId: '888',
+      authorName: 'Discord History',
+      authorAvatarUrl: null,
+      replyToDiscordId: 'h1',
+      mentions: [],
+      createdAt: '2024-01-01T10:01:00.000Z',
+      content: 'and a reply',
+      attachments: [],
+      fromBot: false,
+    },
+  ];
+
+  check('an import pulls in discord history', (await bridge.importChannel(channelId)) === 2);
+  const importedHistory = messages.history(channelId, { limit: 100 }, userId).messages;
+  check(
+    'imported messages keep their original timestamp',
+    importedHistory.some(
+      (message) => message.content === 'the first ever message' && message.createdAt === '2024-01-01T10:00:00.000Z',
+    ),
+  );
+  check(
+    'an imported reply links to its parent',
+    importedHistory.find((message) => message.content === 'and a reply')?.replyTo?.content === 'the first ever message',
+  );
+  check('importing again adds nothing', (await bridge.importChannel(channelId)) === 0);
 
   // 7e. Reactions flow back in, and are attributed to a ghost user.
   const targetDiscordId = findBridgeMessageByHarmonyId(db.sqlite, target.id)?.discord_message_id;

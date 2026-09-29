@@ -25,6 +25,8 @@ export interface DiscordIncomingMessage {
   replyToDiscordId: string | null;
   /** Users mentioned in the message, for rewriting `<@id>` mentions. */
   mentions: DiscordMention[];
+  /** When the message was sent, ISO 8601. Imported history keeps this. */
+  createdAt: string;
   content: string;
   attachments: DiscordIncomingAttachment[];
   /** True for any bot, including our own webhook mirrors. Never re-bridged. */
@@ -147,4 +149,9 @@ export interface DiscordTransport {
   removeReaction(input: ReactionInput): Promise<void>;
   /** Fetches an attachment's bytes from the Discord CDN. */
   download(url: string): Promise<Buffer>;
+  /**
+   * The most recent messages in a Discord channel, oldest first, for backfilling
+   * a newly linked channel. Bots and webhooks are included; the caller filters.
+   */
+  fetchRecentMessages(channelId: string, limit: number): Promise<DiscordIncomingMessage[]>;
 }

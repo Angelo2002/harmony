@@ -291,6 +291,30 @@ try {
       })).json?.reactions?.length === 0,
     );
 
+    // --- Pagination ---
+    await req(`/channels/${general.id}/messages`, { method: 'POST', token: ownerToken, body: { content: 'page one' } });
+    await req(`/channels/${general.id}/messages`, { method: 'POST', token: ownerToken, body: { content: 'page two' } });
+    await req(`/channels/${general.id}/messages`, { method: 'POST', token: ownerToken, body: { content: 'page three' } });
+
+    const newestPage = await req(`/channels/${general.id}/messages?limit=2`, { token: ownerToken });
+    const boundary = newestPage.json?.messages?.[0];
+    check(
+      'history pages from the newest message',
+      newestPage.json?.messages?.length === 2 && newestPage.json?.messages?.at(-1)?.content === 'page three',
+    );
+    const olderPage = await req(
+      `/channels/${general.id}/messages?limit=2&before=${encodeURIComponent(boundary?.createdAt)}&beforeId=${boundary?.id}`,
+      { token: ownerToken },
+    );
+    check(
+      'the cursor returns the messages before it',
+      olderPage.json?.messages?.some((message) => message.content === 'page one') === true,
+    );
+    check(
+      'the cursor does not repeat its own message',
+      olderPage.json?.messages?.every((message) => message.id !== boundary?.id) === true,
+    );
+
     // Admins may delete another user's message, but like Discord, never edit it.
     const bobMessage = await req(`/channels/${general.id}/messages`, {
       method: 'POST',

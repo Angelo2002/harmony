@@ -77,6 +77,8 @@ export interface Channel {
    * and ultimately to be open to everyone.
    */
   requiredRoleId: SnowflakeId | null;
+  /** Seconds a member must wait between messages; 0 means slowmode is off. */
+  slowmodeSeconds: number;
 }
 
 export interface Attachment {

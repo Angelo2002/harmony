@@ -52,6 +52,18 @@ export function hasPermission(granted: PermissionValue, required: PermissionValu
   return (granted & required) === required;
 }
 
+/**
+ * Members who skip channel slowmode. Managing the channel or its messages is
+ * enough, which is what Discord does too, so a moderator is never held back by
+ * a cooldown meant for everyone else.
+ */
+export function bypassesSlowmode(permissions: PermissionValue): boolean {
+  return (
+    hasPermission(permissions, Permission.ManageChannels) ||
+    hasPermission(permissions, Permission.ManageMessages)
+  );
+}
+
 export function permissionsFromString(value: string): PermissionValue {
   try {
     return BigInt(value);

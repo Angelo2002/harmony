@@ -74,6 +74,16 @@ export function findMessage(sqlite: DatabaseSync, id: string): MessageRow | null
  * share a timestamp, and a timestamp-only cursor would skip the rest of that
  * millisecond. `rowid` ties them back to insertion order.
  */
+/** When a member last posted in a channel, for slowmode. Deleted rows still count. */
+export function lastMessageAt(sqlite: DatabaseSync, channelId: string, authorId: string): string | null {
+  const row = sqlite
+    .prepare(
+      'SELECT created_at AS at FROM messages WHERE channel_id = ? AND author_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
+    )
+    .get(channelId, authorId) as { at: string } | undefined;
+  return row?.at ?? null;
+}
+
 export function listMessages(
   sqlite: DatabaseSync,
   channelId: string,

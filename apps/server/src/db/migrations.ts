@@ -277,4 +277,12 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 12,
+    name: 'channel_slowmode',
+    up(db) {
+      /* Seconds a member must wait between messages; 0 means slowmode is off. */
+      db.exec(`ALTER TABLE channels ADD COLUMN slowmode_seconds INTEGER NOT NULL DEFAULT 0`);
+    },
+  },
 ];

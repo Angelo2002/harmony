@@ -6,13 +6,13 @@ Selfhosted discord alternative, aimed to make migration painless
 
 Playable end to end: username/password auth with optional invites, channels and
 categories, realtime messaging with replies, emoji reactions, and `:emoji:` and
-`@mention` autocomplete, image and video attachments, custom emoji with
-role-coloured usernames, profile pictures and display names, moderation (timeouts,
-kicks and bans), configurable storage retention, a two-way Discord bridge
-(messages, images and videos, replies, reactions, mentions, edits and deletes,
-with custom emoji matched by name), and an admin panel covering settings, roles,
-members, channels, emoji, media, retention, the bridge, invites and bans. Members
-can change their own password, and an administrator can edit any account's
+`@mention` autocomplete, per-channel slowmode, image and video attachments, custom
+emoji with role-coloured usernames, profile pictures and display names, moderation
+(timeouts, kicks and bans), configurable storage retention, a two-way Discord
+bridge (messages, images and videos, replies, reactions, mentions, edits and
+deletes, with custom emoji matched by name), and an admin panel covering settings,
+roles, members, channels, emoji, media, retention, the bridge, invites and bans.
+Members can change their own password, and an administrator can edit any account's
 username, display name, picture and password — which doubles as the password
 reset, since there is no email. The full HTTP and gateway API for custom clients
 and bots is documented in [`docs/API.md`](docs/API.md).

@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   GatewayEvent,
   Permission,
+  bypassesSlowmode,
   hasPermission,
   type Attachment,
   type Message,
@@ -19,11 +20,12 @@ import type { AuditService } from '../audit/service.ts';
 import { assertNotTimedOut } from '../auth/guards.ts';
 import { canAccessChannel, channelAccessFor } from '../access/service.ts';
 import { attachToMessage, findAttachment, listAttachmentsForMessages } from '../db/attachments.ts';
-import { findChannel } from '../db/channels.ts';
+import { findChannel, type ChannelRow } from '../db/channels.ts';
 import { findEmoji } from '../db/emojis.ts';
 import {
   findMessage,
   insertMessage,
+  lastMessageAt,
   listMessages,
   parseMessageEmbed,
   softDeleteMessage,
@@ -143,10 +145,35 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     return parent.id;
   }
 
-  function requireChannel(channelId: string): void {
-    if (!findChannel(sqlite, channelId)) {
+  function requireChannel(channelId: string): ChannelRow {
+    const channel = findChannel(sqlite, channelId);
+    if (!channel) {
       throw new HttpError(404, 'channel_not_found', 'That channel does not exist.');
     }
+    return channel;
+  }
+
+  /**
+   * Channel slowmode: one message per member per window. Members who manage the
+   * channel or its messages skip it, as do Discord's own messages, which never
+   * come through here. The remaining wait is spelled out so a client can show it.
+   */
+  function assertSlowmode(auth: AuthContext, channel: ChannelRow): void {
+    const seconds = channel.slowmode_seconds;
+    if (seconds <= 0 || bypassesSlowmode(auth.permissions)) return;
+
+    const last = lastMessageAt(sqlite, channel.id, auth.user.id);
+    if (!last) return;
+
+    const remainingMs = seconds * 1000 - (Date.now() - new Date(last).getTime());
+    if (remainingMs <= 0) return;
+
+    const remaining = Math.ceil(remainingMs / 1000);
+    throw new HttpError(
+      429,
+      'slowmode',
+      `Slowmode is on in this channel. Wait ${remaining} more second${remaining === 1 ? '' : 's'}.`,
+    );
   }
 
   /**
@@ -305,8 +332,9 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
 
     create(auth, channelId, content, attachmentIds, replyToId) {
       assertNotTimedOut(auth);
-      requireChannel(channelId);
+      const channel = requireChannel(channelId);
       assertChannelAccess(auth.user.id, channelId);
+      assertSlowmode(auth, channel);
       const message = insertWithAttachments(channelId, auth.user.id, content, attachmentIds, replyToId);
       announce(message);
       return message;

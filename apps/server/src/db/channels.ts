@@ -13,6 +13,7 @@ export interface ChannelRow {
   discord_webhook_id: string | null;
   discord_webhook_token: string | null;
   required_role_id: string | null;
+  slowmode_seconds: number;
 }
 
 export function toChannel(row: ChannelRow): Channel {
@@ -26,6 +27,7 @@ export function toChannel(row: ChannelRow): Channel {
     createdAt: row.created_at,
     discordChannelId: row.discord_channel_id,
     requiredRoleId: row.required_role_id,
+    slowmodeSeconds: row.slowmode_seconds,
   };
 }
 
@@ -72,12 +74,14 @@ export function insertChannel(
     discordChannelId: string | null;
     /** Optional so a caller that does not care about locking can omit it. */
     requiredRoleId?: string | null;
+    /** Seconds between messages; omitted means off. */
+    slowmodeSeconds?: number;
   },
 ): void {
   sqlite
     .prepare(
-      `INSERT INTO channels (id, name, topic, type, category_id, position, created_at, discord_channel_id, required_role_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO channels (id, name, topic, type, category_id, position, created_at, discord_channel_id, required_role_id, slowmode_seconds)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.id,
@@ -89,6 +93,7 @@ export function insertChannel(
       input.createdAt,
       input.discordChannelId,
       input.requiredRoleId ?? null,
+      input.slowmodeSeconds ?? 0,
     );
 }
 
@@ -102,6 +107,7 @@ export function updateChannel(
     position?: number;
     discordChannelId?: string | null;
     requiredRoleId?: string | null;
+    slowmodeSeconds?: number;
   },
 ): void {
   const sets: string[] = [];
@@ -109,6 +115,10 @@ export function updateChannel(
   if (patch.name !== undefined) {
     sets.push('name = ?');
     values.push(patch.name);
+  }
+  if (patch.slowmodeSeconds !== undefined) {
+    sets.push('slowmode_seconds = ?');
+    values.push(patch.slowmodeSeconds);
   }
   if (patch.requiredRoleId !== undefined) {
     sets.push('required_role_id = ?');

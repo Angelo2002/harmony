@@ -1888,6 +1888,74 @@ try {
   ghostStore.close();
   rmSync(ghostDir, { recursive: true, force: true });
 
+  // --- Slowmode ---
+  const slowChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'quiet-room', slowmodeSeconds: 60 },
+  });
+  check('a channel can be given a slowmode', slowChannel.json?.slowmodeSeconds === 60);
+  check(
+    'an out-of-range slowmode is refused (400)',
+    (
+      await req(`/channels/${slowChannel.json.id}`, {
+        method: 'PATCH',
+        token: ownerToken,
+        body: { slowmodeSeconds: 999_999 },
+      })
+    ).status === 400,
+  );
+
+  check(
+    'a member can post once in a slow channel',
+    (
+      await req(`/channels/${slowChannel.json.id}/messages`, {
+        method: 'POST',
+        token: bobToken,
+        body: { content: 'first' },
+      })
+    ).status === 200,
+  );
+  const slowBlocked = await req(`/channels/${slowChannel.json.id}/messages`, {
+    method: 'POST',
+    token: bobToken,
+    body: { content: 'second' },
+  });
+  check(
+    'slowmode refuses the next message (429)',
+    slowBlocked.status === 429 && slowBlocked.json?.error?.code === 'slowmode',
+    `status ${slowBlocked.status}`,
+  );
+
+  // Managing messages skips the cooldown, so a moderator is never held back.
+  const ownerFirst = await req(`/channels/${slowChannel.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'mod one' },
+  });
+  const ownerSecond = await req(`/channels/${slowChannel.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'mod two' },
+  });
+  check('managing messages skips slowmode', ownerFirst.status === 200 && ownerSecond.status === 200);
+
+  await req(`/channels/${slowChannel.json.id}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { slowmodeSeconds: 0 },
+  });
+  check(
+    'turning slowmode off lifts the cooldown',
+    (
+      await req(`/channels/${slowChannel.json.id}/messages`, {
+        method: 'POST',
+        token: bobToken,
+        body: { content: 'third' },
+      })
+    ).status === 200,
+  );
+
   // --- Audit log ---
   check('the audit log needs ManageServer (403)', (await req('/audit', { token: bobToken })).status === 403);
 

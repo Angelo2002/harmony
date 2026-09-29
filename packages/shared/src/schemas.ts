@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { LIMITS, MAX_UPLOAD_CEILING_BYTES } from './constants.ts';
 import { TIMEOUT_MAX_MINUTES } from './moderation.ts';
+import { MAX_SLOWMODE_SECONDS } from './slowmode.ts';
 import { HEX_COLOR_PATTERN } from './theme.ts';
 
 export const usernameSchema = z
@@ -26,6 +27,9 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+/** Seconds a member must wait between messages in a channel; 0 means off. */
+const slowmodeSeconds = z.number().int().min(0).max(MAX_SLOWMODE_SECONDS).optional();
+
 export const createChannelSchema = z.object({
   name: z.string().min(LIMITS.channelName.min).max(LIMITS.channelName.max),
   topic: z.string().max(1024).nullable().optional(),
@@ -33,6 +37,7 @@ export const createChannelSchema = z.object({
   discordChannelId: z.string().nullable().optional(),
   /** A role required to see the channel, or null for open access. */
   requiredRoleId: z.string().nullable().optional(),
+  slowmodeSeconds,
 });
 export type CreateChannelInput = z.infer<typeof createChannelSchema>;
 
@@ -73,13 +78,14 @@ export const updateCategorySchema = z.object({
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 
 export const updateChannelSchema = z.object({
-  name: z.string().min(1).max(LIMITS.channelName.max).optional(),
+  name: z.string().min(LIMITS.channelName.min).max(LIMITS.channelName.max).optional(),
   topic: z.string().max(1024).nullable().optional(),
   categoryId: z.string().nullable().optional(),
   position: z.number().int().optional(),
   discordChannelId: z.string().nullable().optional(),
   /** A role required to see the channel, or null to inherit or open it up. */
   requiredRoleId: z.string().nullable().optional(),
+  slowmodeSeconds,
 });
 export type UpdateChannelInput = z.infer<typeof updateChannelSchema>;
 

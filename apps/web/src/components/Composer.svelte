@@ -1,6 +1,15 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { ALLOWED_ATTACHMENT_TYPES, LIMITS, isTimedOut, type Attachment, type Emoji, type User } from '@harmony/shared';
+  import {
+    ALLOWED_ATTACHMENT_TYPES,
+    LIMITS,
+    bypassesSlowmode,
+    formatSlowmode,
+    isTimedOut,
+    type Attachment,
+    type Emoji,
+    type User,
+  } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
   import { avatarUrl, initial } from '../lib/avatar';
   import { chat } from '../lib/chat.svelte';
@@ -126,6 +135,46 @@
       ? new Date(session.user.timedOutUntil).toLocaleString()
       : null,
   );
+
+  const permissions = $derived(BigInt(session.permissions || '0'));
+  const slowmodeSeconds = $derived(chat.activeChannel?.slowmodeSeconds ?? 0);
+  /** Slowmode that applies to this member here; moderators skip it. */
+  const slowmodeApplies = $derived(slowmodeSeconds > 0 && !bypassesSlowmode(permissions));
+
+  /*
+   * A local countdown started after a successful post so the wait is visible
+   * without another round trip. The server is still the authority, and its own
+   * refusal starts the same countdown, so a second tab stays honest.
+   */
+  let cooldownChannelId = $state<string | null>(null);
+  let cooldownEndsAt = $state(0);
+  let clock = $state(Date.now());
+
+  $effect(() => {
+    if (cooldownEndsAt <= 0) return;
+    const timer = setInterval(() => {
+      clock = Date.now();
+      if (clock >= cooldownEndsAt) {
+        clearInterval(timer);
+        cooldownEndsAt = 0;
+      }
+    }, 250);
+    return () => clearInterval(timer);
+  });
+
+  /** Seconds left before this member may post here again; 0 when they may. */
+  const slowmodeRemaining = $derived(
+    cooldownChannelId === chat.activeChannelId && cooldownEndsAt > clock
+      ? Math.ceil((cooldownEndsAt - clock) / 1000)
+      : 0,
+  );
+
+  function startSlowmodeCooldown(): void {
+    if (!slowmodeApplies) return;
+    cooldownChannelId = chat.activeChannelId;
+    cooldownEndsAt = Date.now() + slowmodeSeconds * 1000;
+    clock = Date.now();
+  }
 
   /** At most one typing ping per burst window while the box has text. */
   const typingThrottleMs = 5000;
@@ -308,7 +357,7 @@
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     const content = value.trim();
-    if (busy || uploading || timeoutUntil !== null) return;
+    if (busy || uploading || timeoutUntil !== null || slowmodeRemaining > 0) return;
     if (!content && pending.length === 0) return;
 
     busy = true;
@@ -323,7 +372,11 @@
       pending = [];
       chat.replyTarget = null;
       activeTrigger = null;
+      startSlowmodeCooldown();
     } catch (cause) {
+      // The server refused for slowmode: honour it even if this tab had not
+      // started its own countdown, e.g. the first post after a reload.
+      if (cause instanceof ApiError && cause.code === 'slowmode') startSlowmodeCooldown();
       error = cause instanceof ApiError ? cause.message : String(cause);
     } finally {
       busy = false;
@@ -338,6 +391,12 @@
 
   {#if timeoutUntil}
     <p class="form-error">You are timed out until {timeoutUntil}. You can still read along.</p>
+  {/if}
+
+  {#if slowmodeRemaining > 0}
+    <p class="muted">Slowmode: you can post again in {slowmodeRemaining}s.</p>
+  {:else if slowmodeApplies}
+    <p class="muted">Slowmode is on: one message every {formatSlowmode(slowmodeSeconds)}.</p>
   {/if}
 
   {#if showPicker}
@@ -425,7 +484,7 @@
       autocomplete="off"
       aria-label="Message"
       aria-autocomplete="list"
-      disabled={timeoutUntil !== null}
+      disabled={timeoutUntil !== null || slowmodeRemaining > 0}
       oninput={onInput}
       onkeydown={onKeydown}
       onclick={updateAutocomplete}
@@ -433,6 +492,6 @@
       onfocus={updateAutocomplete}
       onblur={() => (activeTrigger = null)}
     />
-    <button type="submit" disabled={busy || uploading || timeoutUntil !== null}>Send</button>
+    <button type="submit" disabled={busy || uploading || timeoutUntil !== null || slowmodeRemaining > 0}>Send</button>
   </form>
 </div>

@@ -1,15 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type {
-    Category,
-    Channel,
-    ChannelImportResponse,
-    ChannelListResponse,
-    DiscordChannelImportPreview,
-    DiscordChannelListResponse,
-    DiscordChannelOption,
-    Role,
-    RoleListResponse,
+  import {
+    SLOWMODE_CHOICES,
+    formatSlowmode,
+    type Category,
+    type Channel,
+    type ChannelImportResponse,
+    type ChannelListResponse,
+    type DiscordChannelImportPreview,
+    type DiscordChannelListResponse,
+    type DiscordChannelOption,
+    type Role,
+    type RoleListResponse,
   } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
 
@@ -128,6 +130,13 @@
     });
   }
 
+  /** Seconds a member must wait between messages; 0 turns slowmode off. */
+  function setSlowmode(channel: Channel, seconds: number): void {
+    void run(async () => {
+      await api(`/channels/${channel.id}`, { method: 'PATCH', body: JSON.stringify({ slowmodeSeconds: seconds }) });
+    });
+  }
+
   function moveChannel(channel: Channel, direction: 'up' | 'down'): void {
     void run(() => api(`/channels/${channel.id}/move`, { method: 'POST', body: JSON.stringify({ direction }) }));
   }
@@ -238,6 +247,21 @@
   </select>
 {/snippet}
 
+{#snippet slowmodeSelect(channel: Channel)}
+  <select
+    title="Slowmode: how long members must wait between messages"
+    value={String(channel.slowmodeSeconds)}
+    onchange={(event) => setSlowmode(channel, Number(event.currentTarget.value))}
+  >
+    {#if !SLOWMODE_CHOICES.some((choice) => choice.seconds === channel.slowmodeSeconds)}
+      <option value={String(channel.slowmodeSeconds)}>{formatSlowmode(channel.slowmodeSeconds)}</option>
+    {/if}
+    {#each SLOWMODE_CHOICES as choice (choice.seconds)}
+      <option value={String(choice.seconds)}>{choice.label}</option>
+    {/each}
+  </select>
+{/snippet}
+
 {#snippet channelRow(channel: Channel, index: number, count: number)}
   <div class="row channel-row">
     {#if editing?.kind === 'channel' && editing.id === channel.id}
@@ -258,6 +282,7 @@
         {/each}
       </select>
       {@render roleSelect('channel', channel.id, channel.requiredRoleId)}
+      {@render slowmodeSelect(channel)}
       {@render discordSelect(channel)}
       <button
         type="button"

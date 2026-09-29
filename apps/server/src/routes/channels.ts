@@ -156,6 +156,7 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
       createdAt: new Date().toISOString(),
       discordChannelId,
       requiredRoleId,
+      slowmodeSeconds: input.slowmodeSeconds ?? 0,
     });
 
     const channel = toChannel(requireChannelRow(id));
@@ -189,6 +190,7 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
       position,
       discordChannelId: input.discordChannelId,
       requiredRoleId: input.requiredRoleId,
+      slowmodeSeconds: input.slowmodeSeconds,
     });
 
     const channel = toChannel(requireChannelRow(id));

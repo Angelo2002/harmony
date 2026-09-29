@@ -175,6 +175,7 @@ type Channel = {
   createdAt: string;
   discordChannelId: string | null; // set when bridged
   requiredRoleId: string | null;   // its own lock, or null to inherit the category's
+  slowmodeSeconds: number;         // per-member seconds between messages; 0 is off
 };
 
 type Attachment = {
@@ -472,18 +473,19 @@ next load.
 { "name": "general", "topic": null, "categoryId": null, "discordChannelId": null }
 ```
 
-`topic`, `categoryId`, `discordChannelId` and `requiredRoleId` are optional. Linking a
-`discordChannelId` requires a configured bridge and a Discord channel not already linked elsewhere
-(`409 discord_channel_taken`). `requiredRoleId` must name a real role (`400 invalid_role`) and locks
-the channel; see [Channel locking](#channel-locking). Returns the new `Channel` and fires
+`topic`, `categoryId`, `discordChannelId`, `requiredRoleId` and `slowmodeSeconds` are all optional.
+Linking a `discordChannelId` requires a configured bridge and a Discord channel not already linked
+elsewhere (`409 discord_channel_taken`). `requiredRoleId` must name a real role (`400 invalid_role`)
+and locks the channel; see [Channel locking](#channel-locking). `slowmodeSeconds` sets a per-member
+cooldown, 0 to 21600; see [Slowmode](#slowmode). Returns the new `Channel` and fires
 `CHANNEL_CREATE`.
 
 #### `PATCH /api/v1/channels/:id` — `ManageChannels`
 
-Any of `name`, `topic`, `categoryId`, `position`, `discordChannelId`, `requiredRoleId`. Returns the
-updated `Channel` and fires `CHANNEL_UPDATE`. Changing `categoryId` appends the channel to the end of
-the target category, unless `position` is given explicitly. `requiredRoleId: null` drops the
-channel's own lock, so it falls back to its category's.
+Any of `name`, `topic`, `categoryId`, `position`, `discordChannelId`, `requiredRoleId`,
+`slowmodeSeconds`. Returns the updated `Channel` and fires `CHANNEL_UPDATE`. Changing `categoryId`
+appends the channel to the end of the target category, unless `position` is given explicitly.
+`requiredRoleId: null` drops the channel's own lock, so it falls back to its category's.
 
 #### `POST /api/v1/channels/:id/move` — `ManageChannels`
 
@@ -580,6 +582,21 @@ One deliberate gap: an attachment's bytes are served by id to anyone with `ViewC
 attachment ids are unguessable capability URLs. Someone with access to a locked channel can therefore
 hand out a working image link; treat that as sharing the file, not as a leak.
 
+### Slowmode
+
+A channel may set `slowmodeSeconds`, a cooldown each member must wait between messages, from 0 (off)
+to 21600 (six hours). It is per member and per channel: posting elsewhere, or by someone else, does
+not reset your own timer.
+
+- A member who posts while the cooldown is still running gets `429 slowmode`, naming how many seconds
+  remain.
+- Members with `ManageChannels` or `ManageMessages` skip it, as do `Administrator` holders, so a
+  moderator is never held back by a limit meant for everyone else.
+- Messages mirrored in from Discord do not count and are not throttled; slowmode is about what people
+  type here.
+
+A deleted message still counts, so deleting your own does not clear the wait.
+
 ### Messages
 
 #### `GET /api/v1/channels/:id/messages` — `ViewChannels`
@@ -611,6 +628,9 @@ At least one of `content` or `attachmentIds` is required. `attachmentIds` must r
 you own that are not already attached (see [Attachments](#attachments)). `replyToId` must point at
 a visible message in the same channel, else `400 invalid_reply`. Returns the new `Message` and
 fires `MESSAGE_CREATE`.
+
+If the channel has a [slowmode](#slowmode) and you posted here too recently, this returns
+`429 slowmode` instead.
 
 #### `PATCH /api/v1/messages/:id` — auth (author only)
 

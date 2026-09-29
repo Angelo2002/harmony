@@ -37,9 +37,15 @@
     session.user = null;
     session.permissions = '0';
   }
+
+  /** Picking a channel closes the drawer on narrow screens. */
+  function selectChannel(id: string): void {
+    chat.selectChannel(id);
+    ui.closeDrawers();
+  }
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" class:open={ui.sidebarOpen}>
   <header class="server-name">{meta.serverName}</header>
 
   <nav class="channels">
@@ -51,7 +57,7 @@
             class="channel"
             class:active={channel.id === chat.activeChannelId}
             type="button"
-            onclick={() => chat.selectChannel(channel.id)}
+            onclick={() => selectChannel(channel.id)}
           >
             <span class="hash">{channelGlyph(channel)}</span>{channel.name}
             {#if isLocked(channel)}<span class="lock" title="Only members with a certain role can see this">🔒</span>{/if}
@@ -65,7 +71,7 @@
         class="channel"
         class:active={channel.id === chat.activeChannelId}
         type="button"
-        onclick={() => chat.selectChannel(channel.id)}
+        onclick={() => selectChannel(channel.id)}
       >
         <span class="hash">{channelGlyph(channel)}</span>{channel.name}
         {#if isLocked(channel)}<span class="lock" title="Only members with a certain role can see this">🔒</span>{/if}

@@ -3,6 +3,7 @@
   import { avatarUrl, initial } from '../lib/avatar';
   import { profileCard } from '../lib/profile-card.svelte';
   import { roster } from '../lib/roster.svelte';
+  import { ui } from '../lib/ui.svelte';
 
   interface Group {
     key: string;
@@ -65,7 +66,7 @@
   });
 </script>
 
-<aside class="roster" aria-label="Members">
+<aside class="roster" class:open={ui.rosterOpen} aria-label="Members">
   {#if groups.length === 0}
     <p class="muted roster-empty">No members yet.</p>
   {:else}

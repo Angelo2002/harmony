@@ -428,12 +428,10 @@ button.link:hover {
   white-space: nowrap;
 }
 
-/* The sidebar needs room; below this it would crowd the chat. */
-@media (max-width: 900px) {
-  .roster {
-    display: none;
-  }
-}
+/*
+ * The narrow-screen layout, where the sidebar and member list become drawers,
+ * lives at the end of this file so it can override the rules above.
+ */
 
 /* ---- Audit log ---- */
 
@@ -535,7 +533,9 @@ button.link:hover {
 
 .profile-card {
   position: fixed;
-  z-index: 20;
+  /* Above the mobile drawers and their backdrop, so a card opened from the
+     member list is not buried behind the drawer it came from. */
+  z-index: 40;
   width: 280px;
   overflow: hidden;
   border-radius: var(--h-radius);
@@ -1864,4 +1864,137 @@ button.danger {
   align-items: center;
   gap: 1rem;
   margin-bottom: 1rem;
+}
+
+/* ---- Mobile layout ---- */
+
+/*
+ * On narrow screens the sidebar and member list stop sharing the row and slide
+ * in over the chat as drawers, toggled from the chat header. While closed they
+ * are hidden from the tab order too, so focus cannot land on an off-screen menu.
+ */
+.drawer-toggle {
+  display: none;
+  padding: 0.3rem 0.5rem;
+  background: none;
+  color: var(--h-text-muted);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.drawer-toggle:hover:not(:disabled) {
+  filter: none;
+  color: var(--h-text);
+}
+
+.drawer-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar,
+  .roster {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 30;
+    width: min(82vw, 320px);
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0.2s;
+  }
+
+  .sidebar {
+    left: 0;
+    transform: translateX(-100%);
+    box-shadow: 2px 0 24px rgb(0 0 0 / 45%);
+  }
+
+  .roster {
+    right: 0;
+    transform: translateX(100%);
+    padding: 0.75rem 0.5rem;
+    box-shadow: -2px 0 24px rgb(0 0 0 / 45%);
+  }
+
+  .sidebar.open,
+  .roster.open {
+    transform: translateX(0);
+    visibility: visible;
+  }
+
+  .drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: rgb(0 0 0 / 55%);
+    cursor: default;
+  }
+
+  .drawer-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .chat-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+  }
+
+  .chat-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .messages {
+    padding: 0.75rem;
+  }
+
+  /* 16px keeps iOS Safari from zooming the page when a field gains focus. */
+  input,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* The admin panel and the profile editor take the whole screen. */
+  .admin-overlay {
+    padding: 0;
+  }
+
+  .admin {
+    flex-direction: column;
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .admin-nav {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    width: 100%;
+    padding: 0.5rem;
+    gap: 0.25rem;
+    overflow-x: auto;
+  }
+
+  .admin-nav h2 {
+    display: none;
+  }
+
+  .admin-tab,
+  .admin-close {
+    white-space: nowrap;
+  }
+
+  .admin-close {
+    margin-top: 0;
+  }
 }

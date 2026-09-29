@@ -1,8 +1,12 @@
 class UiState {
   adminOpen = $state(false);
   profileOpen = $state(false);
+  /** Off-canvas navigation, used on narrow screens. */
+  sidebarOpen = $state(false);
+  rosterOpen = $state(false);
 
   openAdmin(): void {
+    this.closeDrawers();
     this.adminOpen = true;
   }
 
@@ -11,11 +15,28 @@ class UiState {
   }
 
   openProfile(): void {
+    this.closeDrawers();
     this.profileOpen = true;
   }
 
   closeProfile(): void {
     this.profileOpen = false;
+  }
+
+  /** Only one drawer is ever open, so they never overlap. */
+  toggleSidebar(): void {
+    this.sidebarOpen = !this.sidebarOpen;
+    this.rosterOpen = false;
+  }
+
+  toggleRoster(): void {
+    this.rosterOpen = !this.rosterOpen;
+    this.sidebarOpen = false;
+  }
+
+  closeDrawers(): void {
+    this.sidebarOpen = false;
+    this.rosterOpen = false;
   }
 }
 

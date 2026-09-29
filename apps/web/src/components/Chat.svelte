@@ -4,6 +4,7 @@
   import { dragHasFiles, imageFilesFrom } from '../lib/files';
   import { channelGlyph } from '../lib/format';
   import { session } from '../lib/session.svelte';
+  import { ui } from '../lib/ui.svelte';
   import { uploads } from '../lib/upload-queue.svelte';
   import ChannelSidebar from './ChannelSidebar.svelte';
   import Composer from './Composer.svelte';
@@ -69,7 +70,27 @@
       ondragleave={onDragLeave}
       ondrop={onDrop}
     >
-      <header class="chat-header">{channelGlyph(chat.activeChannel)} {chat.activeChannel.name}</header>
+      <header class="chat-header">
+        <button
+          class="drawer-toggle"
+          type="button"
+          aria-label="Show channels"
+          aria-expanded={ui.sidebarOpen}
+          onclick={() => ui.toggleSidebar()}
+        >
+          ☰
+        </button>
+        <span class="chat-title">{channelGlyph(chat.activeChannel)} {chat.activeChannel.name}</span>
+        <button
+          class="drawer-toggle"
+          type="button"
+          aria-label="Show members"
+          aria-expanded={ui.rosterOpen}
+          onclick={() => ui.toggleRoster()}
+        >
+          👥
+        </button>
+      </header>
       <MessageView />
       {#if typingLabel}
         <p class="typing">{typingLabel}</p>
@@ -82,9 +103,22 @@
     </section>
   {:else}
     <section class="chat empty">
+      <button
+        class="drawer-toggle"
+        type="button"
+        aria-label="Show channels"
+        aria-expanded={ui.sidebarOpen}
+        onclick={() => ui.toggleSidebar()}
+      >
+        ☰
+      </button>
       <p class="muted">No channels yet.</p>
     </section>
   {/if}
 
   <MemberList />
+
+  {#if ui.sidebarOpen || ui.rosterOpen}
+    <button class="drawer-backdrop" type="button" aria-label="Close menu" onclick={() => ui.closeDrawers()}></button>
+  {/if}
 </div>

@@ -6,6 +6,7 @@
   let status = $state<BridgeResponse | null>(null);
   let token = $state('');
   let enabled = $state(false);
+  let publicBaseUrl = $state('');
   let discord = $state<DiscordChannelListResponse | null>(null);
   let harmonyChannels = $state<Channel[]>([]);
   let testChannelId = $state('');
@@ -18,6 +19,7 @@
   function apply(data: BridgeResponse): void {
     status = data;
     enabled = data.enabled;
+    publicBaseUrl = data.publicBaseUrl ?? '';
   }
 
   function fail(cause: unknown): void {
@@ -41,7 +43,7 @@
     error = null;
     message = null;
     try {
-      const body: Record<string, unknown> = { enabled };
+      const body: Record<string, unknown> = { enabled, publicBaseUrl: publicBaseUrl.trim() };
       // Blank means "keep the saved token".
       if (token.trim()) body.token = token.trim();
       apply(await api<BridgeResponse>('/bridge', { method: 'PATCH', body: JSON.stringify(body) }));
@@ -122,6 +124,20 @@
     <label class="checkbox">
       <input type="checkbox" bind:checked={enabled} />
       Enable the bridge
+    </label>
+
+    <label>
+      Public base URL <span class="muted">(optional)</span>
+      <input
+        type="url"
+        bind:value={publicBaseUrl}
+        placeholder="https://chat.example.com"
+        autocomplete="off"
+      />
+      <span class="muted">
+        The address people use to reach this instance. Needed so Discord can fetch Harmony
+        profile pictures for mirrored messages; a <code>localhost</code> address will not work.
+      </span>
     </label>
 
     {#if error}<p class="form-error">{error}</p>{/if}

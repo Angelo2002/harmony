@@ -66,6 +66,7 @@ const bridge = createBridgeService({
   config,
   settings: settingsService,
   messages: messageService,
+  users: userService,
   logger: bridgeLogger,
   transportFactory: (token, logger) => createDiscordTransport(token, logger),
 });

@@ -53,6 +53,10 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       channelId: message.channelId,
       authorId: message.author.id,
       authorName: message.member?.displayName ?? message.author.displayName,
+      // Null when the author has no custom picture, so we never import the
+      // generic default avatars.
+      authorAvatarUrl:
+        message.member?.avatarURL({ size: 128 }) ?? message.author.avatarURL({ size: 128 }),
       content: message.content,
       attachments: [...message.attachments.values()].map((attachment) => ({
         url: attachment.url,
@@ -197,6 +201,7 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
           body: {
             content: input.content.slice(0, MAX_DISCORD_CONTENT),
             username: input.username.slice(0, MAX_DISCORD_USERNAME),
+            ...(input.avatarUrl ? { avatar_url: input.avatarUrl } : {}),
             // Never let mirrored content ping anyone.
             allowed_mentions: { parse: [] },
           },

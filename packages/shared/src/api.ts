@@ -128,6 +128,8 @@ export interface BridgeResponse {
   /** Whether a token has been saved. The token itself is never returned. */
   configured: boolean;
   enabled: boolean;
+  /** Public base URL, or null when outbound avatars are disabled. */
+  publicBaseUrl: string | null;
   status: BridgeStatus;
 }
 

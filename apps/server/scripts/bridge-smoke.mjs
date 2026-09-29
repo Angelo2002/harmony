@@ -11,12 +11,13 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import sharp from 'sharp';
 import { Database } from '../src/db/index.ts';
 import { insertChannel } from '../src/db/channels.ts';
-import { insertUser } from '../src/db/users.ts';
+import { findUserById, insertUser } from '../src/db/users.ts';
 import { findBridgeMessageByHarmonyId } from '../src/db/bridge.ts';
 import { createAttachmentService } from '../src/attachments/service.ts';
 import { GatewayHub } from '../src/realtime/hub.ts';
 import { createSettingsService } from '../src/settings/service.ts';
 import { createMessageService } from '../src/messages/service.ts';
+import { createUserService } from '../src/users/service.ts';
 import { createBridgeService } from '../src/bridge/service.ts';
 
 const logger = { info() {}, debug() {} };
@@ -39,6 +40,7 @@ function createFakeTransport() {
     edited: [],
     deleted: [],
     downloadBytes: null,
+    downloads: [],
   };
   return {
     state,
@@ -74,7 +76,8 @@ function createFakeTransport() {
     async deleteMessage(input) {
       state.deletes.push(input);
     },
-    async download() {
+    async download(url) {
+      state.downloads.push(url);
       return state.downloadBytes;
     },
     emit(message) {
@@ -102,6 +105,7 @@ const settings = createSettingsService(db.sqlite, { serverName: 'Test', requireI
 const hub = new GatewayHub();
 const messages = createMessageService(db.sqlite, hub);
 const attachments = createAttachmentService(db.sqlite, config);
+const users = createUserService(db.sqlite, config);
 const transport = createFakeTransport();
 
 const bridge = createBridgeService({
@@ -109,6 +113,7 @@ const bridge = createBridgeService({
   config,
   settings,
   messages,
+  users,
   logger,
   transportFactory: () => transport,
 });
@@ -152,6 +157,7 @@ try {
   check('harmony message is mirrored', transport.state.mirrors.length === 1);
   check('mirror uses a username override', transport.state.mirrors[0]?.username === 'alice');
   check('mirror carries the content', transport.state.mirrors[0]?.content === 'hello discord');
+  check('no avatar is sent without a public base URL', transport.state.mirrors[0]?.avatarUrl === null);
   check(
     'mirrored message is recorded for later sync',
     findBridgeMessageByHarmonyId(db.sqlite, sent.id)?.discord_message_id === 'discord-1',
@@ -174,6 +180,7 @@ try {
     channelId: '111',
     authorId: '999',
     authorName: 'Discord Sam',
+    authorAvatarUrl: 'https://cdn.example/avatar.png',
     content: 'hi harmony',
     attachments: [{ url: 'https://cdn.example/pic.png', filename: 'pic.png', contentType: 'image/png', size: png.length }],
     fromBot: false,
@@ -191,6 +198,15 @@ try {
     existsSync(join(config.uploadDir, ingested.attachments[0].hash.slice(0, 2), ingested.attachments[0].hash)),
   );
   check('ingested messages are not mirrored back', transport.state.mirrors.length === mirrorsBeforeIngest);
+  check('discord avatar is imported for the ghost user', typeof ingested?.author?.avatarHash === 'string');
+  check(
+    'ghost avatar blob is stored',
+    Boolean(
+      ingested?.author?.avatarHash &&
+        existsSync(join(config.uploadDir, ingested.author.avatarHash.slice(0, 2), ingested.author.avatarHash)),
+    ),
+  );
+  check('discord avatar is fetched by URL', transport.state.downloads.includes('https://cdn.example/avatar.png'));
 
   // 5. Unsupported attachments are preserved as links rather than dropped.
   transport.emit({
@@ -198,6 +214,7 @@ try {
     channelId: '111',
     authorId: '999',
     authorName: 'Discord Sam',
+    authorAvatarUrl: null,
     content: '',
     attachments: [{ url: 'https://cdn.example/notes.txt', filename: 'notes.txt', contentType: 'text/plain', size: 10 }],
     fromBot: false,
@@ -234,6 +251,20 @@ try {
   await sleep(50);
   check('harmony delete reaches discord', transport.state.deletes.at(-1)?.discordMessageId === 'discord-1');
 
+  // 7b. Outbound avatars are handed to Discord, but only once we know our own
+  // public address, and the hash doubles as the fetch capability.
+  await users.setAvatarFromData(userId, png);
+  const aliceAvatarHash = findUserById(db.sqlite, userId)?.avatar_hash;
+  settings.updateBridge({ publicBaseUrl: 'https://chat.example.com/' });
+  messages.create(auth, channelId, 'avatar check', []);
+  await sleep(50);
+  check(
+    'outbound avatar URL uses the public base URL and hash capability',
+    transport.state.mirrors.at(-1)?.avatarUrl ===
+      `https://chat.example.com/api/v1/users/${userId}/avatar?v=${aliceAvatarHash}`,
+    String(transport.state.mirrors.at(-1)?.avatarUrl),
+  );
+
   // 8. Bots and webhooks never get ingested.
   const before = messages.history(channelId, { limit: 100 }).messages.length;
   transport.emit({
@@ -241,6 +272,7 @@ try {
     channelId: '111',
     authorId: 'wh',
     authorName: 'Harmony',
+    authorAvatarUrl: null,
     content: 'echo',
     attachments: [],
     fromBot: true,
@@ -254,6 +286,7 @@ try {
     channelId: '222',
     authorId: '999',
     authorName: 'Discord Sam',
+    authorAvatarUrl: null,
     content: 'elsewhere',
     attachments: [],
     fromBot: false,

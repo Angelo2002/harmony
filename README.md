@@ -59,13 +59,19 @@ Harmony users are mirrored to Discord as webhook messages, so they carry the aut
 name; Discord always marks webhook messages with an "APP" tag. Discord users appear in Harmony
 as stand-in accounts created automatically the first time they post.
 
-Text, images, edits and deletes are all mirrored in both directions. Images are transferred
-between the two systems, and anything that cannot be mirrored (a non-image, or a file above
-Discord's 8 MB upload limit) is preserved as a link instead of being dropped. Discord's 2000
-character message limit means longer Harmony messages are truncated when mirrored out.
+Text, images, avatars, edits and deletes are all mirrored in both directions. Images are
+transferred between the two systems, and anything that cannot be mirrored (a non-image, or a
+file above Discord's 8 MB upload limit) is preserved as a link instead of being dropped.
+Discord's 2000 character message limit means longer Harmony messages are truncated when
+mirrored out.
 
-Display names are mirrored to Discord automatically (they are used as the webhook username).
-Profile pictures are not mirrored yet.
+Display names and profile pictures are mirrored to Discord automatically (they become the
+webhook username and avatar). A Discord user's name and picture are imported into Harmony the
+first time they post.
+
+Discord fetches avatars directly from this instance, so outbound avatars need a **Public base
+URL** set in **Admin → Bridge** — the address people use to reach the instance from the
+internet. A `localhost` address will not work. Leave it blank to send names only.
 
 ## Project layout
 

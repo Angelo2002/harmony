@@ -136,11 +136,24 @@ export const updateRetentionSchema = z.object({
 });
 export type UpdateRetentionInput = z.infer<typeof updateRetentionSchema>;
 
-export const updateBridgeSchema = z.object({
-  /** Omit to leave unchanged; an empty string clears the saved token. */
-  token: z.string().trim().max(500).optional(),
-  enabled: z.boolean().optional(),
-});
+export const updateBridgeSchema = z
+  .object({
+    /** Omit to leave unchanged; an empty string clears the saved token. */
+    token: z.string().trim().max(500).optional(),
+    enabled: z.boolean().optional(),
+    /** Public base URL used to hand avatar URLs to Discord; null disables them. */
+    publicBaseUrl: z.string().trim().max(500).nullable().optional(),
+  })
+  // A malformed address would make Discord reject webhook posts outright, so it
+  // is caught here rather than silently breaking every mirrored message.
+  .refine(
+    (value) =>
+      value.publicBaseUrl == null || value.publicBaseUrl === '' || /^https?:\/\/\S+$/.test(value.publicBaseUrl),
+    {
+      message: 'Use a full http(s) address, like https://chat.example.com',
+      path: ['publicBaseUrl'],
+    },
+  );
 export type UpdateBridgeInput = z.infer<typeof updateBridgeSchema>;
 
 export const bridgeTestSchema = z.object({

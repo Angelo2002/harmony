@@ -24,6 +24,7 @@ import { findUserByDiscordId, insertGhostUser, type UserRow } from '../db/users.
 import { HttpError } from '../http/errors.ts';
 import type { MessageService } from '../messages/service.ts';
 import type { SettingsService } from '../settings/service.ts';
+import type { UserService } from '../users/service.ts';
 import { createBlobStore } from '../storage/blobs.ts';
 import type {
   BridgeLogger,
@@ -55,6 +56,7 @@ export interface BridgeDeps {
   config: Config;
   settings: SettingsService;
   messages: MessageService;
+  users: UserService;
   logger: BridgeLogger;
   transportFactory: (token: string, logger: BridgeLogger) => DiscordTransport;
 }
@@ -70,6 +72,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     return {
       configured: config.configured,
       enabled: config.enabled,
+      publicBaseUrl: config.publicBaseUrl,
       status: transport?.status() ?? { ready: false, botTag: null, guildName: null, error: null },
     };
   }
@@ -106,12 +109,25 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
 
   // ---- Outbound: Harmony -> Discord ----
 
+  /**
+   * Absolute avatar URL that Discord can fetch, or null when we do not know our
+   * own public address or the author has no picture. The hash doubles as the
+   * capability that lets Discord in without a session.
+   */
+  function avatarUrlFor(message: Message): string | null {
+    const base = deps.settings.getBridge().publicBaseUrl;
+    const user = message.author;
+    if (!base || !user?.avatarHash) return null;
+    return `${base.replace(/\/+$/, '')}/api/v1/users/${user.id}/avatar?v=${user.avatarHash}`;
+  }
+
   /** Shared by normal mirroring and the admin's test message. */
   async function sendToDiscord(
     channel: ChannelRow,
     username: string,
     content: string,
     files: MirrorFile[],
+    avatarUrl: string | null,
   ): Promise<MirrorResult> {
     if (!transport) {
       throw new HttpError(400, 'bridge_offline', 'The bridge is not connected. Save a token and enable it.');
@@ -124,6 +140,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       discordChannelId: channel.discord_channel_id,
       webhook: webhookFor(channel),
       username,
+      avatarUrl,
       content,
       files,
     });
@@ -174,7 +191,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       return;
     }
 
-    const result = await sendToDiscord(channel, authorName(message), content, files);
+    const result = await sendToDiscord(channel, authorName(message), content, files, avatarUrlFor(message));
     insertBridgeMessage(deps.sqlite, {
       harmonyMessageId: message.id,
       discordMessageId: result.messageId,
@@ -260,6 +277,28 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     }
   }
 
+  /**
+   * Imports a Discord author's picture the first time we see one, so bridged
+   * users show their real avatar. Skipped once they have one, to avoid
+   * re-downloading on every message.
+   */
+  async function mirrorGhostAvatar(
+    active: DiscordTransport,
+    author: UserRow,
+    message: DiscordIncomingMessage,
+  ): Promise<void> {
+    if (author.avatar_hash || !message.authorAvatarUrl) return;
+    try {
+      const data = await active.download(message.authorAvatarUrl);
+      await deps.users.setAvatarFromData(author.id, data);
+    } catch (error) {
+      logger.debug('could not mirror a discord avatar', {
+        authorId: message.authorId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   async function ingest(message: DiscordIncomingMessage): Promise<void> {
     const active = transport;
     // Ignore bots, including our own mirrored webhook messages.
@@ -269,6 +308,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     if (!channel) return;
 
     const author = resolveGhostUser(message);
+    await mirrorGhostAvatar(active, author, message);
 
     const attachmentIds: string[] = [];
     const skipped: string[] = [];
@@ -359,7 +399,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       const channel = findChannel(deps.sqlite, channelId);
       if (!channel) throw new HttpError(404, 'channel_not_found', 'That channel does not exist.');
 
-      await sendToDiscord(channel, 'Harmony', 'Harmony bridge test — this channel is connected.', []);
+      await sendToDiscord(channel, 'Harmony', 'Harmony bridge test — this channel is connected.', [], null);
     },
 
     async shutdown() {

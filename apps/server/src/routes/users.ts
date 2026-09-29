@@ -53,12 +53,19 @@ export function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): v
   });
 
   app.get('/api/v1/users/:id/avatar', async (request, reply) => {
-    requirePermission(request, Permission.ViewChannels);
     const { id } = request.params as { id: string };
 
     const row = findUserById(deps.db.sqlite, id);
     if (!row?.avatar_hash) {
       throw new HttpError(404, 'avatar_not_found', 'That user has no profile picture.');
+    }
+
+    // The content hash doubles as a capability: presenting it lets Discord fetch
+    // an avatar without a session, while the route stays authenticated for
+    // everyone else. Only avatars are exposed this way, never other uploads.
+    const provided = (request.query as { v?: string }).v;
+    if (provided !== row.avatar_hash) {
+      requirePermission(request, Permission.ViewChannels);
     }
 
     const path = deps.users.avatarPath(row.avatar_hash);

@@ -12,6 +12,8 @@ export interface DiscordIncomingMessage {
   channelId: string;
   authorId: string;
   authorName: string;
+  /** Public avatar URL, or null when the author has no custom picture. */
+  authorAvatarUrl: string | null;
   content: string;
   attachments: DiscordIncomingAttachment[];
   /** True for any bot, including our own webhook mirrors. Never re-bridged. */
@@ -51,6 +53,8 @@ export interface MirrorInput {
   /** Cached webhook for the channel, if we have already created one. */
   webhook: WebhookRef | null;
   username: string;
+  /** Absolute, publicly reachable avatar URL, or null to leave it default. */
+  avatarUrl: string | null;
   content: string;
   files: MirrorFile[];
 }

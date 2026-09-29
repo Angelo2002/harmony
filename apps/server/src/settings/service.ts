@@ -11,12 +11,18 @@ export interface BridgeSettings {
   /** Bot token, or null when the bridge has never been configured. */
   token: string | null;
   enabled: boolean;
+  /**
+   * Publicly reachable base URL of this instance, used to hand Discord image
+   * URLs. Null disables outbound avatars.
+   */
+  publicBaseUrl: string | null;
 }
 
 /** Bridge settings safe to hand to the client: never includes the token. */
 export interface BridgePublicSettings {
   configured: boolean;
   enabled: boolean;
+  publicBaseUrl: string | null;
 }
 
 export interface SettingsService {
@@ -26,7 +32,7 @@ export interface SettingsService {
   updateRetention(patch: Partial<RetentionSettings>): RetentionSettings;
   getBridge(): BridgeSettings;
   getBridgePublic(): BridgePublicSettings;
-  updateBridge(patch: { token?: string; enabled?: boolean }): BridgePublicSettings;
+  updateBridge(patch: { token?: string; enabled?: boolean; publicBaseUrl?: string | null }): BridgePublicSettings;
 }
 
 const KEY_SERVER_NAME = 'server_name';
@@ -37,6 +43,7 @@ const KEY_STORAGE_LIMIT = 'storage_limit_bytes';
 const KEY_STORAGE_TARGET = 'storage_target_bytes';
 const KEY_DISCORD_TOKEN = 'discord_bot_token';
 const KEY_BRIDGE_ENABLED = 'bridge_enabled';
+const KEY_BRIDGE_PUBLIC_URL = 'bridge_public_base_url';
 
 function parseString(raw: string, fallback: string): string {
   try {
@@ -109,12 +116,17 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
     return {
       token: parseStringOrNull(stored.get(KEY_DISCORD_TOKEN)),
       enabled: enabled ? parseBoolean(enabled, false) : false,
+      publicBaseUrl: parseStringOrNull(stored.get(KEY_BRIDGE_PUBLIC_URL)),
     };
   }
 
   function getBridgePublic(): BridgePublicSettings {
     const bridge = getBridge();
-    return { configured: bridge.token !== null, enabled: bridge.enabled };
+    return {
+      configured: bridge.token !== null,
+      enabled: bridge.enabled,
+      publicBaseUrl: bridge.publicBaseUrl,
+    };
   }
 
   return {
@@ -153,6 +165,10 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       }
       if (patch.enabled !== undefined) {
         writeSetting(sqlite, KEY_BRIDGE_ENABLED, JSON.stringify(patch.enabled));
+      }
+      if (patch.publicBaseUrl !== undefined) {
+        const trimmed = patch.publicBaseUrl?.trim() ?? '';
+        writeSetting(sqlite, KEY_BRIDGE_PUBLIC_URL, JSON.stringify(trimmed.length > 0 ? trimmed : null));
       }
       return getBridgePublic();
     },

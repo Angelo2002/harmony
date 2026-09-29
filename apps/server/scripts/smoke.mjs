@@ -691,6 +691,14 @@ try {
     'avatars require auth (401)',
     (await fetch(`${BASE}/users/${avatarUser.user.id}/avatar`)).status === 401,
   );
+  check(
+    'avatar is fetchable without a session when the hash is presented',
+    (await fetch(`${BASE}/users/${avatarUser.user.id}/avatar?v=${avatarHash}`)).status === 200,
+  );
+  check(
+    'a wrong hash does not bypass auth (401)',
+    (await fetch(`${BASE}/users/${avatarUser.user.id}/avatar?v=not-the-hash`)).status === 401,
+  );
 
   const notAnAvatar = new FormData();
   notAnAvatar.append('file', new Blob([Buffer.from('hello')], { type: 'text/plain' }), 'n.txt');
@@ -730,6 +738,22 @@ try {
         headers: { authorization: `Bearer ${ownerToken}` },
       })
     ).status === 404,
+  );
+
+  // Bridge settings: outbound avatars need a real public address, but a blank
+  // value (turning them off) must stay allowed.
+  check(
+    'bridge rejects a malformed public base URL (400)',
+    (await req('/bridge', { method: 'PATCH', token: ownerToken, body: { publicBaseUrl: 'not a url' } })).status === 400,
+  );
+  check(
+    'bridge accepts a valid public base URL',
+    (await req('/bridge', { method: 'PATCH', token: ownerToken, body: { publicBaseUrl: 'https://chat.example.com/' } })).json
+      ?.publicBaseUrl === 'https://chat.example.com/',
+  );
+  check(
+    'bridge can clear the public base URL',
+    (await req('/bridge', { method: 'PATCH', token: ownerToken, body: { publicBaseUrl: '' } })).json?.publicBaseUrl === null,
   );
 
   check(

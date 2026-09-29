@@ -5,8 +5,10 @@
   import { avatarUrl, initial } from '../lib/avatar';
   import { chat } from '../lib/chat.svelte';
   import { emojis } from '../lib/emojis.svelte';
+  import { imageFilesFrom } from '../lib/files';
   import { members } from '../lib/members.svelte';
   import { session } from '../lib/session.svelte';
+  import { uploads } from '../lib/upload-queue.svelte';
 
   const acceptAttribute = ALLOWED_IMAGE_TYPES.join(',');
   const maxAttachments = LIMITS.attachmentsPerMessage;
@@ -14,24 +16,6 @@
   const maxSuggestions = 8;
   /** How stale the member directory may be before a mention refreshes it. */
   const directoryMaxAgeMs = 30_000;
-
-  /**
-   * The image files a paste carries. A clipboard with no files is left alone, so
-   * ordinary text still pastes normally.
-   */
-  function imagesFromClipboard(data: DataTransfer | null): File[] {
-    if (!data) return [];
-    const files: File[] = [];
-    for (let index = 0; index < data.items.length; index++) {
-      const item = data.items[index];
-      if (!item || item.kind !== 'file') continue;
-      const file = item.getAsFile();
-      // An empty type happens on a few platforms; the server has the last word.
-      if (!file || (file.type !== '' && !file.type.startsWith('image/'))) continue;
-      files.push(file);
-    }
-    return files;
-  }
 
   let value = $state('');
   let busy = $state(false);
@@ -94,12 +78,18 @@
   /** Pasted screenshots become attachments, the way Discord does it. */
   function onPaste(event: ClipboardEvent): void {
     if (timeoutUntil !== null) return;
-    const files = imagesFromClipboard(event.clipboardData);
+    const files = imageFilesFrom(event.clipboardData);
     if (files.length === 0) return;
     // Only swallow the paste when there are images to take from it.
     event.preventDefault();
     void uploadFiles(files);
   }
+
+  /** Uploads whatever was dropped on the chat pane, handed over by the queue. */
+  $effect(() => {
+    if (uploads.count === 0) return;
+    void uploadFiles(uploads.take());
+  });
 
   function removePending(id: string): void {
     pending = pending.filter((attachment) => attachment.id !== id);

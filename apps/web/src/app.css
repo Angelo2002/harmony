@@ -327,6 +327,7 @@ button.link:hover {
 }
 
 .chat {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -338,6 +339,22 @@ button.link:hover {
 .chat.empty {
   align-items: center;
   justify-content: center;
+}
+
+/* Shown while a file is dragged over the chat. */
+.drop-zone {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--h-accent);
+  border-radius: var(--h-radius);
+  background: color-mix(in srgb, var(--h-bg) 78%, transparent);
+  color: var(--h-text);
+  font-weight: 600;
+  /* Never a drag target itself, so drops always land on the chat. */
+  pointer-events: none;
 }
 
 /* ---- Member list ---- */

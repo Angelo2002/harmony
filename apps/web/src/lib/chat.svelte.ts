@@ -20,9 +20,10 @@ function applyReactionDelta(
 ): Reaction[] {
   const index = reactions.findIndex((reaction) => reaction.emoji === payload.emoji);
   const mine = payload.userId === myId;
+  const existing = index === -1 ? undefined : reactions[index];
 
   if (mode === 'add') {
-    if (index === -1) {
+    if (!existing) {
       if (payload.count <= 0) return reactions;
       return [
         ...reactions,
@@ -30,14 +31,14 @@ function applyReactionDelta(
       ];
     }
     const next = reactions.slice();
-    next[index] = { ...next[index], count: payload.count, me: mine ? true : next[index].me };
+    next[index] = { ...existing, count: payload.count, me: mine ? true : existing.me };
     return next;
   }
 
-  if (index === -1) return reactions;
+  if (!existing) return reactions;
   if (payload.count <= 0) return reactions.filter((_, i) => i !== index);
   const next = reactions.slice();
-  next[index] = { ...next[index], count: payload.count, me: mine ? false : next[index].me };
+  next[index] = { ...existing, count: payload.count, me: mine ? false : existing.me };
   return next;
 }
 

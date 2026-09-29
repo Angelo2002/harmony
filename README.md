@@ -42,8 +42,10 @@ Other useful scripts:
 
 - `npm run dev:server` / `npm run dev:web` — run one side only
 - `npm run build:web` — production build of the web client
-- `npm run typecheck` — type-check every workspace
-- `npm run smoke` — boot a throwaway server and exercise the auth API end to end
+- `npm run typecheck` — type-check every workspace (`tsc` for the server and shared package,
+  `svelte-check` for the web client)
+- `npm run smoke` — boot a throwaway server and exercise the API end to end
+- `npm run smoke:bridge` — exercise the Discord bridge against a fake transport
 
 ## Discord bridge
 

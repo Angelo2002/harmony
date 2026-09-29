@@ -68,7 +68,8 @@
     const before = text.slice(0, caret);
     const match = /(?:^|\s):([a-zA-Z0-9_]{0,32})$/.exec(before);
     if (!match) return null;
-    return { start: caret - match[1].length - 1, query: match[1] };
+    const name = match[1] ?? '';
+    return { start: caret - name.length - 1, query: name };
   }
 
   function updateAutocomplete(): void {

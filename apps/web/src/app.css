@@ -394,13 +394,21 @@ img.avatar {
   display: flex;
   flex-shrink: 0;
   width: 40px;
-  justify-content: center;
+  justify-content: flex-end;
   padding-top: 0.15rem;
 }
 
+/*
+ * The hover time must stay on one line. If it wraps, the extra line makes the
+ * whole row taller, which stretches the message and makes grouped spacing look
+ * uneven. It may overflow the 40px gutter to the left (harmless), so it is
+ * kept flush right rather than centred to avoid a right overflow that could add
+ * a horizontal scrollbar to the message list.
+ */
 .gutter-time {
   color: var(--h-text-muted);
   font-size: 0.65rem;
+  white-space: nowrap;
   opacity: 0;
 }
 

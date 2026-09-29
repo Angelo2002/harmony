@@ -659,8 +659,14 @@ img.avatar {
   pointer-events: none;
 }
 
+/*
+ * Reveal the actions on hover, and for keyboard focus only. Using
+ * :focus-visible rather than :focus-within means clicking "Reply" with the
+ * mouse does not leave the menu stuck open once the pointer moves away, while
+ * a keyboard user who tabs to the buttons still gets it.
+ */
 .message:hover .message-actions,
-.message:focus-within .message-actions {
+.message:has(:focus-visible) .message-actions {
   opacity: 1;
   pointer-events: auto;
 }

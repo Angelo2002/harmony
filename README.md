@@ -5,11 +5,12 @@ Selfhosted discord alternative, aimed to make migration painless
 ## Status
 
 Playable end to end: username/password auth with optional invites, channels and
-categories, realtime messaging, image attachments, custom emoji with
-role-coloured usernames, profile pictures and display names, configurable
-storage retention, a two-way Discord bridge (messages, images, edits and
-deletes), and an admin panel covering settings, roles, members, channels, emoji,
-retention, the bridge and invites. Still to come: the public API docs.
+categories, realtime messaging with replies and emoji reactions, image
+attachments, custom emoji with role-coloured usernames, profile pictures and
+display names, configurable storage retention, a two-way Discord bridge
+(messages, images, replies, reactions, edits and deletes, with custom emoji
+matched by name), and an admin panel covering settings, roles, members, channels,
+emoji, retention, the bridge and invites. Still to come: the public API docs.
 
 ## Tech stack
 
@@ -59,11 +60,18 @@ Harmony users are mirrored to Discord as webhook messages, so they carry the aut
 name; Discord always marks webhook messages with an "APP" tag. Discord users appear in Harmony
 as stand-in accounts created automatically the first time they post.
 
-Text, images, avatars, edits and deletes are all mirrored in both directions. Images are
-transferred between the two systems, and anything that cannot be mirrored (a non-image, or a
-file above Discord's 8 MB upload limit) is preserved as a link instead of being dropped.
-Discord's 2000 character message limit means longer Harmony messages are truncated when
+Text, images, avatars, replies, reactions, edits and deletes are all mirrored in both directions.
+Images are transferred between the two systems, and anything that cannot be mirrored (a
+non-image, or a file above Discord's 8 MB upload limit) is preserved as a link instead of being
+dropped. Discord's 2000 character message limit means longer Harmony messages are truncated when
 mirrored out.
+
+Custom emoji are matched by name: a Harmony `:YES:` is sent to Discord as its `<:YES:id>` tag,
+and a Discord `<:YES:id>` tag is turned back into `:YES:` on the way in, rendering the Harmony
+emoji of the same name. Reactions work the same way. Two limitations come from mirroring through
+a single webhook: Discord webhooks cannot post real replies, so a Harmony reply is mirrored as a
+quoted line, and every Harmony reaction is posted by the webhook, so Discord shows one reaction
+per emoji regardless of how many Harmony users reacted.
 
 Display names and profile pictures are mirrored to Discord automatically (they become the
 webhook username and avatar). A Discord user's name and picture are imported into Harmony the

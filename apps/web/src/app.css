@@ -461,6 +461,87 @@ img.avatar {
   white-space: pre-wrap;
 }
 
+.content .paragraph {
+  margin: 0;
+}
+
+.content .md-header {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.content .md-header.md-h1 {
+  font-size: 1.3rem;
+}
+
+.content .md-header.md-h2 {
+  font-size: 1.15rem;
+}
+
+.content .quote {
+  margin: 0.15rem 0;
+  padding-left: 0.6rem;
+  border-left: 3px solid var(--h-bg-deep);
+}
+
+.content .code-block {
+  margin: 0.2rem 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  background: var(--h-bg-deep);
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+
+.inline-code {
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: var(--h-bg-deep);
+  font-size: 0.85em;
+}
+
+.content .link {
+  color: var(--h-accent);
+  word-break: break-all;
+}
+
+.content .link:hover {
+  text-decoration: underline;
+}
+
+/* Emphasis is applied a segment at a time, so nesting cannot tangle markup. */
+.seg.bold {
+  font-weight: 700;
+}
+
+.seg.italic {
+  font-style: italic;
+}
+
+.seg.underline {
+  text-decoration-line: underline;
+}
+
+.seg.strike {
+  text-decoration-line: line-through;
+}
+
+.seg.underline.strike {
+  text-decoration-line: underline line-through;
+}
+
+.seg.spoiler {
+  border-radius: 4px;
+  background: var(--h-bg-deep);
+  color: transparent;
+}
+
+.seg.spoiler:hover {
+  background: var(--h-bg-elevated);
+  color: inherit;
+}
+
 .reply-ref {
   display: flex;
   align-items: center;

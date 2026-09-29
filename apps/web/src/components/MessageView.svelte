@@ -4,7 +4,7 @@
   import { ApiError } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
   import { avatarUrl, initial } from '../lib/avatar';
-  import { tokenizeMessage } from '../lib/message-text';
+  import { parseMessage, type InlineSegment } from '../lib/message-text';
   import { emojis } from '../lib/emojis.svelte';
   import { members } from '../lib/members.svelte';
   import { session } from '../lib/session.svelte';
@@ -167,6 +167,38 @@
   });
 </script>
 
+{#snippet inlineSegments(segments: InlineSegment[])}
+  {#each segments as segment, index (index)}
+    <span
+      class="seg"
+      class:bold={segment.styles?.bold}
+      class:italic={segment.styles?.italic}
+      class:underline={segment.styles?.underline}
+      class:strike={segment.styles?.strike}
+      class:spoiler={segment.styles?.spoiler}
+    >
+      {#if segment.type === 'emoji'}
+        <img
+          class="emoji"
+          src={`/api/v1/emojis/${segment.emoji.id}`}
+          alt={`:${segment.emoji.name}:`}
+          title={`:${segment.emoji.name}:`}
+        />
+      {:else if segment.type === 'mention'}
+        <span class="mention" title={`@${segment.user.username}`}>
+          @{segment.user.displayName ?? segment.user.username}
+        </span>
+      {:else if segment.type === 'link'}
+        <a class="link" href={segment.href} target="_blank" rel="noreferrer noopener">{segment.value}</a>
+      {:else if segment.type === 'code'}
+        <code class="inline-code">{segment.value}</code>
+      {:else}
+        {segment.value}
+      {/if}
+    </span>
+  {/each}
+{/snippet}
+
 <div class="messages" bind:this={scroller} onscroll={onScroll}>
   {#if actionError}
     <p class="form-error pad">{actionError}</p>
@@ -188,10 +220,14 @@
         message.author?.roleColor == null
           ? null
           : `#${message.author.roleColor.toString(16).padStart(6, '0')}`}
-      {@const segments = tokenizeMessage(message.content, emojis.lookup, (name) =>
+      {@const blocks = parseMessage(message.content, emojis.lookup, (name) =>
         members.byUsername.get(name.toLowerCase()),
       )}
-      {@const mentionsMe = segments.some((segment) => segment.type === 'mention' && segment.user.id === myId)}
+      {@const mentionsMe = blocks.some(
+        (block) =>
+          block.type !== 'code' &&
+          block.segments.some((segment) => segment.type === 'mention' && segment.user.id === myId),
+      )}
       {@const picture = avatarUrl(message.author)}
       <article class="message" class:grouped class:mentions-me={mentionsMe}>
         {#if grouped}
@@ -233,24 +269,21 @@
             </form>
           {:else}
             {#if message.content}
-              <p class="content">
-                {#each segments as segment, i (i)}
-                  {#if segment.type === 'emoji'}
-                    <img
-                      class="emoji"
-                      src={`/api/v1/emojis/${segment.emoji.id}`}
-                      alt={`:${segment.emoji.name}:`}
-                      title={`:${segment.emoji.name}:`}
-                    />
-                  {:else if segment.type === 'mention'}
-                    <span class="mention" title={`@${segment.user.username}`}>
-                      @{segment.user.displayName ?? segment.user.username}
-                    </span>
+              <div class="content">
+                {#each blocks as block, blockIndex (blockIndex)}
+                  {#if block.type === 'code'}
+                    <pre class="code-block"><code>{block.text}</code></pre>
+                  {:else if block.type === 'quote'}
+                    <blockquote class="quote">{@render inlineSegments(block.segments)}</blockquote>
+                  {:else if block.type === 'header'}
+                    <p class="md-header" class:md-h1={block.level === 1} class:md-h2={block.level === 2}>
+                      {@render inlineSegments(block.segments)}
+                    </p>
                   {:else}
-                    {segment.value}
+                    <p class="paragraph">{@render inlineSegments(block.segments)}</p>
                   {/if}
                 {/each}
-              </p>
+              </div>
             {/if}
 
             {#if message.attachments.length > 0}

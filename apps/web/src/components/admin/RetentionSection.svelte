@@ -8,6 +8,7 @@
 
   let imageDays = $state('');
   let messageDays = $state('');
+  let auditDays = $state('');
   let limitGb = $state('');
   let targetGb = $state('');
   let usage = $state<RetentionResponse['usage'] | null>(null);
@@ -23,6 +24,7 @@
   function apply(data: RetentionResponse): void {
     imageDays = data.settings.imageRetentionDays == null ? '' : String(data.settings.imageRetentionDays);
     messageDays = data.settings.messageRetentionDays == null ? '' : String(data.settings.messageRetentionDays);
+    auditDays = data.settings.auditRetentionDays == null ? '' : String(data.settings.auditRetentionDays);
     limitGb = data.settings.storageLimitBytes == null ? '' : String(round2(data.settings.storageLimitBytes / GB));
     targetGb = data.settings.storageTargetBytes == null ? '' : String(round2(data.settings.storageTargetBytes / GB));
     usage = data.usage;
@@ -61,6 +63,7 @@
           body: JSON.stringify({
             imageRetentionDays: toDays(imageDays),
             messageRetentionDays: toDays(messageDays),
+            auditRetentionDays: toDays(auditDays),
             storageLimitBytes: toBytes(limitGb),
             storageTargetBytes: toBytes(targetGb),
           }),
@@ -106,6 +109,11 @@
     </label>
 
     <label>
+      Delete log entries after (days)
+      <input bind:value={auditDays} placeholder="off" inputmode="numeric" />
+    </label>
+
+    <label>
       Emergency clean-up when media exceeds (GB)
       <input bind:value={limitGb} placeholder="off" inputmode="decimal" />
     </label>
@@ -134,7 +142,8 @@
       {#if lastRun}
         <p class="muted">
           Last clean-up {new Date(lastRun.ranAt).toLocaleString()}: {lastRun.deletedAttachments} attachment(s),
-          {lastRun.deletedMessages} message(s), {lastRun.deletedBlobs} file(s) — freed
+          {lastRun.deletedMessages} message(s), {lastRun.deletedAuditEntries} log entry/entries,
+          {lastRun.deletedBlobs} file(s) — freed
           {formatBytes(lastRun.freedBytes)}.
         </p>
       {:else}

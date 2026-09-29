@@ -9,6 +9,7 @@ import {
   listReferencedHashes,
 } from '../db/attachments.ts';
 import { countMessages, deleteMessagesOlderThan, deleteOldestMessages } from '../db/messages.ts';
+import { deleteAuditOlderThan } from '../db/audit.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
 import { createBlobStore } from '../storage/blobs.ts';
@@ -77,6 +78,7 @@ export function createPruner(deps: PrunerDeps): Pruner {
     const settings = deps.settings.getRetention();
     let deletedAttachments = 0;
     let deletedMessages = 0;
+    let deletedAuditEntries = 0;
     let deletedBlobs = 0;
     let freedBytes = 0;
 
@@ -86,6 +88,11 @@ export function createPruner(deps: PrunerDeps): Pruner {
 
     if (settings.messageRetentionDays !== null) {
       deletedMessages += deleteMessagesOlderThan(deps.sqlite, isoDaysAgo(settings.messageRetentionDays));
+    }
+
+    // The log ages on its own schedule, independent of the messages it describes.
+    if (settings.auditRetentionDays !== null) {
+      deletedAuditEntries += deleteAuditOlderThan(deps.sqlite, isoDaysAgo(settings.auditRetentionDays));
     }
 
     // Uploads that never turned into a message.
@@ -132,12 +139,13 @@ export function createPruner(deps: PrunerDeps): Pruner {
       ranAt: new Date().toISOString(),
       deletedAttachments,
       deletedMessages,
+      deletedAuditEntries,
       deletedBlobs,
       freedBytes,
     };
     last = summary;
 
-    if (deletedAttachments > 0 || deletedMessages > 0 || deletedBlobs > 0) {
+    if (deletedAttachments > 0 || deletedMessages > 0 || deletedAuditEntries > 0 || deletedBlobs > 0) {
       deps.hub.dispatch(GatewayEvent.RetentionApplied, summary);
       deps.log('retention removed content', summary);
     }

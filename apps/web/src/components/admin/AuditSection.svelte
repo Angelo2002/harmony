@@ -9,6 +9,7 @@
   const kindLabels: Record<AuditKind, string> = {
     message_delete: 'delete',
     message_edit: 'edit',
+    media_delete: 'media',
     timeout_add: 'timeout',
     timeout_clear: 'timeout lifted',
     kick: 'kick',
@@ -21,6 +22,8 @@
   let entries = $state<AuditEntry[]>([]);
   let loading = $state(false);
   let loadedOnce = $state(false);
+  let busy = $state(false);
+  let confirmingClear = $state(false);
   let error = $state<string | null>(null);
 
   const hasMore = $derived(entries.length > 0 && entries.length % pageSize === 0);
@@ -57,6 +60,22 @@
 
   onMount(() => void load());
 
+  /** Wipes the log. Deliberately not itself logged, so the log ends up empty. */
+  async function clearLog(): Promise<void> {
+    busy = true;
+    error = null;
+    try {
+      await api('/audit', { method: 'DELETE' });
+      entries = [];
+      loadedOnce = true;
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      busy = false;
+      confirmingClear = false;
+    }
+  }
+
   function actorName(entry: AuditEntry): string {
     return entry.detail.actorName ?? entry.actor?.displayName ?? entry.actor?.username ?? 'someone';
   }
@@ -72,6 +91,8 @@
         return `deleted a message in #${entry.detail.channelName ?? 'a channel'}`;
       case 'message_edit':
         return `edited a message in #${entry.detail.channelName ?? 'a channel'}`;
+      case 'media_delete':
+        return `deleted an image from #${entry.detail.channelName ?? 'the media gallery'}`;
       case 'timeout_add':
         return `timed out ${targetName(entry)} for ${entry.detail.durationMinutes ?? '?'} minutes`;
       case 'timeout_clear':
@@ -111,7 +132,7 @@
             <time class="muted">{new Date(entry.createdAt).toLocaleString()}</time>
           </div>
 
-          {#if entry.detail.before !== undefined}
+          {#if entry.detail.before?.trim()}
             <div class="audit-text">
               {#if entry.kind === 'message_edit'}
                 <span class="audit-label">before</span>
@@ -124,6 +145,20 @@
             </div>
           {/if}
 
+          {#if entry.detail.attachments?.length}
+            <div class="audit-media">
+              {#each entry.detail.attachments as image (image.id)}
+                <a href={`/api/v1/attachments/${image.id}`} target="_blank" rel="noreferrer">
+                  <img src={`/api/v1/attachments/${image.id}`} alt={image.filename} loading="lazy" />
+                </a>
+              {/each}
+            </div>
+          {/if}
+
+          {#if entry.detail.filename}
+            <p class="audit-reason">File: {entry.detail.filename}</p>
+          {/if}
+
           {#if entry.detail.reason}
             <p class="audit-reason">Reason: {entry.detail.reason}</p>
           {/if}
@@ -131,8 +166,17 @@
       {/each}
     </ul>
 
-    <button type="button" onclick={loadMore} disabled={loading || !hasMore}>
-      {#if loading}Loading…{:else if hasMore}Load older{:else}No more entries{/if}
-    </button>
+    <div class="editor-actions">
+      <button type="button" onclick={loadMore} disabled={loading || !hasMore}>
+        {#if loading}Loading…{:else if hasMore}Load older{:else}No more entries{/if}
+      </button>
+
+      {#if confirmingClear}
+        <button type="button" class="danger" onclick={clearLog} disabled={busy}>Confirm clear</button>
+        <button type="button" onclick={() => (confirmingClear = false)}>Cancel</button>
+      {:else}
+        <button type="button" class="danger" onclick={() => (confirmingClear = true)}>Clear log</button>
+      {/if}
+    </div>
   {/if}
 </section>

@@ -58,6 +58,7 @@ const KEY_THEME_BACKGROUND = 'theme_background';
 const KEY_THEME_ACCENT = 'theme_accent';
 const KEY_IMAGE_DAYS = 'retention_image_days';
 const KEY_MESSAGE_DAYS = 'retention_message_days';
+const KEY_AUDIT_DAYS = 'retention_audit_days';
 const KEY_STORAGE_LIMIT = 'storage_limit_bytes';
 const KEY_STORAGE_TARGET = 'storage_target_bytes';
 const KEY_DISCORD_TOKEN = 'discord_bot_token';
@@ -137,6 +138,7 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
     return {
       imageRetentionDays: parseNumberOrNull(stored.get(KEY_IMAGE_DAYS)),
       messageRetentionDays: parseNumberOrNull(stored.get(KEY_MESSAGE_DAYS)),
+      auditRetentionDays: parseNumberOrNull(stored.get(KEY_AUDIT_DAYS)),
       storageLimitBytes: parseNumberOrNull(stored.get(KEY_STORAGE_LIMIT)),
       storageTargetBytes: parseNumberOrNull(stored.get(KEY_STORAGE_TARGET)),
     };
@@ -193,6 +195,9 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       }
       if (patch.messageRetentionDays !== undefined) {
         writeSetting(sqlite, KEY_MESSAGE_DAYS, JSON.stringify(patch.messageRetentionDays));
+      }
+      if (patch.auditRetentionDays !== undefined) {
+        writeSetting(sqlite, KEY_AUDIT_DAYS, JSON.stringify(patch.auditRetentionDays));
       }
       if (patch.storageLimitBytes !== undefined) {
         writeSetting(sqlite, KEY_STORAGE_LIMIT, JSON.stringify(patch.storageLimitBytes));

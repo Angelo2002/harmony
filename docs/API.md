@@ -257,15 +257,17 @@ type Ban = {
 
 // One recorded admin or moderation action, see "Audit log".
 type AuditKind =
-  | 'message_delete' | 'message_edit'
+  | 'message_delete' | 'message_edit' | 'media_delete'
   | 'timeout_add' | 'timeout_clear'
   | 'kick' | 'ban' | 'unban'
   | 'role_add' | 'role_remove';
 
 type AuditDetail = {
-  channelName?: string;   // message kinds
+  channelName?: string;   // message and media kinds
   before?: string;        // deleted text, or an edit's old text
   after?: string;         // an edit's new text
+  filename?: string;      // media_delete: the file that was removed
+  attachments?: Array<{ id: string; filename: string }>;  // images a deleted message carried
   durationMinutes?: number;
   reason?: string | null;
   roleName?: string;
@@ -809,11 +811,11 @@ Lifts the ban (`404 not_banned` when there was none). Returns `204` and fires `M
 
 ### Audit log
 
-The audit log records what was done, by whom and to whom. An instance gets five kinds of entry:
-
-a message being **deleted**, with the text that was removed; a message being **edited**, with the
-text either side of it; **timeouts** and their lifting; **kicks**; **bans** and unbans; and **role
-changes**.
+The audit log records what was done, by whom and to whom. An entry is logged whenever: a message is
+**deleted**, capturing the text and any images it carried; a message is **edited**, with the text
+either side of it; an image is **deleted from the media gallery**, naming the file; a member is
+**timed out** or the timeout is lifted; a member is **kicked**; a member is **banned** or unbanned;
+and a member's **roles change**.
 
 Entries are append-only and are never edited. Names and the channel are captured when the action
 happens, so an entry stays readable once a role is renamed, a channel is deleted or an account is
@@ -837,6 +839,12 @@ text can be read back from here.
 | `limit` | integer 1–100 | 50 | |
 | `before` | ISO 8601 string | — | Return entries older than this timestamp |
 | `beforeId` | string | — | Id of the entry `before` came from, to break ties |
+
+#### `DELETE /api/v1/audit` — `ManageServer`
+
+Returns `204` and empties the log. The clear itself is deliberately not recorded, so afterwards the
+log really is empty. [Audit retention](#retention) ages entries out automatically instead, when it is
+configured.
 
 ### Invites
 
@@ -905,12 +913,14 @@ from this package or simply read the tokens a Harmony client already publishes.
 ### Retention
 
 Retention automatically prunes old content and can cap total storage. Any rule set to `null` is
-switched off.
+switched off. Image, message and audit-log age limits are independent: each is deleted once it is
+older than its own limit, and the log can be cleared outright with `DELETE /api/v1/audit`.
 
 ```ts
 type RetentionSettings = {
   imageRetentionDays: number | null;
   messageRetentionDays: number | null;
+  auditRetentionDays: number | null;
   storageLimitBytes: number | null;
   storageTargetBytes: number | null;
 };
@@ -921,6 +931,7 @@ type PruneSummary = {
   ranAt: string;
   deletedAttachments: number;
   deletedMessages: number;
+  deletedAuditEntries: number;
   deletedBlobs: number;
   freedBytes: number;
 };
@@ -932,7 +943,7 @@ Returns `{ settings, usage, lastRun }`, where `lastRun` is a `PruneSummary` or `
 
 #### `PATCH /api/v1/retention` — `ManageServer`
 
-Any subset of `imageRetentionDays`, `messageRetentionDays`, `storageLimitBytes`,
+Any subset of `imageRetentionDays`, `messageRetentionDays`, `auditRetentionDays`, `storageLimitBytes`,
 `storageTargetBytes`; `null` disables a rule. Returns the same shape as `GET`.
 
 #### `POST /api/v1/retention/run` — `ManageServer`

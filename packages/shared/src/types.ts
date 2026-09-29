@@ -106,6 +106,7 @@ export interface LinkEmbed {
 export type AuditKind =
   | 'message_delete'
   | 'message_edit'
+  | 'media_delete'
   | 'timeout_add'
   | 'timeout_clear'
   | 'kick'
@@ -119,7 +120,8 @@ export type AuditKind =
  * each kind fills in only the ones it needs:
  *
  * - `message_delete` / `message_edit`: `channelName` and `before`, plus `after`
- *   for an edit.
+ *   for an edit, and `attachments` for a deletion that carried images.
+ * - `media_delete`: `filename` and `channelName`.
  * - `timeout_add`: `durationMinutes`. `ban`: `reason`.
  * - `role_add` / `role_remove`: `roleName`.
  *
@@ -129,12 +131,15 @@ export type AuditKind =
 export interface AuditDetail {
   channelName?: string;
   roleName?: string;
+  filename?: string;
   actorName?: string;
   targetName?: string;
   before?: string;
   after?: string;
   durationMinutes?: number;
   reason?: string | null;
+  /** Images that went with a deleted message, so the log can still show them. */
+  attachments?: Array<{ id: SnowflakeId; filename: string }>;
 }
 
 /** One recorded admin or moderation action. */

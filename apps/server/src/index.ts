@@ -121,7 +121,7 @@ registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub, bridge, settings: settingsService });
 registerMessageRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, attachmentService);
-registerMediaRoutes(app, { service: mediaService });
+registerMediaRoutes(app, { service: mediaService, audit: auditService });
 registerEmojiRoutes(app, { service: emojiService, hub });
 registerUserRoutes(app, { db, users: userService });
 registerGateway(app, {

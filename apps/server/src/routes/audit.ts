@@ -20,4 +20,14 @@ export function registerAuditRoutes(app: FastifyInstance, deps: AuditRouteDeps):
     const body: AuditListResponse = deps.audit.list(query);
     return body;
   });
+
+  /**
+   * Empties the log. The clear is deliberately not recorded itself, so that
+   * "cleared it" means the log really is empty.
+   */
+  app.delete('/api/v1/audit', async (request, reply) => {
+    requirePermission(request, Permission.ManageServer);
+    deps.audit.clear();
+    return reply.status(204).send();
+  });
 }

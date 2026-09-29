@@ -383,8 +383,13 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       assertCanDelete(auth, row);
 
       softDeleteMessage(sqlite, messageId, new Date().toISOString());
-      // The text is gone from every client, so keep a copy for the audit log.
-      audit.messageDeleted(auth.user.id, row.channel_id, row.content);
+      // The text and images are gone from every client, so keep a copy for the log.
+      audit.messageDeleted(
+        auth.user.id,
+        row.channel_id,
+        row.content,
+        attachmentsFor(messageId).map((attachment) => ({ id: attachment.id, filename: attachment.filename })),
+      );
       announceDelete({ id: messageId, channelId: row.channel_id });
     },
 

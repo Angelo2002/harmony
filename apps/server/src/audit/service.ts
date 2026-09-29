@@ -1,13 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AuditDetail, AuditEntry, AuditKind, AuditListResponse, AuditQuery, User } from '@harmony/shared';
-import { insertAudit, listAudit } from '../db/audit.ts';
+import { clearAudit, insertAudit, listAudit } from '../db/audit.ts';
 import { findChannel } from '../db/channels.ts';
 import { findRole } from '../db/roles.ts';
 import { findUserById, presentUser } from '../db/users.ts';
 
 /** The moderation kinds, kept narrow so a typo cannot invent a new one. */
 export type ModerationAuditKind = 'timeout_add' | 'timeout_clear' | 'kick' | 'ban' | 'unban';
+
+/** The minimal identity of an image kept alongside a deleted message. */
+export interface AuditImage {
+  id: string;
+  filename: string;
+}
 
 /**
  * The admin audit log. It records what was done, by whom and to whom, and keeps
@@ -19,14 +25,18 @@ export type ModerationAuditKind = 'timeout_add' | 'timeout_clear' | 'kick' | 'ba
  * a channel is deleted or an account is removed.
  */
 export interface AuditService {
-  /** Records a deletion, with the text that was removed. */
-  messageDeleted(actorId: string, channelId: string, content: string): void;
+  /** Records a deletion, with the text and images that went with it. */
+  messageDeleted(actorId: string, channelId: string, content: string, attachments: AuditImage[]): void;
   /** Records an edit, with the text either side of it. */
   messageEdited(actorId: string, channelId: string, before: string, after: string): void;
+  /** Records an image being deleted from the media gallery. */
+  mediaDeleted(actorId: string, filename: string, channelName: string | null): void;
   moderation(kind: ModerationAuditKind, actorId: string, targetId: string, detail?: AuditDetail): void;
   /** Records a role being handed out or taken away. */
   roleChange(actorId: string, targetId: string, roleId: string, added: boolean): void;
   list(query: AuditQuery): AuditListResponse;
+  /** Empties the log, returning how many entries were removed. */
+  clear(): number;
 }
 
 export function createAuditService(sqlite: DatabaseSync): AuditService {
@@ -70,11 +80,13 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
   }
 
   return {
-    messageDeleted(actorId, channelId, content) {
+    messageDeleted(actorId, channelId, content, attachments) {
       write('message_delete', actorId, null, channelId, {
         channelName: findChannel(sqlite, channelId)?.name,
         actorName: userName(actorId),
         before: content,
+        // Images still exist after a soft delete, so the log can show them.
+        attachments: attachments.length > 0 ? attachments : undefined,
       });
     },
 
@@ -84,6 +96,14 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
         actorName: userName(actorId),
         before,
         after,
+      });
+    },
+
+    mediaDeleted(actorId, filename, channelName) {
+      write('media_delete', actorId, null, null, {
+        filename,
+        channelName: channelName ?? undefined,
+        actorName: userName(actorId),
       });
     },
 
@@ -114,6 +134,10 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
         detail: parseDetail(row.detail),
       }));
       return { entries };
+    },
+
+    clear() {
+      return clearAudit(sqlite);
     },
   };
 }

@@ -189,6 +189,7 @@ const retentionNumber = z.number().int().min(0).nullable().optional();
 export const updateRetentionSchema = z.object({
   imageRetentionDays: retentionNumber,
   messageRetentionDays: retentionNumber,
+  auditRetentionDays: retentionNumber,
   storageLimitBytes: retentionNumber,
   storageTargetBytes: retentionNumber,
 });

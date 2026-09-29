@@ -1076,7 +1076,9 @@ try {
   const retention = await req('/retention', { token: ownerToken });
   check(
     'owner reads retention settings',
-    retention.status === 200 && retention.json?.settings?.imageRetentionDays === null,
+    retention.status === 200 &&
+      retention.json?.settings?.imageRetentionDays === null &&
+      retention.json?.settings?.auditRetentionDays === null,
   );
   check('retention reports usage', typeof retention.json?.usage?.blobBytes === 'number');
   check('member cannot read retention (403)', (await req('/retention', { token: bobToken })).status === 403);
@@ -1437,6 +1439,24 @@ try {
   });
   await req(`/messages/${auditedMessage.json.id}`, { method: 'DELETE', token: ownerToken });
 
+  // A deletion that carried an image keeps a link to the file, since only the
+  // message row is soft-deleted and the bytes are still on disk.
+  const auditUpload = new FormData();
+  auditUpload.append('file', new Blob([emojiPng], { type: 'image/png' }), 'audited.png');
+  const auditAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: auditUpload,
+    })
+  ).json();
+  const imageMessage = await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'has an image', attachmentIds: [auditAttachment.id] },
+  });
+  await req(`/messages/${imageMessage.json.id}`, { method: 'DELETE', token: ownerToken });
+
   const audit = (await req('/audit?limit=100', { token: ownerToken })).json;
   const auditKinds = new Set((audit?.entries ?? []).map((entry) => entry.kind));
   check(
@@ -1467,6 +1487,23 @@ try {
     (entry) => entry.kind === 'message_delete' && entry.detail.before === 'changed text',
   );
   check('a deletion keeps the text that was removed', Boolean(removedEntry));
+
+  const imageEntry = (audit?.entries ?? []).find(
+    (entry) => entry.kind === 'message_delete' && entry.detail.before === 'has an image',
+  );
+  check(
+    'a deletion keeps a link to the images it carried',
+    imageEntry?.detail.attachments?.[0]?.filename === 'audited.png',
+    JSON.stringify(imageEntry?.detail),
+  );
+  check(
+    'the deleted image is still served so the log can show it',
+    (
+      await fetch(`${BASE}/attachments/${auditAttachment.id}`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })
+    ).status === 200,
+  );
 
   const banEntry = (audit?.entries ?? []).find(
     (entry) => entry.kind === 'ban' && entry.detail.reason === 'audit check',
@@ -1535,6 +1572,56 @@ try {
   check(
     'deleting a missing attachment 404s',
     (await req(`/attachments/${galleryAttachment.id}`, { method: 'DELETE', token: ownerToken })).status === 404,
+  );
+
+  // Deleting from the gallery is a loggable admin action, unlike the soft delete
+  // of a message which only hides it.
+  const afterGallery = (await req('/audit?limit=100', { token: ownerToken })).json;
+  const mediaEntry = (afterGallery?.entries ?? []).find((entry) => entry.kind === 'media_delete');
+  check(
+    'deleting media from the gallery is logged with the file name',
+    mediaEntry?.detail.filename === 'gallery.png',
+    JSON.stringify(mediaEntry?.detail),
+  );
+
+  // --- Audit retention and clearing ---
+  check('a member cannot clear the log (403)', (await req('/audit', { method: 'DELETE', token: bobToken })).status === 403);
+  check('the log can be cleared', (await req('/audit', { method: 'DELETE', token: ownerToken })).status === 204);
+  check('the log is empty after clearing', (await req('/audit', { token: ownerToken })).json?.entries?.length === 0);
+
+  const auditDays = await req('/retention', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { auditRetentionDays: 30 },
+  });
+  check(
+    'audit retention is saved',
+    auditDays.json?.settings?.auditRetentionDays === 30,
+    JSON.stringify(auditDays.json?.settings),
+  );
+
+  // Make a fresh entry, then let retention age it out.
+  const toPruneFromLog = await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'prune me from the log' },
+  });
+  await req(`/messages/${toPruneFromLog.json.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'a fresh entry is in the log',
+    (await req('/audit', { token: ownerToken })).json?.entries?.length > 0,
+  );
+
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { auditRetentionDays: 0 } });
+  const auditPruned = await req('/retention/run', { method: 'POST', token: ownerToken });
+  check(
+    'audit retention deletes old log entries',
+    auditPruned.json?.summary?.deletedAuditEntries > 0,
+    JSON.stringify(auditPruned.json?.summary),
+  );
+  check(
+    'the log is empty after audit retention',
+    (await req('/audit', { token: ownerToken })).json?.entries?.length === 0,
   );
 
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);

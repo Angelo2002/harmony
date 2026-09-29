@@ -1,11 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { Permission, mediaQuerySchema, type MediaListResponse } from '@harmony/shared';
 import { requirePermission } from '../auth/plugin.ts';
+import type { AuditService } from '../audit/service.ts';
 import { parseQuery } from '../http/validation.ts';
 import type { MediaService } from '../media/service.ts';
 
 export interface MediaRouteDeps {
   service: MediaService;
+  audit: AuditService;
 }
 
 /**
@@ -22,9 +24,10 @@ export function registerMediaRoutes(app: FastifyInstance, deps: MediaRouteDeps):
   });
 
   app.delete('/api/v1/attachments/:id', async (request, reply) => {
-    requirePermission(request, Permission.ManageServer);
+    const auth = requirePermission(request, Permission.ManageServer);
     const { id } = request.params as { id: string };
-    deps.service.remove(id);
+    const removed = deps.service.remove(id);
+    deps.audit.mediaDeleted(auth.user.id, removed.filename, removed.channelName);
     return reply.status(204).send();
   });
 }

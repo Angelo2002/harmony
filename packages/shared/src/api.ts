@@ -141,6 +141,8 @@ export interface RetentionSettings {
   imageRetentionDays: number | null;
   /** Delete messages older than this many days. */
   messageRetentionDays: number | null;
+  /** Delete audit log entries older than this many days. */
+  auditRetentionDays: number | null;
   /** Start emergency pruning once stored media exceeds this many bytes. */
   storageLimitBytes: number | null;
   /** Emergency pruning deletes oldest content until usage is back under this. */
@@ -158,6 +160,7 @@ export interface PruneSummary {
   ranAt: string;
   deletedAttachments: number;
   deletedMessages: number;
+  deletedAuditEntries: number;
   deletedBlobs: number;
   freedBytes: number;
 }

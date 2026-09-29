@@ -64,3 +64,15 @@ export function listAudit(
 
   return rows as unknown as AuditRow[];
 }
+
+/** Removes entries older than `before`, returning how many went. */
+export function deleteAuditOlderThan(sqlite: DatabaseSync, before: string): number {
+  const result = sqlite.prepare('DELETE FROM audit_log WHERE created_at < ?').run(before);
+  return Number(result.changes);
+}
+
+/** Empties the log, returning how many entries were removed. */
+export function clearAudit(sqlite: DatabaseSync): number {
+  const result = sqlite.prepare('DELETE FROM audit_log').run();
+  return Number(result.changes);
+}

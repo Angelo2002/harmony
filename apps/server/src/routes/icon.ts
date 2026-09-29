@@ -9,6 +9,10 @@ export interface IconRouteDeps {
   icon: IconService;
 }
 
+/** Bounds for an on-demand icon render, wide enough for any launcher. */
+const ICON_MIN_SIZE = 16;
+const ICON_MAX_SIZE = 1024;
+
 export function registerIconRoutes(app: FastifyInstance, deps: IconRouteDeps): void {
   /**
    * The instance icon. Public, because the browser fetches a favicon without a
@@ -27,6 +31,33 @@ export function registerIconRoutes(app: FastifyInstance, deps: IconRouteDeps): v
       .header('Cache-Control', 'public, max-age=31536000, immutable')
       .header('ETag', `"${hash}"`);
     return reply.send(createReadStream(path));
+  });
+
+  /**
+   * The instance icon rendered at a given size, for the app manifest and the
+   * home-screen icon. Public like the favicon above; the caller adds the current
+   * icon hash to the URL, so the long cache is safe. Add `maskable=1` for the
+   * padded variant Android crops to its own shape.
+   */
+  app.get('/api/v1/icons/:size', async (request, reply) => {
+    const { size: rawSize } = request.params as { size: string };
+    const size = Number(rawSize);
+    if (!Number.isInteger(size) || size < ICON_MIN_SIZE || size > ICON_MAX_SIZE) {
+      throw new HttpError(
+        400,
+        'invalid_size',
+        `Icon size must be a whole number between ${ICON_MIN_SIZE} and ${ICON_MAX_SIZE}.`,
+      );
+    }
+
+    const maskable = (request.query as { maskable?: string }).maskable === '1';
+    const image = maskable ? await deps.icon.renderMaskable(size) : await deps.icon.render(size);
+    if (!image) throw new HttpError(404, 'icon_unavailable', 'No server icon is available to render.');
+
+    reply
+      .header('Content-Type', 'image/png')
+      .header('Cache-Control', 'public, max-age=31536000, immutable');
+    return reply.send(image);
   });
 
   app.put('/api/v1/icon', async (request) => {

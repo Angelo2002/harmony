@@ -15,6 +15,8 @@ function apply(tokens: ThemeTokens): void {
   root.style.setProperty('--h-hover', tokens.hover);
   root.style.setProperty('--h-active', tokens.active);
   root.style.colorScheme = tokens.scheme;
+  // The Android status bar and splash screen follow the app's own colours.
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', tokens.bg);
 }
 
 /** Applies a theme and remembers it as the one to fall back to. */

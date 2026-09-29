@@ -1139,6 +1139,24 @@ use, in which case a client should show its own bundled default. Ask for the ico
 
 Returns `{ "iconHash": null }` and puts the built-in default back in use.
 
+#### `GET /api/v1/icons/:size` — no auth
+
+Serves the instance icon — the admin's upload, or the built-in default — resized to a square PNG of
+`size`, from 16 to 1024. Add `?maskable=1` for the padded variant Android crops to its own launcher
+shape, drawn on the themed background. Used by the [app manifest](#app-manifest); a caller should
+append the current `iconHash` as `?v=` so the long cache is safe. `400 invalid_size` outside the
+range, `404 icon_unavailable` when no icon source exists at all.
+
+### App manifest
+
+#### `GET /manifest.webmanifest` — no auth
+
+A web app manifest, built from the instance's settings so an installed app carries the server's own
+name, icon and colours. `display` is `standalone`, which is what lets it open on a phone home screen
+without browser chrome. It lists the icon sizes a launcher needs (`192x192` and `512x512`, from
+[the icon endpoint](#get-apiv1iconssize--no-auth)) plus a maskable one. Serving it over HTTPS is what
+makes it installable; see [Deploying Harmony](DEPLOYMENT.md).
+
 ### Theming
 
 An instance is themed with just two colours, both `#rrggbb` or `null` for the built-in default:

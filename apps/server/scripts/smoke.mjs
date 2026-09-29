@@ -32,6 +32,14 @@ const dataDir = mkdtempSync(join(tmpdir(), 'harmony-smoke-'));
 // exercised without depending on whether anyone ran `npm run build:web` first.
 const webDir = mkdtempSync(join(tmpdir(), 'harmony-web-'));
 writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>Harmony test shell</title><div id="app"></div>');
+// A stand-in default icon, so the on-demand icon rendering has a source even
+// without a real client build.
+writeFileSync(
+  join(webDir, 'icon.png'),
+  await sharp({ create: { width: 96, height: 96, channels: 4, background: { r: 88, g: 101, b: 242, alpha: 1 } } })
+    .png()
+    .toBuffer(),
+);
 
 const server = spawn('node', ['src/index.ts'], {
   cwd: serverDir,
@@ -2184,6 +2192,44 @@ try {
     'the log is empty after audit retention',
     (await req('/audit', { token: ownerToken })).json?.entries?.length === 0,
   );
+
+  // --- Installable web app ---
+  const manifestRes = await fetch(`${ORIGIN}/manifest.webmanifest`);
+  const manifest = await manifestRes.json();
+  check(
+    'the app manifest is served as a manifest',
+    manifestRes.status === 200 && (manifestRes.headers.get('content-type') ?? '').includes('manifest'),
+  );
+  check(
+    'the manifest opens without browser chrome',
+    manifest.display === 'standalone' && manifest.start_url === '/',
+  );
+  check('the manifest carries the instance name', manifest.name === 'Test Server', manifest.name);
+  check(
+    'the manifest lists the icon sizes a launcher needs',
+    ['192x192', '512x512'].every((size) =>
+      (manifest.icons ?? []).some((icon) => icon.sizes === size && icon.purpose === 'any'),
+    ),
+  );
+  check(
+    'the manifest offers a maskable icon',
+    (manifest.icons ?? []).some((icon) => icon.purpose === 'maskable'),
+  );
+
+  const icon192 = await fetch(`${ORIGIN}/api/v1/icons/192`);
+  check(
+    'an icon is rendered at the requested size',
+    icon192.status === 200 &&
+      (icon192.headers.get('content-type') ?? '') === 'image/png' &&
+      (await sharp(Buffer.from(await icon192.arrayBuffer())).metadata()).width === 192,
+  );
+  const maskableIcon = await fetch(`${ORIGIN}/api/v1/icons/512?maskable=1`);
+  const maskableMeta = await sharp(Buffer.from(await maskableIcon.arrayBuffer())).metadata();
+  check(
+    'a maskable icon is rendered at its size',
+    maskableIcon.status === 200 && maskableMeta.width === 512 && maskableMeta.height === 512,
+  );
+  check('an unreasonable icon size is refused (400)', (await fetch(`${ORIGIN}/api/v1/icons/99999`)).status === 400);
 
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);
   check('session is dead after logout (401)', (await req('/auth/me', { cookie: login.cookie })).status === 401);

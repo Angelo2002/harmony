@@ -35,6 +35,7 @@ import { registerSecurityHeaders, warnAboutExposure } from './http/security.ts';
 import { registerWebClient, webClientIndex } from './http/webclient.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerMetaRoutes } from './routes/meta.ts';
+import { registerManifestRoutes } from './routes/manifest.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
 import { registerIconRoutes } from './routes/icon.ts';
@@ -161,6 +162,7 @@ registerAuth(app, { cookieName: config.cookieName, resolveToken: authService.res
 
 registerHealthRoutes(app, db);
 registerMetaRoutes(app, { config, settings: settingsService });
+registerManifestRoutes(app, { settings: settingsService });
 registerAuthRoutes(app, { service: authService, config });
 registerSettingsRoutes(app, { settings: settingsService, db });
 registerIconRoutes(app, { icon: iconService });

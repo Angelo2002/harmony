@@ -32,8 +32,9 @@ export async function registerWebClient(app: FastifyInstance, options: WebClient
       if (path.includes(`${sep}assets${sep}`)) {
         // Vite fingerprints everything under `assets/`, so it can be cached forever.
         response.header('Cache-Control', 'public, max-age=31536000, immutable');
-      } else if (path.endsWith(`${sep}index.html`)) {
-        // The shell names the current asset hashes, so it must never be cached stale.
+      } else if (path.endsWith(`${sep}index.html`) || path.endsWith(`${sep}sw.js`)) {
+        // The shell names the current asset hashes, and the service worker has to
+        // be re-checked for updates, so neither may be cached stale.
         response.header('Cache-Control', 'no-cache');
       } else {
         // The default icon and anything else unhashed gets a short cache.

@@ -17,6 +17,9 @@ export default defineConfig({
       // Forward API and gateway traffic to the Node server.
       '/api': 'http://127.0.0.1:8787',
       '/gateway': { target: 'ws://127.0.0.1:8787', ws: true },
+      // The manifest is built from the instance settings, so it comes from the
+      // server even in development.
+      '/manifest.webmanifest': 'http://127.0.0.1:8787',
     },
   },
 });

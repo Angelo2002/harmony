@@ -149,6 +149,30 @@ Do this **before** the instance is reachable from the internet.
    `HARMONY_TRUST_PROXY=true`, and restart.
 6. Invite everyone.
 
+## Installing it as an app
+
+Harmony is a Progressive Web App, so it can be installed to a phone or desktop
+home screen and run full-screen, with no browser UI around it. The manifest is
+built from the instance's own settings, so the installed app takes the server's
+name, icon and colours.
+
+Installing needs **HTTPS**: a browser will not offer it over plain HTTP. Once the
+instance is behind TLS:
+
+- **Android (Chrome):** open the instance and pick *Install app* from the ⋮ menu,
+  or *Add to Home screen*. It opens standalone, with its own entry in the task
+  switcher.
+- **iOS (Safari):** Share → *Add to Home Screen*.
+- **Desktop (Chrome or Edge):** the install icon in the address bar.
+
+The home-screen icon is the admin-uploaded instance icon, or the built-in default
+otherwise. A larger source makes a sharper icon — the shipped default is only
+96×96 — so if the icon matters to you, upload a square image of at least 512×512
+in **Admin → Settings**.
+
+Updates arrive on the next visit: the service worker caches nothing, so a new
+deploy is never served stale, though an existing install may need one reload.
+
 ## Backups
 
 Everything that matters is under `data/`. To back it up safely, either stop the

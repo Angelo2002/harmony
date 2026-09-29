@@ -85,9 +85,21 @@ function hostnameOf(url: string): string | null {
   }
 }
 
+/** Turns a possibly-relative image URL into an absolute http(s) one, or null. */
+function absoluteHttpUrl(value: string | null, base: string): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value, base);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Builds a preview from a page's OpenGraph, Twitter-card or plain metadata.
- * Only text is kept: remote images are never fetched or stored.
+ * Text is read here; the preview image is only referenced, never fetched, and
+ * the client asks the server to proxy it when it wants to show it.
  */
 export function parseEmbedMetadata(html: string, url: string): LinkEmbed {
   const head = html.slice(0, HEAD_LIMIT);
@@ -105,6 +117,10 @@ export function parseEmbedMetadata(html: string, url: string): LinkEmbed {
     title: collapse(pick('og:title', 'twitter:title') ?? titleTag(head), MAX_TITLE),
     description: collapse(pick('og:description', 'twitter:description', 'description'), MAX_DESCRIPTION),
     siteName: collapse(pick('og:site_name', 'application-name') ?? hostnameOf(url), MAX_SITE_NAME),
+    imageUrl: absoluteHttpUrl(
+      pick('og:image:secure_url', 'og:image:url', 'og:image', 'twitter:image', 'twitter:image:src'),
+      url,
+    ),
   };
 }
 

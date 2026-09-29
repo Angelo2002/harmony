@@ -71,6 +71,12 @@ export interface BridgeDeps {
   users: UserService;
   logger: BridgeLogger;
   transportFactory: (token: string, logger: BridgeLogger) => DiscordTransport;
+  /**
+   * Called with each message the bridge creates, so a link preview can resolve
+   * for it too. Whatever it does must not notify the outbound listeners, or the
+   * preview would mirror itself back to Discord.
+   */
+  resolvePreview?: (messageId: string, content: string) => void;
 }
 
 export function createBridgeService(deps: BridgeDeps): BridgeService {
@@ -534,6 +540,8 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       discordMessageId: message.id,
       createdAt: new Date().toISOString(),
     });
+    // A link posted on Discord previews here too, exactly as if it were typed here.
+    deps.resolvePreview?.(created.id, content);
     return true;
   }
 

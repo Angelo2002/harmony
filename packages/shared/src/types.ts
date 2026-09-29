@@ -100,6 +100,12 @@ export interface LinkEmbed {
   title: string | null;
   description: string | null;
   siteName: string | null;
+  /**
+   * A preview image the page advertises, or the link itself when it points
+   * straight at an image. Clients load it through `GET /api/v1/embeds/media`
+   * rather than from the remote host.
+   */
+  imageUrl: string | null;
 }
 
 /** What an audit entry records. */

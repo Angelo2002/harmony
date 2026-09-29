@@ -41,6 +41,7 @@ import { registerInviteRoutes } from './routes/invites.ts';
 import { registerChannelRoutes } from './routes/channels.ts';
 import { registerMessageRoutes } from './routes/messages.ts';
 import { registerAttachmentRoutes } from './routes/attachments.ts';
+import { registerEmbedRoutes } from './routes/embeds.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
 import { registerMediaRoutes } from './routes/media.ts';
 import { registerUserRoutes } from './routes/users.ts';
@@ -111,6 +112,9 @@ const bridge = createBridgeService({
   users: userService,
   logger: bridgeLogger,
   transportFactory: (token, logger) => createDiscordTransport(token, logger),
+  // A link posted on Discord should preview here too. Previews are pushed
+  // straight to the gateway, so this never mirrors itself back out.
+  resolvePreview: (messageId, content) => embedService.resolve(messageId, content),
 });
 
 // Copies the linked guild's custom emoji in on demand from the emoji panel.
@@ -149,6 +153,7 @@ registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub, bridge, settings: settingsService, importer: channelImport });
 registerMessageRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
+registerEmbedRoutes(app);
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
 registerUserRoutes(app, { db, users: userService });

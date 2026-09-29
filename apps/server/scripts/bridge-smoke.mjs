@@ -161,6 +161,7 @@ const attachments = createAttachmentService(db.sqlite, config, settings);
 const users = createUserService(db.sqlite, config);
 const transport = createFakeTransport();
 
+const previews = [];
 const bridge = createBridgeService({
   sqlite: db.sqlite,
   config,
@@ -169,6 +170,7 @@ const bridge = createBridgeService({
   users,
   logger,
   transportFactory: () => transport,
+  resolvePreview: (messageId, content) => previews.push({ messageId, content }),
 });
 
 const png = await sharp({ create: { width: 10, height: 6, channels: 3, background: { r: 10, g: 200, b: 90 } } })
@@ -263,6 +265,10 @@ try {
     existsSync(join(config.uploadDir, ingested.attachments[0].hash.slice(0, 2), ingested.attachments[0].hash)),
   );
   check('ingested messages are not mirrored back', transport.state.mirrors.length === mirrorsBeforeIngest);
+  check(
+    'a bridged message resolves a link preview',
+    previews.some((entry) => entry.messageId === ingested?.id),
+  );
   check('discord avatar is imported for the ghost user', typeof ingested?.author?.avatarHash === 'string');
   check(
     'ghost avatar blob is stored',

@@ -731,6 +731,24 @@ try {
   check('the open graph title wins over the title tag', metadata.title === 'OG & Title');
   check('the description is read', metadata.description === 'A description');
   check('the site name falls back to the host', metadata.siteName === 'example.com');
+  check('a page without a preview image has none', metadata.imageUrl === null);
+
+  const gifPage = parseEmbedMetadata(
+    '<meta property="og:image" content="/img/cat.gif"><meta property="og:title" content="A gif">',
+    'https://example.com/post',
+  );
+  check('an og:image is resolved against the page', gifPage.imageUrl === 'https://example.com/img/cat.gif');
+  check(
+    'a data: image is refused',
+    parseEmbedMetadata('<meta property="og:image" content="data:image/gif;base64,R0lGOD">', 'https://example.com/')
+      .imageUrl === null,
+  );
+
+  check('the preview media endpoint needs a url (400)', (await req('/embeds/media', { token: ownerToken })).status === 400);
+  check(
+    'the preview media endpoint refuses a private address (404)',
+    (await req(`/embeds/media?url=${encodeURIComponent('http://127.0.0.1:9/x.png')}`, { token: ownerToken })).status === 404,
+  );
 
   // A message linking to a private address must never be fetched.
   const privateLink = await req(`/channels/${general.id}/messages`, {

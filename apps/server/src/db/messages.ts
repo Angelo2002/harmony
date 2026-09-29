@@ -25,6 +25,7 @@ export function parseMessageEmbed(raw: string | null): LinkEmbed | null {
       title: typeof value.title === 'string' ? value.title : null,
       description: typeof value.description === 'string' ? value.description : null,
       siteName: typeof value.siteName === 'string' ? value.siteName : null,
+      imageUrl: typeof value.imageUrl === 'string' ? value.imageUrl : null,
     };
   } catch {
     return null;

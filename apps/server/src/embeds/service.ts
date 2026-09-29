@@ -1,11 +1,10 @@
-import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
 import type { DatabaseSync } from 'node:sqlite';
 import { GatewayEvent, listEmbeddableUrls, type LinkEmbed, type Message } from '@harmony/shared';
 import { setMessageEmbed } from '../db/messages.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
-import { isPrivateAddress, parseEmbedMetadata } from './metadata.ts';
+import { resolvesToPublicHost } from './guard.ts';
+import { parseEmbedMetadata } from './metadata.ts';
 
 /** Outbound fetch limits, kept tight because the target is user-supplied. */
 const FETCH_TIMEOUT_MS = 6000;
@@ -89,17 +88,6 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
   };
 }
 
-/** Whether a hostname resolves only to addresses we are willing to fetch. */
-async function resolvesToPublicHost(hostname: string): Promise<boolean> {
-  if (isIP(hostname) !== 0) return !isPrivateAddress(hostname);
-  try {
-    const records = await lookup(hostname, { all: true });
-    return records.length > 0 && records.every((record) => !isPrivateAddress(record.address));
-  } catch {
-    return false;
-  }
-}
-
 async function fetchEmbed(url: string): Promise<LinkEmbed | null> {
   let target: URL;
   try {
@@ -118,7 +106,7 @@ async function fetchEmbed(url: string): Promise<LinkEmbed | null> {
       const response = await fetch(target, {
         redirect: 'manual',
         signal: controller.signal,
-        headers: { 'user-agent': USER_AGENT, accept: 'text/html,application/xhtml+xml' },
+        headers: { 'user-agent': USER_AGENT, accept: 'text/html,application/xhtml+xml,image/*;q=0.8' },
       });
 
       if (response.status >= 300 && response.status < 400) {
@@ -130,6 +118,17 @@ async function fetchEmbed(url: string): Promise<LinkEmbed | null> {
       if (!response.ok) return null;
 
       const contentType = response.headers.get('content-type') ?? '';
+      // A link that points straight at an image is its own preview.
+      if (/^image\//i.test(contentType)) {
+        await response.body?.cancel();
+        return {
+          url: target.toString(),
+          title: null,
+          description: null,
+          siteName: target.hostname.replace(/^www\./, ''),
+          imageUrl: target.toString(),
+        };
+      }
       if (!/text\/html|application\/xhtml/i.test(contentType)) return null;
 
       return parseEmbedMetadata(await readCapped(response), target.toString());

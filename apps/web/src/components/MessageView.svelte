@@ -437,6 +437,15 @@
 
             {#if message.embed}
               <a class="embed" href={message.embed.url} target="_blank" rel="noreferrer noopener">
+                {#if message.embed.imageUrl}
+                  <!-- Fetched through the server, not straight from the third party. -->
+                  <img
+                    class="embed-image"
+                    src={`/api/v1/embeds/media?url=${encodeURIComponent(message.embed.imageUrl)}`}
+                    alt=""
+                    loading="lazy"
+                  />
+                {/if}
                 {#if message.embed.siteName}<span class="embed-site">{message.embed.siteName}</span>{/if}
                 {#if message.embed.title}<span class="embed-title">{message.embed.title}</span>{/if}
                 {#if message.embed.description}

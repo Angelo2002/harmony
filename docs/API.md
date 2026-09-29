@@ -220,6 +220,7 @@ type LinkEmbed = {
   title: string | null;
   description: string | null;
   siteName: string | null;      // og:site_name, or the host name
+  imageUrl: string | null;      // og:image / twitter:image, or the link itself for a direct image
 };
 
 type Role = {
@@ -619,12 +620,25 @@ stub, and the bridge mirrors the removal to Discord.
 
 When `embedsEnabled` is on, the server takes the first link a message contains and, if it can reach
 it, attaches a small `embed` and fires a second `MESSAGE_UPDATE` carrying it. Only the first link is
-used, and only text is extracted — no remote images are fetched or stored.
+used. As well as the text, the page's preview image (`og:image` or `twitter:image`) is recorded in
+`imageUrl`; a link that points straight at an image is its own preview.
 
 Links inside code, masked links (`[text](url)`) and angle-bracket links (`<url>`) are never
 unfurled. The fetch is guarded: `http` and `https` only, the host must resolve to a public address,
 and redirects are limited and re-checked at each hop. Editing a message drops its old preview and
-resolves the new text. Turn previews off instance-wide with `embedsEnabled` in the server settings.
+resolves the new text, and a message the Discord bridge imports resolves a preview as if it had been
+typed here. Turn previews off instance-wide with `embedsEnabled` in the server settings.
+
+#### `GET /api/v1/embeds/media` — `ViewChannels`
+
+Serves a preview image, given the embed's `imageUrl` as a `url` query parameter. A client should
+load `imageUrl` through this rather than from the third party: the viewer's address stays private,
+and an `http`-only image still shows on an `https` page.
+
+The URL is treated as hostile exactly like the metadata fetch — public hosts only, redirects
+re-checked — the response must be an `image/*` type of at most 8 MB, and SVG is refused because it
+can carry script. Returns `404 media_unavailable` when the image cannot be fetched, so a client
+should tolerate a broken image rather than expect one.
 
 ### Reactions
 

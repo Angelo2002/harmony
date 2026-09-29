@@ -43,3 +43,7 @@ export function incrementInviteUses(sqlite: DatabaseSync, code: string): void {
 export function listInvites(sqlite: DatabaseSync): InviteRow[] {
   return sqlite.prepare('SELECT * FROM invites ORDER BY created_at DESC').all() as unknown as InviteRow[];
 }
+
+export function deleteInvite(sqlite: DatabaseSync, code: string): void {
+  sqlite.prepare('DELETE FROM invites WHERE code = ?').run(code);
+}

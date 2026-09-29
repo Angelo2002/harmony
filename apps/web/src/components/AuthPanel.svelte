@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AuthResponse, MeResponse } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
+  import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
 
   let mode = $state<'login' | 'register'>('login');
@@ -40,8 +41,16 @@
 
 <main>
   <header>
-    <h1>Harmony</h1>
-    <p class="muted">{mode === 'login' ? 'Welcome back.' : 'Create your account.'}</p>
+    <h1>{meta.serverName}</h1>
+    <p class="muted">
+      {#if mode === 'login'}
+        Welcome back.
+      {:else if meta.requireInvite}
+        Create your account — an invite code is required.
+      {:else}
+        Create your account.
+      {/if}
+    </p>
   </header>
 
   <form onsubmit={submit}>
@@ -63,8 +72,8 @@
 
     {#if mode === 'register'}
       <label>
-        Invite code <span class="optional">(if required)</span>
-        <input name="inviteCode" bind:value={inviteCode} autocomplete="off" />
+        Invite code <span class="optional">{meta.requireInvite ? '(required)' : '(if required)'}</span>
+        <input name="inviteCode" bind:value={inviteCode} autocomplete="off" required={meta.requireInvite} />
       </label>
     {/if}
 

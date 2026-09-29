@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { Permission, createInviteSchema } from '@harmony/shared';
 import { requirePermission } from '../auth/plugin.ts';
 import type { Database } from '../db/index.ts';
-import { findInvite, insertInvite, listInvites, toInvite } from '../db/invites.ts';
+import { findInvite, insertInvite, listInvites, toInvite, deleteInvite } from '../db/invites.ts';
 import { HttpError } from '../http/errors.ts';
 import { parseBody } from '../http/validation.ts';
 
@@ -34,5 +34,12 @@ export function registerInviteRoutes(app: FastifyInstance, db: Database): void {
     const invite = findInvite(db.sqlite, code);
     if (!invite) throw new HttpError(500, 'internal_error', 'Failed to create the invite.');
     return toInvite(invite);
+  });
+
+  app.delete('/api/v1/invites/:code', async (request, reply) => {
+    requirePermission(request, Permission.ManageServer);
+    const { code } = request.params as { code: string };
+    deleteInvite(db.sqlite, code);
+    return reply.status(204).send();
   });
 }

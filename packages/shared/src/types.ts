@@ -1,5 +1,3 @@
-import type { PermissionValue } from './permissions.ts';
-
 export type SnowflakeId = string;
 export type IsoTimestamp = string;
 export type ChannelType = 'text';
@@ -20,7 +18,8 @@ export interface Role {
   /** Packed RGB integer, or null for the neutral default colour. */
   color: number | null;
   position: number;
-  permissions: PermissionValue;
+  /** Permission bitfield as a decimal string (JSON cannot carry a bigint). */
+  permissions: string;
   hoist: boolean;
   mentionable: boolean;
   isDefault: boolean;

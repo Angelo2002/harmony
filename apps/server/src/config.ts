@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
 import { resolve } from 'node:path';
-import { DEFAULT_MAX_UPLOAD_BYTES } from '@harmony/shared';
+import { DEFAULT_MAX_UPLOAD_BYTES, HARMONY_NAME } from '@harmony/shared';
 
 export interface Config {
   host: string;
   port: number;
+  /** Display name of this instance; the initial `serverName` setting. */
+  serverName: string;
   /** Directory holding the SQLite database and uploaded files. */
   dataDir: string;
   dbFile: string;
@@ -51,6 +53,7 @@ export function loadConfig(): Config {
   return {
     host: process.env.HARMONY_HOST ?? '127.0.0.1',
     port: readNumber(process.env.HARMONY_PORT, 8787),
+    serverName: process.env.HARMONY_SERVER_NAME ?? HARMONY_NAME,
     dataDir,
     dbFile: resolve(dataDir, 'harmony.db'),
     uploadDir: resolve(dataDir, 'uploads'),

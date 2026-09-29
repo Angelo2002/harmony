@@ -80,3 +80,30 @@ export const messageHistoryQuerySchema = z.object({
   before: z.string().optional(),
 });
 export type MessageHistoryQuery = z.infer<typeof messageHistoryQuerySchema>;
+
+/** Permission bitfields cross the wire as decimal strings. */
+const permissionString = z.string().regex(/^\d+$/, 'Must be a decimal permission bitfield');
+
+export const createRoleSchema = z.object({
+  name: z.string().min(1).max(LIMITS.channelName.max),
+  color: z.number().int().min(0).max(0xffffff).nullable().optional(),
+  permissions: permissionString.optional(),
+  hoist: z.boolean().optional(),
+  mentionable: z.boolean().optional(),
+});
+export type CreateRoleInput = z.infer<typeof createRoleSchema>;
+
+export const updateRoleSchema = z.object({
+  name: z.string().min(1).max(LIMITS.channelName.max).optional(),
+  color: z.number().int().min(0).max(0xffffff).nullable().optional(),
+  permissions: permissionString.optional(),
+  hoist: z.boolean().optional(),
+  mentionable: z.boolean().optional(),
+});
+export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
+
+export const updateSettingsSchema = z.object({
+  serverName: z.string().min(1).max(64).optional(),
+  requireInvite: z.boolean().optional(),
+});
+export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;

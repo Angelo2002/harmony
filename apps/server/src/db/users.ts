@@ -37,6 +37,10 @@ export function findUserByUsername(sqlite: DatabaseSync, username: string): User
   return (sqlite.prepare('SELECT * FROM users WHERE username = ?').get(username) as UserRow | undefined) ?? null;
 }
 
+export function listUsers(sqlite: DatabaseSync): UserRow[] {
+  return sqlite.prepare('SELECT * FROM users ORDER BY created_at').all() as unknown as UserRow[];
+}
+
 export function insertUser(
   sqlite: DatabaseSync,
   input: { id: string; username: string; passwordHash: string; isOwner: boolean },

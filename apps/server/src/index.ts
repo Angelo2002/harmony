@@ -7,12 +7,17 @@ import { loadConfig } from './config.ts';
 import { Database } from './db/index.ts';
 import { createAuthService } from './auth/service.ts';
 import { registerAuth } from './auth/plugin.ts';
+import { createSettingsService } from './settings/service.ts';
 import { createAttachmentService } from './attachments/service.ts';
 import { createMessageService } from './messages/service.ts';
 import { GatewayHub } from './realtime/hub.ts';
 import { registerErrorHandler } from './http/errors.ts';
 import { registerHealthRoutes } from './routes/health.ts';
+import { registerMetaRoutes } from './routes/meta.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
+import { registerSettingsRoutes } from './routes/settings.ts';
+import { registerRoleRoutes } from './routes/roles.ts';
+import { registerMemberRoutes } from './routes/members.ts';
 import { registerInviteRoutes } from './routes/invites.ts';
 import { registerChannelRoutes } from './routes/channels.ts';
 import { registerMessageRoutes } from './routes/messages.ts';
@@ -22,7 +27,11 @@ import { registerGateway } from './gateway/index.ts';
 const config = loadConfig();
 const db = new Database(config);
 const hub = new GatewayHub();
-const authService = createAuthService(db.sqlite, config);
+const settingsService = createSettingsService(db.sqlite, {
+  serverName: config.serverName,
+  requireInvite: config.requireInvite,
+});
+const authService = createAuthService(db.sqlite, config, settingsService);
 const attachmentService = createAttachmentService(db.sqlite, config);
 const messageService = createMessageService(db.sqlite, hub);
 
@@ -36,7 +45,11 @@ registerErrorHandler(app);
 registerAuth(app, { cookieName: config.cookieName, resolveToken: authService.resolveToken });
 
 registerHealthRoutes(app, db);
+registerMetaRoutes(app, { config, settings: settingsService });
 registerAuthRoutes(app, { service: authService, config });
+registerSettingsRoutes(app, settingsService);
+registerRoleRoutes(app, db);
+registerMemberRoutes(app, db);
 registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub });
 registerMessageRoutes(app, { service: messageService });

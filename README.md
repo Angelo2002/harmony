@@ -4,8 +4,10 @@ Selfhosted discord alternative, aimed to make migration painless
 
 ## Status
 
-Early scaffold. The server, storage layer, gateway handshake and web shell are
-in place; the interactive features (auth, channels, messaging) come next.
+Playable end to end: username/password auth with optional invites, channels and
+categories, realtime messaging, image attachments, and an admin panel for
+settings, roles, members, channels and invites. Still to come: custom emoji,
+message retention, the Discord bridge and the public API docs.
 
 ## Tech stack
 

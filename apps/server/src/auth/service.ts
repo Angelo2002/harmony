@@ -22,6 +22,7 @@ import { findInvite, incrementInviteUses } from '../db/invites.ts';
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from './passwords.ts';
 import { generateSessionToken, hashSessionToken } from './tokens.ts';
 import { resolvePermissions } from './permissions.ts';
+import type { SettingsService } from '../settings/service.ts';
 
 export interface AuthContext {
   user: User;
@@ -37,7 +38,7 @@ export interface AuthService {
   resolveToken(token: string): AuthContext | null;
 }
 
-export function createAuthService(sqlite: DatabaseSync, config: Config): AuthService {
+export function createAuthService(sqlite: DatabaseSync, config: Config, settings: SettingsService): AuthService {
   function issueSession(user: UserRow, userAgent: string | null): string {
     const token = generateSessionToken();
     const now = new Date();
@@ -65,7 +66,7 @@ export function createAuthService(sqlite: DatabaseSync, config: Config): AuthSer
       const isFirstUser = countUsers(sqlite) === 0;
       let inviteCodeToConsume: string | null = null;
 
-      if (!isFirstUser && config.requireInvite) {
+      if (!isFirstUser && settings.get().requireInvite) {
         if (!input.inviteCode) {
           throw new HttpError(403, 'invite_required', 'An invite code is required to register.');
         }

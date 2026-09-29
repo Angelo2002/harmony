@@ -472,3 +472,312 @@ button.link:hover {
   height: auto;
   border-radius: var(--h-radius);
 }
+
+/* ---- Admin panel ---- */
+
+.user-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+select {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--h-bg-deep);
+  color: var(--h-text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.admin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  padding: 2vh 2vw;
+  background: rgb(0 0 0 / 65%);
+}
+
+.admin {
+  display: flex;
+  margin: auto;
+  width: min(920px, 96vw);
+  height: min(720px, 94vh);
+  overflow: hidden;
+  border-radius: var(--h-radius);
+  background: var(--h-bg);
+}
+
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  width: 180px;
+  padding: 1rem 0.75rem;
+  background: var(--h-bg-deep);
+}
+
+.admin-nav h2 {
+  margin: 0 0 0.75rem;
+  padding: 0 0.4rem;
+  color: var(--h-text);
+  font-size: 0.95rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.admin-tab {
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--h-text-muted);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-tab:hover {
+  background: rgb(255 255 255 / 5%);
+  color: var(--h-text);
+  filter: none;
+}
+
+.admin-tab.active {
+  background: rgb(255 255 255 / 9%);
+  color: #fff;
+}
+
+.admin-close {
+  margin-top: auto;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--h-bg-elevated);
+  border-radius: 4px;
+  background: none;
+  color: var(--h-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.admin-close:hover {
+  color: var(--h-text);
+  filter: none;
+}
+
+.admin-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
+}
+
+.admin-body h3 {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.inline input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.inline-forms {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  background: var(--h-bg-deep);
+}
+
+.row .grow {
+  flex: 1;
+}
+
+.row input {
+  flex: 1;
+}
+
+.row button:not(.row-main) {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.row-main {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--h-bg-deep);
+  color: var(--h-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-main.active {
+  background: var(--h-accent);
+  color: #fff;
+}
+
+.swatch {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) 1fr;
+  align-items: start;
+  gap: 1rem;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.perms {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 0.3rem;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--h-text);
+  font-size: 0.85rem;
+}
+
+.checkbox input {
+  width: auto;
+}
+
+fieldset {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--h-bg-deep);
+  border-radius: 6px;
+}
+
+legend {
+  padding: 0 0.35rem;
+  color: var(--h-text-muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+button.danger {
+  background: var(--h-error);
+}
+
+.ok-text {
+  margin: 0;
+  color: var(--h-ok);
+  font-size: 0.9rem;
+}
+
+.member {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  background: var(--h-bg-deep);
+}
+
+.member-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.member-roles {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--h-bg);
+  font-size: 0.8rem;
+}
+
+.chip-remove {
+  padding: 0 0.25rem;
+  border: none;
+  background: none;
+  color: var(--h-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chip-remove:hover {
+  color: var(--h-text);
+  filter: none;
+}
+
+.group {
+  margin-bottom: 1rem;
+}
+
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.invite-code {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  background: var(--h-bg);
+  font-size: 0.85rem;
+}

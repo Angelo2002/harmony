@@ -299,6 +299,96 @@ try {
     check('unreadable image rejected (415)', fakeRes.status === 415, `status ${fakeRes.status}`);
   }
 
+  // --- Admin: settings, roles, members, invites ---
+  const metaRes = await req('/meta');
+  check('public meta is available', metaRes.status === 200 && typeof metaRes.json?.name === 'string');
+  check('meta reports requireInvite', metaRes.json?.requireInvite === true);
+
+  const settings = await req('/settings', { token: ownerToken });
+  check('owner reads settings', settings.status === 200 && settings.json?.serverName === 'Harmony');
+
+  const patched = await req('/settings', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { serverName: 'Test Server' },
+  });
+  check('owner updates settings', patched.json?.serverName === 'Test Server');
+  check('meta reflects the new name', (await req('/meta')).json?.name === 'Test Server');
+  check('member cannot read settings (403)', (await req('/settings', { token: bobToken })).status === 403);
+
+  // Toggling requireInvite in settings takes effect immediately.
+  await req('/settings', { method: 'PATCH', token: ownerToken, body: { requireInvite: false } });
+  const openReg = await req('/auth/register', {
+    method: 'POST',
+    body: { username: 'carol', password: 'carol-password' },
+  });
+  check('registration opens when requireInvite is false', openReg.status === 200, `status ${openReg.status}`);
+  await req('/settings', { method: 'PATCH', token: ownerToken, body: { requireInvite: true } });
+
+  const rolesRes = await req('/roles', { token: ownerToken });
+  const everyoneRole = rolesRes.json?.roles?.find((role) => role.isDefault);
+  check('roles list includes @everyone', Boolean(everyoneRole));
+
+  const newRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Moderator' } });
+  check('owner creates a role', newRole.status === 200 && newRole.json?.name === 'Moderator');
+  const roleId = newRole.json?.id;
+
+  const manageMessages = String(1n << 2n);
+  const granted = await req(`/roles/${roleId}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { permissions: manageMessages },
+  });
+  check('role permissions update', granted.json?.permissions === manageMessages);
+
+  check(
+    '@everyone cannot be renamed (403)',
+    (await req(`/roles/${everyoneRole.id}`, { method: 'PATCH', token: ownerToken, body: { name: 'nope' } })).status === 403,
+  );
+  check(
+    '@everyone cannot be deleted (403)',
+    (await req(`/roles/${everyoneRole.id}`, { method: 'DELETE', token: ownerToken })).status === 403,
+  );
+  check(
+    'member cannot create roles (403)',
+    (await req('/roles', { method: 'POST', token: bobToken, body: { name: 'hax' } })).status === 403,
+  );
+
+  const membersRes = await req('/members', { token: ownerToken });
+  check('owner lists members', membersRes.status === 200 && membersRes.json?.members?.length >= 3);
+  check('member cannot list members (403)', (await req('/members', { token: bobToken })).status === 403);
+
+  const bobId = bob.json?.user?.id;
+  check(
+    'owner assigns a role',
+    (await req(`/members/${bobId}/roles/${roleId}`, { method: 'PUT', token: ownerToken })).status === 204,
+  );
+  const bobAfter = await req('/auth/me', { token: bobToken });
+  check('assigned role grants permissions', (BigInt(bobAfter.json?.permissions ?? '0') & (1n << 2n)) !== 0n);
+
+  check(
+    'owner removes a role',
+    (await req(`/members/${bobId}/roles/${roleId}`, { method: 'DELETE', token: ownerToken })).status === 204,
+  );
+  const bobCleared = await req('/auth/me', { token: bobToken });
+  check('removing a role takes permissions away', (BigInt(bobCleared.json?.permissions ?? '0') & (1n << 2n)) === 0n);
+
+  check(
+    'the default role cannot be assigned (400)',
+    (await req(`/members/${bobId}/roles/${everyoneRole.id}`, { method: 'PUT', token: ownerToken })).status === 400,
+  );
+
+  const revokeTarget = await req('/invites', { method: 'POST', token: ownerToken, body: {} });
+  check(
+    'owner revokes an invite',
+    (await req(`/invites/${revokeTarget.json?.code}`, { method: 'DELETE', token: ownerToken })).status === 204,
+  );
+
+  check(
+    'owner deletes a role',
+    (await req(`/roles/${roleId}`, { method: 'DELETE', token: ownerToken })).status === 204,
+  );
+
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);
   check('session is dead after logout (401)', (await req('/auth/me', { cookie: login.cookie })).status === 401);
 } catch (error) {

@@ -249,9 +249,33 @@ button.link:hover {
 }
 
 .server-name {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   padding: 1rem;
   font-weight: 700;
   box-shadow: 0 1px 0 rgb(0 0 0 / 20%);
+}
+
+.server-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+/* The larger preview in the admin panel. */
+.server-icon.large {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
 }
 
 .channels {
@@ -1588,6 +1612,13 @@ select {
 .editor-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+/* Instance icon preview in the admin panel. */
+.server-icon-editor {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .perms {

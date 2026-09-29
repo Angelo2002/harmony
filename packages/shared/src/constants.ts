@@ -36,3 +36,9 @@ export const DEFAULT_MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 
 /** Profile pictures are normalised to this square size. */
 export const AVATAR_SIZE = 256;
+
+/** Maximum size of an uploaded server icon, in bytes (2 MiB). */
+export const DEFAULT_MAX_ICON_BYTES = 2 * 1024 * 1024;
+
+/** Server icons are normalised to this square size. */
+export const ICON_SIZE = 256;

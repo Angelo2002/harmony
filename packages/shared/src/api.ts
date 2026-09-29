@@ -40,6 +40,11 @@ export interface InstanceMeta {
   requireInvite: boolean;
   /** Instance colours, so even the sign-in screen is themed. */
   theme: ThemeSettings;
+  /**
+   * Content hash of the admin-uploaded server icon, or null to use the client's
+   * built-in default. Clients fetch the icon at `GET /api/v1/icon`.
+   */
+  iconHash: string | null;
   maxUploadBytes: number;
   allowedImageTypes: readonly string[];
   limits: {
@@ -50,6 +55,12 @@ export interface InstanceMeta {
     usernameMax: number;
     passwordMin: number;
   };
+}
+
+/** Response for `PUT` / `DELETE /api/v1/icon`. */
+export interface InstanceIconResponse {
+  /** Content hash of the stored icon, or null when it has been reset. */
+  iconHash: string | null;
 }
 
 /** Response for `GET` / `PATCH /api/v1/settings`. */

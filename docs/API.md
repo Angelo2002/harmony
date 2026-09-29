@@ -33,6 +33,7 @@ code wins — please open an issue.
   - [Audit log](#audit-log)
   - [Invites](#invites)
   - [Server settings](#server-settings)
+  - [Instance icon](#instance-icon)
   - [Retention](#retention)
   - [Discord bridge](#discord-bridge)
 - [The gateway (WebSocket)](#the-gateway-websocket)
@@ -389,6 +390,7 @@ Public instance information a client needs before signing in.
   "apiVersion": "v1",
   "requireInvite": true,
   "theme": { "background": null, "accent": null },
+  "iconHash": null,
   "maxUploadBytes": 10485760,
   "allowedImageTypes": ["image/png", "image/jpeg", "image/gif", "image/webp"],
   "limits": {
@@ -994,6 +996,27 @@ Returns `204`.
 Returns the updated settings. `serverName` and `theme` changing also update `GET /api/v1/meta`.
 `defaultChannelId` must reference an existing channel, or `400 invalid_default_channel`; `null`
 clears the preference. `embedsEnabled` turns link previews on or off for the whole instance.
+
+### Instance icon
+
+The icon shown in a client's browser tab and beside the server name. It is the web client's
+built-in default unless an admin uploads one; an upload is cropped to a square and stored as PNG.
+
+#### `GET /api/v1/icon` — no auth
+
+Serves the uploaded icon as `image/png`, with a long cache header because the URL carries the
+content hash. Returns `404 icon_not_set` (with error code `icon_not_set`) when the default is in
+use, in which case a client should show its own bundled default. Ask for the icon with the current
+`iconHash` as `?v=`, so a replaced icon is fetched rather than served from the cache.
+
+#### `PUT /api/v1/icon` — `ManageServer`
+
+`multipart/form-data` with a `file` field. Returns `{ "iconHash": "..." }`; a type outside
+`allowedImageTypes` is refused with `415`. `GET /api/v1/meta` then reports the new `iconHash`.
+
+#### `DELETE /api/v1/icon` — `ManageServer`
+
+Returns `{ "iconHash": null }` and puts the built-in default back in use.
 
 ### Theming
 

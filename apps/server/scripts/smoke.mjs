@@ -1307,6 +1307,71 @@ try {
     ).status === 404,
   );
 
+  // --- Instance icon ---
+  const iconPng = await sharp({
+    create: { width: 40, height: 40, channels: 4, background: { r: 88, g: 101, b: 242, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+  const bobIcon = new FormData();
+  bobIcon.append('file', new Blob([iconPng], { type: 'image/png' }), 'icon.png');
+  check(
+    'member cannot upload a server icon (403)',
+    (
+      await fetch(`${BASE}/icon`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${bobToken}` },
+        body: bobIcon,
+      })
+    ).status === 403,
+  );
+
+  check('no icon is set by default (404)', (await req('/icon')).status === 404);
+  check('meta reports no icon hash by default', (await req('/meta')).json?.iconHash === null);
+
+  const ownerIcon = new FormData();
+  ownerIcon.append('file', new Blob([iconPng], { type: 'image/png' }), 'icon.png');
+  const iconRes = await fetch(`${BASE}/icon`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${ownerToken}` },
+    body: ownerIcon,
+  });
+  const iconBody = await iconRes.json();
+  check(
+    'owner uploads a server icon',
+    iconRes.status === 200 && typeof iconBody.iconHash === 'string',
+    JSON.stringify(iconBody),
+  );
+
+  const servedIcon = await fetch(`${BASE}/icon?v=${iconBody.iconHash}`);
+  const iconBytes = Buffer.from(await servedIcon.arrayBuffer());
+  check(
+    'the icon is served as png without a session',
+    servedIcon.status === 200 && servedIcon.headers.get('content-type') === 'image/png' && iconBytes.length > 0,
+  );
+  check('meta now reports the icon hash', (await req('/meta')).json?.iconHash === iconBody.iconHash);
+
+  const notAnIcon = new FormData();
+  notAnIcon.append('file', new Blob([Buffer.from('hello')], { type: 'text/plain' }), 'n.txt');
+  check(
+    'a non-image icon is rejected (415)',
+    (
+      await fetch(`${BASE}/icon`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${ownerToken}` },
+        body: notAnIcon,
+      })
+    ).status === 415,
+  );
+
+  // The icon is a blob like any other, so the pruner must know it is referenced.
+  await req('/retention/run', { method: 'POST', token: ownerToken });
+  check('the icon survives pruning', (await fetch(`${BASE}/icon?v=${iconBody.iconHash}`)).status === 200);
+
+  check('owner resets the icon', (await req('/icon', { method: 'DELETE', token: ownerToken })).json?.iconHash === null);
+  check('the icon is gone after a reset (404)', (await req('/icon')).status === 404);
+  check('meta forgets the icon hash after a reset', (await req('/meta')).json?.iconHash === null);
+
   // Bridge settings: outbound avatars need a real public address, but a blank
   // value (turning them off) must stay allowed.
   check(

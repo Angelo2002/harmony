@@ -12,6 +12,7 @@ export function registerMetaRoutes(app: FastifyInstance, deps: { config: Config;
       apiVersion: API_VERSION,
       requireInvite: settings.requireInvite,
       theme: settings.theme,
+      iconHash: deps.settings.getIconHash(),
       maxUploadBytes: deps.config.maxUploadBytes,
       allowedImageTypes: ALLOWED_IMAGE_TYPES,
       limits: {

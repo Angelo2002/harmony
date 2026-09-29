@@ -48,6 +48,9 @@ export interface SettingsService {
   getBridge(): BridgeSettings;
   getBridgePublic(): BridgePublicSettings;
   updateBridge(patch: { token?: string; enabled?: boolean; publicBaseUrl?: string | null }): BridgePublicSettings;
+  /** Content hash of the uploaded server icon, or null for the built-in default. */
+  getIconHash(): string | null;
+  setIconHash(hash: string | null): void;
 }
 
 const KEY_SERVER_NAME = 'server_name';
@@ -64,6 +67,7 @@ const KEY_STORAGE_TARGET = 'storage_target_bytes';
 const KEY_DISCORD_TOKEN = 'discord_bot_token';
 const KEY_BRIDGE_ENABLED = 'bridge_enabled';
 const KEY_BRIDGE_PUBLIC_URL = 'bridge_public_base_url';
+const KEY_ICON_HASH = 'instance_icon_hash';
 
 function parseString(raw: string, fallback: string): string {
   try {
@@ -168,6 +172,14 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
     getRetention,
     getBridge,
     getBridgePublic,
+
+    getIconHash() {
+      return parseStringOrNull(readAllSettings(sqlite).get(KEY_ICON_HASH));
+    },
+
+    setIconHash(hash) {
+      writeSetting(sqlite, KEY_ICON_HASH, JSON.stringify(hash));
+    },
 
     update(patch) {
       if (patch.serverName !== undefined) writeSetting(sqlite, KEY_SERVER_NAME, JSON.stringify(patch.serverName));

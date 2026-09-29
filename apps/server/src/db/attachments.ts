@@ -82,7 +82,24 @@ export function listReferencedHashes(sqlite: DatabaseSync): Set<string> {
        UNION SELECT avatar_hash FROM users WHERE avatar_hash IS NOT NULL`,
     )
     .all() as unknown as Array<{ hash: string }>;
-  return new Set(rows.map((row) => row.hash));
+  const hashes = new Set(rows.map((row) => row.hash));
+
+  // The instance icon is a blob too, but its hash lives in the settings table
+  // rather than a column, so it has to be added by hand or the sweep would
+  // delete it. The key matches `KEY_ICON_HASH` in the settings service.
+  const icon = sqlite.prepare("SELECT value FROM server_settings WHERE key = 'instance_icon_hash'").get() as
+    | { value: string }
+    | undefined;
+  if (icon) {
+    try {
+      const parsed: unknown = JSON.parse(icon.value);
+      if (typeof parsed === 'string' && parsed.length > 0) hashes.add(parsed);
+    } catch {
+      // A malformed stored value simply contributes no reference.
+    }
+  }
+
+  return hashes;
 }
 
 /** Deletes rows only; callers sweep the blobs afterwards. */

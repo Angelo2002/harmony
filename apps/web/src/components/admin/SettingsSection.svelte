@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import {
+    ALLOWED_IMAGE_TYPES,
     DEFAULT_ACCENT,
     DEFAULT_BACKGROUND,
     type Channel,
     type ChannelListResponse,
+    type InstanceIconResponse,
     type ServerSettingsResponse,
   } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
@@ -22,6 +24,9 @@
   let busy = $state(false);
   let message = $state<string | null>(null);
   let error = $state<string | null>(null);
+
+  const acceptAttribute = ALLOWED_IMAGE_TYPES.join(',');
+  let iconInput = $state<HTMLInputElement | null>(null);
 
   onMount(async () => {
     try {
@@ -58,6 +63,43 @@
     themeBackground = DEFAULT_BACKGROUND;
     themeAccent = DEFAULT_ACCENT;
     previewTheme({ background: themeBackground, accent: themeAccent });
+  }
+
+  async function uploadIcon(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+
+    busy = true;
+    error = null;
+    message = null;
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const result = await api<InstanceIconResponse>('/icon', { method: 'PUT', body: form });
+      meta.setIconHash(result.iconHash);
+      message = 'Server icon updated.';
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function removeIcon(): Promise<void> {
+    busy = true;
+    error = null;
+    message = null;
+    try {
+      const result = await api<InstanceIconResponse>('/icon', { method: 'DELETE' });
+      meta.setIconHash(result.iconHash);
+      message = 'Server icon reset to the default.';
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
   }
 
   async function save(event: SubmitEvent): Promise<void> {
@@ -144,6 +186,30 @@
       <p class="muted">
         Panel shades, text and highlight tints are all derived from these two colours, and the text
         flips between dark and light on its own. Changes preview here immediately; save to keep them.
+      </p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Icon</legend>
+      <div class="server-icon-editor">
+        <img class="server-icon large" src={meta.iconUrl} alt="" />
+        <div class="editor-actions">
+          <button type="button" onclick={() => iconInput?.click()} disabled={busy}>Upload icon</button>
+          {#if meta.data?.iconHash}
+            <button type="button" class="danger" onclick={removeIcon} disabled={busy}>Use default</button>
+          {/if}
+          <input
+            class="file-input"
+            type="file"
+            accept={acceptAttribute}
+            bind:this={iconInput}
+            onchange={uploadIcon}
+          />
+        </div>
+      </div>
+      <p class="muted">
+        Shown in the browser tab and beside the server name. Square images work best; PNG, JPEG, GIF
+        or WebP.
       </p>
     </fieldset>
 

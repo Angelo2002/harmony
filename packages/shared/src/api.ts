@@ -23,6 +23,8 @@ export interface ApiErrorBody {
 export interface ChannelListResponse {
   categories: Category[];
   channels: Channel[];
+  /** Channel a client should open on load, or null to fall back to the first one. */
+  defaultChannelId: string | null;
 }
 
 /** Response for `GET /api/v1/channels/:id/messages`. */
@@ -51,6 +53,8 @@ export interface InstanceMeta {
 export interface ServerSettingsResponse {
   serverName: string;
   requireInvite: boolean;
+  /** Channel opened by default on load, or null to fall back to the first one. */
+  defaultChannelId: string | null;
 }
 
 /** A user together with the roles assigned to them. */

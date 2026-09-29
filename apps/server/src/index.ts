@@ -42,6 +42,7 @@ const hub = new GatewayHub();
 const settingsService = createSettingsService(db.sqlite, {
   serverName: config.serverName,
   requireInvite: config.requireInvite,
+  defaultChannelId: null,
 });
 const authService = createAuthService(db.sqlite, config, settingsService);
 const attachmentService = createAttachmentService(db.sqlite, config);
@@ -86,13 +87,13 @@ registerAuth(app, { cookieName: config.cookieName, resolveToken: authService.res
 registerHealthRoutes(app, db);
 registerMetaRoutes(app, { config, settings: settingsService });
 registerAuthRoutes(app, { service: authService, config });
-registerSettingsRoutes(app, settingsService);
+registerSettingsRoutes(app, { settings: settingsService, db });
 registerRetentionRoutes(app, { settings: settingsService, pruner });
 registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
 registerMemberRoutes(app, { db, hub, moderation: moderationService });
 registerInviteRoutes(app, db);
-registerChannelRoutes(app, { db, hub, bridge });
+registerChannelRoutes(app, { db, hub, bridge, settings: settingsService });
 registerMessageRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, attachmentService);
 registerMediaRoutes(app, { service: mediaService });

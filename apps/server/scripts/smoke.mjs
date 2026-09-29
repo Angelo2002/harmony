@@ -421,6 +421,40 @@ try {
 
   const settings = await req('/settings', { token: ownerToken });
   check('owner reads settings', settings.status === 200 && settings.json?.serverName === 'Harmony');
+  check('settings start with no default channel', settings.json?.defaultChannelId === null);
+
+  // The default channel lives in settings and is echoed with the channel list so
+  // clients can open it on load.
+  const setDefault = await req('/settings', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { defaultChannelId: general.id },
+  });
+  check('owner sets the default channel', setDefault.json?.defaultChannelId === general.id);
+  check(
+    'channel list reports the default channel',
+    (await req('/channels', { token: ownerToken })).json?.defaultChannelId === general.id,
+  );
+
+  const badDefault = await req('/settings', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { defaultChannelId: 'no-such-channel' },
+  });
+  check('a default channel must exist (400)', badDefault.status === 400, `status ${badDefault.status}`);
+
+  // Deleting the default channel clears the preference instead of leaving it dangling.
+  const tempChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'temp-default' },
+  });
+  await req('/settings', { method: 'PATCH', token: ownerToken, body: { defaultChannelId: tempChannel.json.id } });
+  await req(`/channels/${tempChannel.json.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'deleting the default channel clears the preference',
+    (await req('/settings', { token: ownerToken })).json?.defaultChannelId === null,
+  );
 
   const patched = await req('/settings', {
     method: 'PATCH',

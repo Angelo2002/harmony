@@ -331,8 +331,12 @@ Invalidates the current session and clears the cookie. Returns `{ "ok": true }`.
 #### `GET /api/v1/channels` — `ViewChannels`
 
 ```json
-{ "categories": [ /* Category */ ], "channels": [ /* Channel */ ] }
+{ "categories": [ /* Category */ ], "channels": [ /* Channel */ ], "defaultChannelId": "..." }
 ```
+
+`defaultChannelId` is the channel the server has configured to open on load, or `null` to fall back
+to the first channel. It is read fresh on every request, so a client sees an admin's change on the
+next load.
 
 #### `POST /api/v1/channels` — `ManageChannels`
 
@@ -351,7 +355,8 @@ Any of `name`, `topic`, `categoryId`, `position`, `discordChannelId`. Returns th
 
 #### `DELETE /api/v1/channels/:id` — `ManageChannels`
 
-Returns `204`. Fires `CHANNEL_DELETE` with `{ "id": "..." }`.
+Returns `204`. Fires `CHANNEL_DELETE` with `{ "id": "..." }`. If the deleted channel was the
+configured `defaultChannelId`, that preference is cleared.
 
 #### `POST /api/v1/categories` — `ManageChannels`
 
@@ -693,13 +698,15 @@ Returns `204`.
 #### `GET /api/v1/settings` — `ManageServer`
 
 ```json
-{ "serverName": "My Community", "requireInvite": true }
+{ "serverName": "My Community", "requireInvite": true, "defaultChannelId": null }
 ```
 
 #### `PATCH /api/v1/settings` — `ManageServer`
 
-`{ "serverName"?: string, "requireInvite"?: boolean }`. Returns the updated settings. `serverName`
-changing also updates `GET /api/v1/meta`.
+`{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null }`.
+Returns the updated settings. `serverName` changing also updates `GET /api/v1/meta`.
+`defaultChannelId` must reference an existing channel, or `400 invalid_default_channel`; `null`
+clears the preference.
 
 ### Retention
 

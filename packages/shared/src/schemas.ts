@@ -139,6 +139,8 @@ export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
 export const updateSettingsSchema = z.object({
   serverName: z.string().min(1).max(64).optional(),
   requireInvite: z.boolean().optional(),
+  /** The channel opened by default on load. Null clears the preference. */
+  defaultChannelId: z.string().nullable().optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 

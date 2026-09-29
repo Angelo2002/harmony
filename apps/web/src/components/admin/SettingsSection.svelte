@@ -1,19 +1,27 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { ServerSettingsResponse } from '@harmony/shared';
+  import type { Channel, ChannelListResponse, ServerSettingsResponse } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
 
   let serverName = $state('');
   let requireInvite = $state(false);
+  /** Empty string means "no default": fall back to the first channel. */
+  let defaultChannelId = $state('');
+  let channels = $state<Channel[]>([]);
   let busy = $state(false);
   let message = $state<string | null>(null);
   let error = $state<string | null>(null);
 
   onMount(async () => {
     try {
-      const settings = await api<ServerSettingsResponse>('/settings');
+      const [settings, channelData] = await Promise.all([
+        api<ServerSettingsResponse>('/settings'),
+        api<ChannelListResponse>('/channels'),
+      ]);
       serverName = settings.serverName;
       requireInvite = settings.requireInvite;
+      defaultChannelId = settings.defaultChannelId ?? '';
+      channels = channelData.channels;
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
     }
@@ -27,10 +35,15 @@
     try {
       const updated = await api<ServerSettingsResponse>('/settings', {
         method: 'PATCH',
-        body: JSON.stringify({ serverName: serverName.trim(), requireInvite }),
+        body: JSON.stringify({
+          serverName: serverName.trim(),
+          requireInvite,
+          defaultChannelId: defaultChannelId || null,
+        }),
       });
       serverName = updated.serverName;
       requireInvite = updated.requireInvite;
+      defaultChannelId = updated.defaultChannelId ?? '';
       message = 'Settings saved.';
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
@@ -52,6 +65,17 @@
       <input type="checkbox" bind:checked={requireInvite} />
       Require an invite code to register
     </label>
+
+    <label>
+      Default channel
+      <select bind:value={defaultChannelId}>
+        <option value="">First channel</option>
+        {#each channels as channel (channel.id)}
+          <option value={channel.id}># {channel.name}</option>
+        {/each}
+      </select>
+    </label>
+    <p class="muted">The channel that opens automatically when someone enters the server.</p>
 
     {#if error}<p class="form-error">{error}</p>{/if}
     {#if message}<p class="ok-text">{message}</p>{/if}

@@ -36,15 +36,17 @@ import type { Database } from '../db/index.ts';
 import { HttpError } from '../http/errors.ts';
 import { parseBody } from '../http/validation.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
+import type { SettingsService } from '../settings/service.ts';
 
 export interface ChannelRouteDeps {
   db: Database;
   hub: GatewayHub;
   bridge: BridgeService;
+  settings: SettingsService;
 }
 
 export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDeps): void {
-  const { db, hub } = deps;
+  const { db, hub, settings } = deps;
 
   /**
    * Best effort: pull the Discord channel's recent history once it is linked, so
@@ -80,6 +82,8 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     const body: ChannelListResponse = {
       categories: listCategories(db.sqlite).map(toCategory),
       channels: listChannels(db.sqlite).map(toChannel),
+      // Freshly read every time, so a client picks up an admin's change on reload.
+      defaultChannelId: settings.get().defaultChannelId,
     };
     return body;
   });
@@ -140,6 +144,8 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     requireChannelRow(id);
 
     deleteChannel(db.sqlite, id);
+    // Do not leave the default pointing at a channel that no longer exists.
+    if (settings.get().defaultChannelId === id) settings.update({ defaultChannelId: null });
     hub.dispatch(GatewayEvent.ChannelDelete, { id });
     return reply.status(204).send();
   });

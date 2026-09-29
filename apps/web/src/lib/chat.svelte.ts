@@ -1,6 +1,7 @@
 import type {
   Category,
   Channel,
+  ChannelListResponse,
   MeResponse,
   Message,
   Reaction,
@@ -94,13 +95,18 @@ class ChatStore {
   }
 
   async loadChannels(): Promise<void> {
-    const data = await api<{ categories: Category[]; channels: Channel[] }>('/channels');
+    const data = await api<ChannelListResponse>('/channels');
     this.categories = data.categories;
     this.channels = data.channels;
 
-    // Keep the current selection if it still exists, otherwise pick the first.
+    // Keep the current selection if it still exists. Otherwise open the
+    // admin-configured default channel, falling back to the first channel and
+    // finally to nothing when the instance has no channels at all.
     const stillExists = this.channels.some((channel) => channel.id === this.activeChannelId);
-    if (!stillExists) await this.selectChannel(this.channels[0]?.id ?? null);
+    if (!stillExists) {
+      const preferred = this.channels.find((channel) => channel.id === data.defaultChannelId)?.id;
+      await this.selectChannel(preferred ?? this.channels[0]?.id ?? null);
+    }
   }
 
   async selectChannel(channelId: string | null): Promise<void> {

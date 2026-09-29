@@ -7,6 +7,13 @@ export interface DiscordIncomingAttachment {
   size: number;
 }
 
+/** A user mentioned in a Discord message, as telling us something useful about them. */
+export interface DiscordMention {
+  id: string;
+  /** Display name when known, otherwise the username. */
+  name: string;
+}
+
 export interface DiscordIncomingMessage {
   id: string;
   channelId: string;
@@ -16,6 +23,8 @@ export interface DiscordIncomingMessage {
   authorAvatarUrl: string | null;
   /** Discord message this one replies to, or null. */
   replyToDiscordId: string | null;
+  /** Users mentioned in the message, for rewriting `<@id>` mentions. */
+  mentions: DiscordMention[];
   content: string;
   attachments: DiscordIncomingAttachment[];
   /** True for any bot, including our own webhook mirrors. Never re-bridged. */
@@ -76,6 +85,8 @@ export interface MirrorInput {
   username: string;
   /** Absolute, publicly reachable avatar URL, or null to leave it default. */
   avatarUrl: string | null;
+  /** Discord user ids allowed to be pinged by this message, usually none. */
+  allowedUserMentions: string[];
   content: string;
   files: MirrorFile[];
 }
@@ -90,6 +101,8 @@ export interface EditInput {
   webhook: WebhookRef;
   discordMessageId: string;
   content: string;
+  /** Discord user ids allowed to be pinged by this edit, usually none. */
+  allowedUserMentions: string[];
 }
 
 export interface DeleteInput {

@@ -8,6 +8,7 @@ import type {
 } from '@harmony/shared';
 import { api } from './api';
 import { emojis } from './emojis.svelte';
+import { members } from './members.svelte';
 import { session } from './session.svelte';
 import { GatewayClient, type GatewayFrame } from './gateway';
 
@@ -69,6 +70,7 @@ class ChatStore {
     this.#gateway.onEvent((frame) => this.#handleEvent(frame));
     await this.loadChannels();
     await emojis.load();
+    await members.load();
     this.#gateway.connect();
   }
 

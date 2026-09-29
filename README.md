@@ -5,13 +5,13 @@ Selfhosted discord alternative, aimed to make migration painless
 ## Status
 
 Playable end to end: username/password auth with optional invites, channels and
-categories, realtime messaging with replies, emoji reactions and `:emoji:`
-autocomplete, image attachments, custom emoji with role-coloured usernames,
-profile pictures and display names, configurable storage retention, a two-way
-Discord bridge (messages, images, replies, reactions, edits and deletes, with
-custom emoji matched by name), and an admin panel covering settings, roles,
-members, channels, emoji, retention, the bridge and invites. The full HTTP and
-gateway API for custom clients and bots is documented in
+categories, realtime messaging with replies, emoji reactions, and `:emoji:` and
+`@mention` autocomplete, image attachments, custom emoji with role-coloured
+usernames, profile pictures and display names, configurable storage retention, a
+two-way Discord bridge (messages, images, replies, reactions, mentions, edits and
+deletes, with custom emoji matched by name), and an admin panel covering settings,
+roles, members, channels, emoji, retention, the bridge and invites. The full HTTP
+and gateway API for custom clients and bots is documented in
 [`docs/API.md`](docs/API.md).
 
 ## Tech stack
@@ -72,11 +72,13 @@ mirrored out.
 
 Custom emoji are matched by name: a Harmony `:YES:` is sent to Discord as its `<:YES:id>` tag,
 and a Discord `<:YES:id>` tag is turned back into `:YES:` on the way in, rendering the Harmony
-emoji of the same name. Reactions work both ways too. Two limitations come from mirroring
-through a single app account: Discord webhooks cannot post real replies, so a Harmony reply is
-mirrored as a quoted line, and Discord has no webhook reaction route at all, so the bot places
-reactions itself — they appear as the bot, and one reaction stands in for however many Harmony
-users reacted.
+emoji of the same name. Reactions work both ways too. Mentions sync as well: a Discord `<@id>`
+becomes a Harmony `@username` (creating a stand-in account if needed), and mentioning a bridged
+user in Harmony pings them on Discord — only bridged users can ever be pinged, so no stray
+notification escapes. Two limitations come from mirroring through a single app account: Discord
+webhooks cannot post real replies, so a Harmony reply is mirrored as a quoted line, and Discord
+has no webhook reaction route at all, so the bot places reactions itself — they appear as the
+bot, and one reaction stands in for however many Harmony users reacted.
 
 Display names and profile pictures are mirrored to Discord automatically (they become the
 webhook username and avatar). A Discord user's name and picture are imported into Harmony the

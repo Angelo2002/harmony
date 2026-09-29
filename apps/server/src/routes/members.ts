@@ -5,6 +5,7 @@ import {
   permissionsToString,
   type MemberListResponse,
   type MemberSummary,
+  type UserDirectoryResponse,
 } from '@harmony/shared';
 import { resolvePermissions } from '../auth/permissions.ts';
 import { requirePermission } from '../auth/plugin.ts';
@@ -33,6 +34,19 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     }));
 
     const body: MemberListResponse = { members };
+    return body;
+  });
+
+  /**
+   * The public member directory. Every member may read it, because the client
+   * needs it to resolve and autocomplete `@username` mentions; it deliberately
+   * carries no roles or permissions, unlike the management view above.
+   */
+  app.get('/api/v1/members/directory', async (request) => {
+    requirePermission(request, Permission.ViewChannels);
+    const body: UserDirectoryResponse = {
+      users: listUsers(db.sqlite).map((row) => presentUser(db.sqlite, row)),
+    };
     return body;
   });
 

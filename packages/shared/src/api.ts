@@ -65,6 +65,14 @@ export interface MemberListResponse {
   members: MemberSummary[];
 }
 
+/**
+ * The public member directory: every user's profile, with no roles or
+ * permissions. Used to resolve `@username` mentions and to autocomplete them.
+ */
+export interface UserDirectoryResponse {
+  users: User[];
+}
+
 export interface RoleListResponse {
   roles: Role[];
 }

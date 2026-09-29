@@ -224,6 +224,18 @@ type Invite = {
 };
 ```
 
+### Mentions
+
+Mentions are written as `@username` in a message's `content`. Usernames are unique and contain
+no spaces, so a mention is unambiguous; the lookbehind in the parser keeps an `@` inside an email
+(`a@b.com`) from counting. `@everyone` and `@here` are reserved and never resolve.
+
+The content keeps the **username**, not the display name, so a renaming display name never breaks
+a mention. To render one, resolve the token against the `username` field of every entry in
+[`GET /api/v1/members/directory`](#get-apiv1membersdirectory--viewchannels). A token that does not
+match anyone is plain text. A client may also highlight a message whose mentions include its own
+user id.
+
 ## REST reference
 
 Unless stated otherwise, request bodies are JSON with `Content-Type: application/json`, and
@@ -534,6 +546,17 @@ Returns `204`, fires `ROLE_DELETE` with `{ "id": "..." }`. The `@everyone` role 
   ]
 }
 ```
+
+#### `GET /api/v1/members/directory` — `ViewChannels`
+
+```json
+{ "users": [ /* User */ ] }
+```
+
+Every member's public profile, with no roles or permissions. This is what clients
+use to resolve and autocomplete `@username` mentions (see
+[Mentions](#mentions)), so unlike the management view above it is readable by
+anyone with `ViewChannels`.
 
 #### `PUT /api/v1/members/:userId/roles/:roleId` — `ManageRoles`
 

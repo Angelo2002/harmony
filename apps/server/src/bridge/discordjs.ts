@@ -69,6 +69,10 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       authorAvatarUrl:
         message.member?.avatarURL({ size: 128 }) ?? message.author.avatarURL({ size: 128 }),
       replyToDiscordId: message.reference?.messageId ?? null,
+      mentions: [...message.mentions.users.values()].map((user) => ({
+        id: user.id,
+        name: message.mentions.members?.get(user.id)?.displayName ?? user.globalName ?? user.username,
+      })),
       content: message.content,
       attachments: [...message.attachments.values()].map((attachment) => ({
         url: attachment.url,
@@ -301,8 +305,13 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
             content: input.content.slice(0, MAX_DISCORD_CONTENT),
             username: input.username.slice(0, MAX_DISCORD_USERNAME),
             ...(input.avatarUrl ? { avatar_url: input.avatarUrl } : {}),
-            // Never let mirrored content ping anyone.
-            allowed_mentions: { parse: [] },
+            // Only ping the users we deliberately mirrored as mentions. `parse`
+            // is mutually exclusive with an explicit `users` list, so listing
+            // them also keeps roles and @everyone from ever firing.
+            allowed_mentions:
+              input.allowedUserMentions.length > 0
+                ? { users: input.allowedUserMentions }
+                : { parse: [] },
           },
         })) as { id: string };
 
@@ -323,7 +332,10 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
         auth: false,
         body: {
           content: input.content.slice(0, MAX_DISCORD_CONTENT),
-          allowed_mentions: { parse: [] },
+          allowed_mentions:
+            input.allowedUserMentions.length > 0
+              ? { users: input.allowedUserMentions }
+              : { parse: [] },
         },
       });
     },

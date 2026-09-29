@@ -3,8 +3,9 @@
   import { ApiError } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
   import { avatarUrl, initial } from '../lib/avatar';
-  import { tokenizeEmoji } from '../lib/emoji-text';
+  import { tokenizeMessage } from '../lib/message-text';
   import { emojis } from '../lib/emojis.svelte';
+  import { members } from '../lib/members.svelte';
   import { session } from '../lib/session.svelte';
   import EmojiPicker from './EmojiPicker.svelte';
 
@@ -106,9 +107,12 @@
         message.author?.roleColor == null
           ? null
           : `#${message.author.roleColor.toString(16).padStart(6, '0')}`}
-      {@const segments = tokenizeEmoji(message.content, emojis.lookup)}
+      {@const segments = tokenizeMessage(message.content, emojis.lookup, (name) =>
+        members.byUsername.get(name.toLowerCase()),
+      )}
+      {@const mentionsMe = segments.some((segment) => segment.type === 'mention' && segment.user.id === myId)}
       {@const picture = avatarUrl(message.author)}
-      <article class="message">
+      <article class="message" class:mentions-me={mentionsMe}>
         {#if picture}
           <img class="avatar" src={picture} alt="" loading="lazy" />
         {:else}
@@ -151,6 +155,10 @@
                       alt={`:${segment.emoji.name}:`}
                       title={`:${segment.emoji.name}:`}
                     />
+                  {:else if segment.type === 'mention'}
+                    <span class="mention" title={`@${segment.user.username}`}>
+                      @{segment.user.displayName ?? segment.user.username}
+                    </span>
                   {:else}
                     {segment.value}
                   {/if}

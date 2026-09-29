@@ -449,6 +449,18 @@ try {
   check('owner lists members', membersRes.status === 200 && membersRes.json?.members?.length >= 3);
   check('member cannot list members (403)', (await req('/members', { token: bobToken })).status === 403);
 
+  // The public directory is readable by every member, because mentions need it.
+  const directory = await req('/members/directory', { token: bobToken });
+  check(
+    'any member reads the user directory',
+    directory.status === 200 && directory.json?.users?.length >= 3,
+  );
+  check(
+    'the directory carries no roles or permissions',
+    directory.json?.users?.every((user) => !('permissions' in user) && !('roleIds' in user)) === true,
+  );
+  check('the user directory requires auth (401)', (await req('/members/directory')).status === 401);
+
   const bobId = bob.json?.user?.id;
   check(
     'owner assigns a role',

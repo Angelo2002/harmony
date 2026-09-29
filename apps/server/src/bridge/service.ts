@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import type { Metadata } from 'sharp';
 import {
   ALLOWED_IMAGE_TYPES,
+  rewriteMentions,
   type BridgeResponse,
   type DiscordChannelListResponse,
   type ImageContentType,
@@ -22,7 +23,7 @@ import {
 } from '../db/bridge.ts';
 import { findChannel, findChannelByDiscordId, setChannelWebhook, type ChannelRow } from '../db/channels.ts';
 import { findEmojiByName } from '../db/emojis.ts';
-import { findUserByDiscordId, insertGhostUser, type UserRow } from '../db/users.ts';
+import { findUserByDiscordId, findUserByUsername, insertGhostUser, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import type { MessageService, ReactionEvent } from '../messages/service.ts';
 import type { SettingsService } from '../settings/service.ts';
@@ -36,6 +37,7 @@ import type {
   DiscordIncomingEdit,
   DiscordIncomingMessage,
   DiscordIncomingReaction,
+  DiscordMention,
   DiscordTransport,
   MirrorFile,
   MirrorResult,
@@ -114,15 +116,53 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   }
 
   /**
+   * Rewrites Discord's `<@id>` and `<@!id>` mentions into Harmony `@username`
+   * mentions, creating a stand-in account for anyone we have not seen before so
+   * the mention always resolves. Unknown ids are left alone.
+   */
+  function rewriteInboundMentions(content: string, mentions: DiscordMention[]): string {
+    if (mentions.length === 0) return content;
+
+    const usernames = new Map<string, string>();
+    for (const mention of mentions) {
+      usernames.set(mention.id, resolveGhostUser(mention.id, mention.name).username);
+    }
+
+    return content.replace(/<@!?(\d+)>/g, (whole, discordId: string) => {
+      const username = usernames.get(discordId);
+      return username ? `@${username}` : whole;
+    });
+  }
+
+  /**
    * Discord webhooks cannot post real replies (Execute Webhook has no
    * message_reference), so a reply is mirrored as a quoted line above the text.
    * Discord renders `> ` as a blockquote, which reads like a reply.
    */
-  async function outboundContent(message: Message): Promise<string> {
-    const base = message.content.trim();
+  async function outboundContent(
+    message: Message,
+  ): Promise<{ content: string; allowedUserMentions: string[] }> {
+    const { text, discordIds } = rewriteOutboundMentions(message.content.trim());
+    const translated = await translateOutboundEmoji(text);
     const reply = message.replyTo;
-    const composed = reply ? `${quoteFor(reply)}\n${base}`.trim() : base;
-    return translateOutboundEmoji(composed);
+    const content = reply ? `${quoteFor(reply)}\n${translated}`.trim() : translated;
+    return { content, allowedUserMentions: discordIds };
+  }
+
+  /**
+   * A `@username` that belongs to a bridged stand-in account becomes a real
+   * `<@id>` ping; a mention of someone with no Discord account is left as plain
+   * text so it still reads sensibly.
+   */
+  function rewriteOutboundMentions(text: string): { text: string; discordIds: string[] } {
+    const discordIds: string[] = [];
+    const rewritten = rewriteMentions(text, (username) => {
+      const row = findUserByUsername(deps.sqlite, username);
+      if (!row?.discord_id) return null;
+      if (!discordIds.includes(row.discord_id)) discordIds.push(row.discord_id);
+      return `<@${row.discord_id}>`;
+    });
+    return { text: rewritten, discordIds };
   }
 
   function quoteFor(reply: MessageReference): string {
@@ -203,6 +243,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     content: string,
     files: MirrorFile[],
     avatarUrl: string | null,
+    allowedUserMentions: string[],
   ): Promise<MirrorResult> {
     if (!transport) {
       throw new HttpError(400, 'bridge_offline', 'The bridge is not connected. Save a token and enable it.');
@@ -216,6 +257,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       webhook: webhookFor(channel),
       username,
       avatarUrl,
+      allowedUserMentions,
       content,
       files,
     });
@@ -259,14 +301,21 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       return;
     }
 
-    const content = await outboundContent(message);
+    const { content, allowedUserMentions } = await outboundContent(message);
     const files = collectMirrorFiles(message);
     if (!content && files.length === 0) {
       logger.debug('not mirroring: message has no text or files', { channelId: message.channelId });
       return;
     }
 
-    const result = await sendToDiscord(channel, authorName(message), content, files, avatarUrlFor(message));
+    const result = await sendToDiscord(
+      channel,
+      authorName(message),
+      content,
+      files,
+      avatarUrlFor(message),
+      allowedUserMentions,
+    );
     insertBridgeMessage(deps.sqlite, {
       harmonyMessageId: message.id,
       discordMessageId: result.messageId,
@@ -293,10 +342,12 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     const target = mirrorTarget(message.id, message.channelId);
     if (!target) return;
 
+    const { content, allowedUserMentions } = await outboundContent(message);
     await transport.editMessage({
       webhook: target.webhook,
       discordMessageId: target.discordMessageId,
-      content: await outboundContent(message),
+      content,
+      allowedUserMentions,
     });
   }
 
@@ -437,7 +488,10 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     }
 
     // Anything we cannot mirror is preserved as a link rather than dropped.
-    const content = [translateInboundEmoji(message.content), ...skipped]
+    const content = [
+      rewriteInboundMentions(translateInboundEmoji(message.content), message.mentions),
+      ...skipped,
+    ]
       .filter((part) => part.trim().length > 0)
       .join('\n');
     if (!content && attachmentIds.length === 0) return;
@@ -575,7 +629,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       const channel = findChannel(deps.sqlite, channelId);
       if (!channel) throw new HttpError(404, 'channel_not_found', 'That channel does not exist.');
 
-      await sendToDiscord(channel, 'Harmony', 'Harmony bridge test — this channel is connected.', [], null);
+      await sendToDiscord(channel, 'Harmony', 'Harmony bridge test — this channel is connected.', [], null, []);
     },
 
     async shutdown() {

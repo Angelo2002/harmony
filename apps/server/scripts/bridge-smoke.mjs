@@ -11,7 +11,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import sharp from 'sharp';
 import { Database } from '../src/db/index.ts';
 import { insertChannel } from '../src/db/channels.ts';
-import { findUserById, insertUser } from '../src/db/users.ts';
+import { findUserById, findUserByDiscordId, insertUser } from '../src/db/users.ts';
 import { findBridgeMessageByHarmonyId } from '../src/db/bridge.ts';
 import { insertEmoji } from '../src/db/emojis.ts';
 import { createAttachmentService } from '../src/attachments/service.ts';
@@ -105,7 +105,8 @@ function createFakeTransport() {
       return state.downloadBytes;
     },
     emit(message) {
-      for (const handler of state.created) handler(message);
+      // Message fields the tests omit default to sensible values.
+      for (const handler of state.created) handler({ mentions: [], ...message });
     },
     emitEdit(edit) {
       for (const handler of state.edited) handler(edit);
@@ -465,6 +466,49 @@ try {
     messages
       .history(channelId, { limit: 50 }, userId)
       .messages.some((m) => m.content === 'hi :YES: and :LATER: there'),
+  );
+
+  // 7g. Discord mentions become Harmony mentions, creating stand-ins as needed.
+  transport.emit({
+    id: 'd6',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    mentions: [{ id: '555', name: 'Rhea' }],
+    content: 'hello <@555> and <@!666>',
+    attachments: [],
+    fromBot: false,
+  });
+  await sleep(50);
+  const mentionMessage = messages
+    .history(channelId, { limit: 50 }, userId)
+    .messages.find((m) => m.content.startsWith('hello '));
+  check(
+    'a discord mention becomes a harmony mention',
+    mentionMessage?.content === 'hello @discord_555 and <@!666>',
+    String(mentionMessage?.content),
+  );
+  check(
+    'a mentioned discord user becomes a ghost account',
+    findUserByDiscordId(db.sqlite, '555')?.display_name === 'Rhea',
+  );
+
+  // 7h. A mention of a bridged user pings them on Discord; a native Harmony
+  // user is left as plain text.
+  messages.create(auth, channelId, 'hi @discord_555 and @alice', [], null);
+  await sleep(50);
+  const mentionMirror = transport.state.mirrors.at(-1);
+  check(
+    'a bridged mention becomes a discord ping',
+    mentionMirror?.content === 'hi <@555> and @alice',
+    String(mentionMirror?.content),
+  );
+  check(
+    'only the bridged user may be notified',
+    mentionMirror?.allowedUserMentions?.join(',') === '555',
+    String(mentionMirror?.allowedUserMentions),
   );
 
   // 8. Bots and webhooks never get ingested.

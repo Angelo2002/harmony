@@ -1,14 +1,18 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { ALLOWED_IMAGE_TYPES, LIMITS, type Attachment, type Emoji } from '@harmony/shared';
+  import { ALLOWED_IMAGE_TYPES, LIMITS, type Attachment, type Emoji, type User } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
+  import { avatarUrl, initial } from '../lib/avatar';
   import { chat } from '../lib/chat.svelte';
   import { emojis } from '../lib/emojis.svelte';
+  import { members } from '../lib/members.svelte';
 
   const acceptAttribute = ALLOWED_IMAGE_TYPES.join(',');
   const maxAttachments = LIMITS.attachmentsPerMessage;
-  /** How many matches the `:emoji` autocomplete offers at once. */
+  /** How many matches any autocomplete offers at once. */
   const maxSuggestions = 8;
+  /** How stale the member directory may be before a mention refreshes it. */
+  const directoryMaxAgeMs = 30_000;
 
   let value = $state('');
   let busy = $state(false);
@@ -19,9 +23,24 @@
   let textInput = $state<HTMLInputElement | null>(null);
   let showPicker = $state(false);
 
-  /** The `:emoji` fragment being typed at the caret, if any. */
-  let activeQuery = $state<{ start: number; query: string } | null>(null);
+  /** The `:emoji` or `@mention` fragment being typed at the caret, if any. */
+  let activeTrigger = $state<Trigger | null>(null);
   let highlight = $state(0);
+
+  type Trigger =
+    | { kind: 'emoji'; start: number; query: string }
+    | { kind: 'mention'; start: number; query: string };
+
+  /** One row in the autocomplete popup, whichever kind it is. */
+  interface Suggestion {
+    key: string;
+    label: string;
+    detail: string | null;
+    imageUrl: string | null;
+    initial: string | null;
+    /** The text inserted when the row is accepted. */
+    insert: string;
+  }
 
   async function onFiles(event: Event): Promise<void> {
     const input = event.currentTarget as HTMLInputElement;
@@ -61,58 +80,109 @@
   );
 
   /**
-   * Finds a `:name` fragment ending at the caret, delimited by the start of the
-   * line or whitespace, the way Discord triggers its emoji autocomplete.
+   * Finds the `:name` or `@name` fragment ending at the caret, delimited by the
+   * start of the line or whitespace, the way Discord triggers autocomplete.
    */
-  function detectQuery(text: string, caret: number): { start: number; query: string } | null {
+  function detectTrigger(text: string, caret: number): Trigger | null {
     const before = text.slice(0, caret);
-    const match = /(?:^|\s):([a-zA-Z0-9_]{0,32})$/.exec(before);
-    if (!match) return null;
-    const name = match[1] ?? '';
-    return { start: caret - name.length - 1, query: name };
+
+    const emoji = /(?:^|\s):([a-zA-Z0-9_]{0,32})$/.exec(before);
+    if (emoji) {
+      const query = emoji[1] ?? '';
+      return { kind: 'emoji', start: caret - query.length - 1, query };
+    }
+
+    const mention = /(?:^|\s)@([a-zA-Z0-9._-]{0,32})$/.exec(before);
+    if (mention) {
+      const query = mention[1] ?? '';
+      return { kind: 'mention', start: caret - query.length - 1, query };
+    }
+
+    return null;
   }
 
   function updateAutocomplete(): void {
     const input = textInput;
     if (!input) {
-      activeQuery = null;
+      activeTrigger = null;
       return;
     }
 
     const caret = input.selectionStart ?? input.value.length;
-    const next = detectQuery(input.value, caret);
-    // Reset the selection whenever the query itself changes.
-    if (next?.start !== activeQuery?.start || next?.query !== activeQuery?.query) highlight = 0;
-    activeQuery = next;
+    const next = detectTrigger(input.value, caret);
+    // Reset the selection whenever the fragment being typed changes.
+    if (
+      next?.kind !== activeTrigger?.kind ||
+      next?.start !== activeTrigger?.start ||
+      next?.query !== activeTrigger?.query
+    ) {
+      highlight = 0;
+    }
+    // Refresh the directory as we open a mention, in case someone just joined.
+    if (next?.kind === 'mention' && activeTrigger?.kind !== 'mention') {
+      void members.refreshIfStale(directoryMaxAgeMs);
+    }
+    activeTrigger = next;
   }
 
-  const suggestions = $derived.by(() => {
-    const query = activeQuery;
-    if (!query) return [];
+  /** Ranks a member: 0 for a prefix match, 1 for a substring, 2 for no match. */
+  function rankMember(user: User, needle: string): number {
+    const username = user.username.toLowerCase();
+    const display = (user.displayName ?? '').toLowerCase();
+    if (username.startsWith(needle) || display.startsWith(needle)) return 0;
+    if (username.includes(needle) || display.includes(needle)) return 1;
+    return 2;
+  }
 
-    const byName = [...emojis.list].sort((a, b) => a.name.localeCompare(b.name));
-    const needle = query.query.toLowerCase();
-    const prefix = byName.filter((emoji) => emoji.name.toLowerCase().startsWith(needle));
-    const rest = needle
-      ? byName.filter(
-          (emoji) => !emoji.name.toLowerCase().startsWith(needle) && emoji.name.toLowerCase().includes(needle),
-        )
-      : [];
-    return [...prefix, ...rest].slice(0, maxSuggestions);
+  const suggestions = $derived.by((): Suggestion[] => {
+    const trigger = activeTrigger;
+    if (!trigger) return [];
+    const needle = trigger.query.toLowerCase();
+
+    if (trigger.kind === 'emoji') {
+      const byName = [...emojis.list].sort((a, b) => a.name.localeCompare(b.name));
+      const prefix = byName.filter((emoji) => emoji.name.toLowerCase().startsWith(needle));
+      const rest = needle
+        ? byName.filter(
+            (emoji) => !emoji.name.toLowerCase().startsWith(needle) && emoji.name.toLowerCase().includes(needle),
+          )
+        : [];
+      return [...prefix, ...rest].slice(0, maxSuggestions).map((emoji) => ({
+        key: `emoji:${emoji.id}`,
+        label: `:${emoji.name}:`,
+        detail: null,
+        imageUrl: `/api/v1/emojis/${emoji.id}`,
+        initial: null,
+        insert: `:${emoji.name}: `,
+      }));
+    }
+
+    return members.list
+      .map((user) => ({ user, rank: rankMember(user, needle) }))
+      .filter((entry) => entry.rank < 2)
+      .sort((a, b) => a.rank - b.rank || a.user.username.localeCompare(b.user.username))
+      .slice(0, maxSuggestions)
+      .map(({ user }) => ({
+        key: `mention:${user.id}`,
+        label: user.displayName ?? user.username,
+        detail: `@${user.username}`,
+        imageUrl: avatarUrl(user),
+        initial: initial(user),
+        insert: `@${user.username} `,
+      }));
   });
 
-  async function acceptSuggestion(emoji: Emoji): Promise<void> {
+  async function acceptSuggestion(suggestion: Suggestion): Promise<void> {
     const input = textInput;
-    const query = activeQuery;
-    if (!input || !query) return;
+    const trigger = activeTrigger;
+    if (!input || !trigger) return;
 
     const caret = input.selectionStart ?? input.value.length;
-    const inserted = `:${emoji.name}: `;
-    value = `${input.value.slice(0, query.start)}${inserted}${input.value.slice(caret)}`;
-    activeQuery = null;
+    value = `${input.value.slice(0, trigger.start)}${suggestion.insert}${input.value.slice(caret)}`;
+    activeTrigger = null;
 
     await tick();
-    const position = query.start + inserted.length;
+    const position = trigger.start + suggestion.insert.length;
     input.focus();
     input.setSelectionRange(position, position);
   }
@@ -129,7 +199,7 @@
         highlight = (highlight - 1 + suggestions.length) % suggestions.length;
         return;
       }
-      // Enter and Tab accept the highlighted emoji instead of sending the message.
+      // Enter and Tab accept the highlighted suggestion instead of sending.
       if (event.key === 'Enter' || event.key === 'Tab') {
         event.preventDefault();
         const chosen = suggestions[highlight];
@@ -139,9 +209,9 @@
     }
 
     if (event.key === 'Escape') {
-      if (activeQuery) {
+      if (activeTrigger) {
         event.preventDefault();
-        activeQuery = null;
+        activeTrigger = null;
         return;
       }
       if (chat.replyTarget) {
@@ -168,7 +238,7 @@
       value = '';
       pending = [];
       chat.replyTarget = null;
-      activeQuery = null;
+      activeTrigger = null;
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
     } finally {
@@ -215,8 +285,8 @@
   {/if}
 
   {#if suggestions.length > 0}
-    <ul class="autocomplete" role="listbox" aria-label="Emoji suggestions">
-      {#each suggestions as emoji, index (emoji.id)}
+    <ul class="autocomplete" role="listbox" aria-label="Suggestions">
+      {#each suggestions as suggestion, index (suggestion.key)}
         <li>
           <button
             type="button"
@@ -225,11 +295,16 @@
             class="autocomplete-item"
             class:active={index === highlight}
             onpointerdown={(event) => event.preventDefault()}
-            onclick={() => acceptSuggestion(emoji)}
+            onclick={() => acceptSuggestion(suggestion)}
             onmouseenter={() => (highlight = index)}
           >
-            <img src={`/api/v1/emojis/${emoji.id}`} alt="" />
-            <span class="autocomplete-name">:{emoji.name}:</span>
+            {#if suggestion.imageUrl}
+              <img class="autocomplete-image" src={suggestion.imageUrl} alt="" />
+            {:else if suggestion.initial}
+              <span class="autocomplete-initial">{suggestion.initial}</span>
+            {/if}
+            <span class="autocomplete-name">{suggestion.label}</span>
+            {#if suggestion.detail}<span class="autocomplete-detail">{suggestion.detail}</span>{/if}
           </button>
         </li>
       {/each}
@@ -255,7 +330,7 @@
       onclick={updateAutocomplete}
       onkeyup={updateAutocomplete}
       onfocus={updateAutocomplete}
-      onblur={() => (activeQuery = null)}
+      onblur={() => (activeTrigger = null)}
     />
     <button type="submit" disabled={busy || uploading}>Send</button>
   </form>

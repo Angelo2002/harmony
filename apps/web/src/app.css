@@ -650,6 +650,46 @@ button.ghost {
   white-space: nowrap;
 }
 
+.autocomplete-detail {
+  margin-left: auto;
+  color: var(--h-text-muted);
+  font-size: 0.8rem;
+}
+
+.autocomplete-item.active .autocomplete-detail {
+  color: rgb(255 255 255 / 80%);
+}
+
+.autocomplete-initial {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--h-accent);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* ---- Mentions ---- */
+
+.mention {
+  padding: 0 0.15rem;
+  border-radius: 3px;
+  background: rgb(88 101 242 / 22%);
+  color: #c9cdfb;
+  font-weight: 500;
+}
+
+/* An inset shadow avoids shifting the layout when a message mentions you. */
+.message.mentions-me {
+  border-radius: 4px;
+  background: rgb(88 101 242 / 8%);
+  box-shadow: inset 2px 0 0 var(--h-accent);
+}
+
 .composer {
   display: flex;
   flex-direction: column;

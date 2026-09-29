@@ -7,6 +7,8 @@ export interface ServerSettings {
   requireInvite: boolean;
   /** Channel opened by default on load, or null to fall back to the first one. */
   defaultChannelId: string | null;
+  /** Whether the server unfurls link previews by fetching the linked pages. */
+  embedsEnabled: boolean;
 }
 
 export interface BridgeSettings {
@@ -40,6 +42,7 @@ export interface SettingsService {
 const KEY_SERVER_NAME = 'server_name';
 const KEY_REQUIRE_INVITE = 'require_invite';
 const KEY_DEFAULT_CHANNEL = 'default_channel_id';
+const KEY_EMBEDS_ENABLED = 'embeds_enabled';
 const KEY_IMAGE_DAYS = 'retention_image_days';
 const KEY_MESSAGE_DAYS = 'retention_message_days';
 const KEY_STORAGE_LIMIT = 'storage_limit_bytes';
@@ -96,11 +99,13 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
     const stored = readAllSettings(sqlite);
     const name = stored.get(KEY_SERVER_NAME);
     const requireInvite = stored.get(KEY_REQUIRE_INVITE);
+    const embeds = stored.get(KEY_EMBEDS_ENABLED);
 
     return {
       serverName: name ? parseString(name, defaults.serverName) : defaults.serverName,
       requireInvite: requireInvite ? parseBoolean(requireInvite, defaults.requireInvite) : defaults.requireInvite,
       defaultChannelId: parseStringOrNull(stored.get(KEY_DEFAULT_CHANNEL)),
+      embedsEnabled: embeds ? parseBoolean(embeds, defaults.embedsEnabled) : defaults.embedsEnabled,
     };
   }
 
@@ -146,6 +151,9 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       }
       if (patch.defaultChannelId !== undefined) {
         writeSetting(sqlite, KEY_DEFAULT_CHANNEL, JSON.stringify(patch.defaultChannelId));
+      }
+      if (patch.embedsEnabled !== undefined) {
+        writeSetting(sqlite, KEY_EMBEDS_ENABLED, JSON.stringify(patch.embedsEnabled));
       }
       return get();
     },

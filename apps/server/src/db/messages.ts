@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { LinkEmbed } from '@harmony/shared';
 
 export interface MessageRow {
   id: string;
@@ -9,6 +10,25 @@ export interface MessageRow {
   edited_at: string | null;
   deleted_at: string | null;
   reply_to_id: string | null;
+  /** The unfurled link preview as JSON, or NULL. */
+  embed: string | null;
+}
+
+/** Reads the stored embed JSON back into a preview, ignoring anything malformed. */
+export function parseMessageEmbed(raw: string | null): LinkEmbed | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<LinkEmbed>;
+    if (typeof value.url !== 'string' || value.url.length === 0) return null;
+    return {
+      url: value.url,
+      title: typeof value.title === 'string' ? value.title : null,
+      description: typeof value.description === 'string' ? value.description : null,
+      siteName: typeof value.siteName === 'string' ? value.siteName : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function insertMessage(
@@ -80,7 +100,17 @@ export function listMessages(
 }
 
 export function updateMessageContent(sqlite: DatabaseSync, id: string, content: string, editedAt: string): void {
-  sqlite.prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?').run(content, editedAt, id);
+  // The old preview no longer matches the new text, so drop it here. The embed
+  // service re-resolves the new content and broadcasts again when it finds a link.
+  sqlite
+    .prepare('UPDATE messages SET content = ?, edited_at = ?, embed = NULL WHERE id = ?')
+    .run(content, editedAt, id);
+}
+
+/** Stores a message's unfurled preview JSON, or clears it when given null. */
+export function setMessageEmbed(sqlite: DatabaseSync, id: string, embed: string | null): boolean {
+  const result = sqlite.prepare('UPDATE messages SET embed = ? WHERE id = ?').run(embed, id);
+  return Number(result.changes) > 0;
 }
 
 export function softDeleteMessage(sqlite: DatabaseSync, id: string, deletedAt: string): void {

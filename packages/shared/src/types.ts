@@ -76,6 +76,17 @@ export interface Attachment {
   createdAt: IsoTimestamp;
 }
 
+/**
+ * A basic link preview unfurled from a message's first embeddable URL. Only text
+ * is kept: no remote images are fetched or stored.
+ */
+export interface LinkEmbed {
+  url: string;
+  title: string | null;
+  description: string | null;
+  siteName: string | null;
+}
+
 export interface Message {
   id: SnowflakeId;
   channelId: SnowflakeId;
@@ -88,6 +99,8 @@ export interface Message {
   replyTo: MessageReference | null;
   /** Distinct emoji reactions, aggregated. Empty when there are none. */
   reactions: Reaction[];
+  /** A preview of the first embeddable link in `content`, or null. */
+  embed: LinkEmbed | null;
 }
 
 /**

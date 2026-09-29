@@ -141,6 +141,8 @@ export const updateSettingsSchema = z.object({
   requireInvite: z.boolean().optional(),
   /** The channel opened by default on load. Null clears the preference. */
   defaultChannelId: z.string().nullable().optional(),
+  /** Whether the server unfurls link previews by fetching the linked pages. */
+  embedsEnabled: z.boolean().optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 

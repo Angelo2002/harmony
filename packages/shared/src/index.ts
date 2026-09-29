@@ -3,6 +3,7 @@ export * from './permissions.ts';
 export * from './types.ts';
 export * from './moderation.ts';
 export * from './mentions.ts';
+export * from './embeds.ts';
 export * from './gateway.ts';
 export * from './schemas.ts';
 export * from './api.ts';

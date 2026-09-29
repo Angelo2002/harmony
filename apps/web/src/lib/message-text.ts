@@ -1,4 +1,4 @@
-import { RESERVED_MENTIONS, USERNAME_PATTERN, type Emoji, type User } from '@harmony/shared';
+import { RESERVED_MENTIONS, USERNAME_PATTERN, cleanUrl, type Emoji, type User } from '@harmony/shared';
 
 /** Inline emphasis that can apply to a run of text. */
 export interface TextStyles {
@@ -108,21 +108,6 @@ function pushText(out: InlineSegment[], value: string, styles: TextStyles): void
     return;
   }
   out.push({ type: 'text', value, styles: normalized });
-}
-
-/**
- * Strips trailing sentence punctuation that is almost never part of a bare URL,
- * and balances a stray closing parenthesis against any opening one.
- */
-function cleanUrl(raw: string): string {
-  let url = raw.replace(/[.,;:!?]+$/, '');
-  while (url.endsWith(')')) {
-    const open = (url.match(/\(/g) ?? []).length;
-    const close = (url.match(/\)/g) ?? []).length;
-    if (close <= open) break;
-    url = url.slice(0, -1);
-  }
-  return url;
 }
 
 /** Splits one stretch of text into styled inline segments. */

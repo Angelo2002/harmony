@@ -16,6 +16,7 @@ import { GatewayHub } from './realtime/hub.ts';
 import { createPruner } from './retention/pruner.ts';
 import { createBridgeService } from './bridge/service.ts';
 import { createDiscordTransport } from './bridge/discordjs.ts';
+import { createEmbedService } from './embeds/service.ts';
 import { createModerationService } from './moderation/service.ts';
 import { createMediaService } from './media/service.ts';
 import { registerErrorHandler } from './http/errors.ts';
@@ -43,6 +44,7 @@ const settingsService = createSettingsService(db.sqlite, {
   serverName: config.serverName,
   requireInvite: config.requireInvite,
   defaultChannelId: null,
+  embedsEnabled: true,
 });
 const authService = createAuthService(db.sqlite, config, settingsService);
 const attachmentService = createAttachmentService(db.sqlite, config);
@@ -61,6 +63,19 @@ const pruner = createPruner({
   hub,
   log: (message, detail) => app.log.info(detail ?? {}, message),
 });
+
+// Unfurls one link per message into a small preview. It listens for local
+// messages only and pushes updates straight to the gateway, so the bridge never
+// mistakes a preview for a user edit.
+const embedService = createEmbedService({
+  sqlite: db.sqlite,
+  settings: settingsService,
+  hub,
+  renderMessage: (messageId) => messageService.byId(messageId),
+  log: (message, detail) => app.log.debug(detail ?? {}, message),
+});
+messageService.onMessageCreated((message) => embedService.resolve(message.id, message.content));
+messageService.onMessageEdited((message) => embedService.resolve(message.id, message.content));
 
 const bridgeLogger = {
   info: (message: string, detail?: unknown) => app.log.info(detail ?? {}, message),

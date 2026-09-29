@@ -5,6 +5,7 @@
 
   let serverName = $state('');
   let requireInvite = $state(false);
+  let embedsEnabled = $state(true);
   /** Empty string means "no default": fall back to the first channel. */
   let defaultChannelId = $state('');
   let channels = $state<Channel[]>([]);
@@ -20,6 +21,7 @@
       ]);
       serverName = settings.serverName;
       requireInvite = settings.requireInvite;
+      embedsEnabled = settings.embedsEnabled;
       defaultChannelId = settings.defaultChannelId ?? '';
       channels = channelData.channels;
     } catch (cause) {
@@ -38,11 +40,13 @@
         body: JSON.stringify({
           serverName: serverName.trim(),
           requireInvite,
+          embedsEnabled,
           defaultChannelId: defaultChannelId || null,
         }),
       });
       serverName = updated.serverName;
       requireInvite = updated.requireInvite;
+      embedsEnabled = updated.embedsEnabled;
       defaultChannelId = updated.defaultChannelId ?? '';
       message = 'Settings saved.';
     } catch (cause) {
@@ -65,6 +69,15 @@
       <input type="checkbox" bind:checked={requireInvite} />
       Require an invite code to register
     </label>
+
+    <label class="checkbox">
+      <input type="checkbox" bind:checked={embedsEnabled} />
+      Link previews
+    </label>
+    <p class="muted">
+      When on, the server fetches the first link in a message to show a small preview. This makes an
+      outbound request to the linked site from your server.
+    </p>
 
     <label>
       Default channel

@@ -23,6 +23,7 @@ import {
   findMessage,
   insertMessage,
   listMessages,
+  parseMessageEmbed,
   softDeleteMessage,
   updateMessageContent,
   type MessageRow,
@@ -66,6 +67,8 @@ export interface MessageService {
   edit(auth: AuthContext, messageId: string, content: string): Message;
   /** Applies a bridged edit, without notifying the outbound listeners. */
   editBridged(messageId: string, content: string): Message | null;
+  /** Renders one message for a broadcast, or null when it is gone or deleted. */
+  byId(messageId: string): Message | null;
   remove(auth: AuthContext, messageId: string): void;
   /** Applies a bridged deletion, without notifying the outbound listeners. */
   deleteBridged(messageId: string): void;
@@ -113,6 +116,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       attachments,
       replyTo: buildReply(row),
       reactions,
+      embed: parseMessageEmbed(row.embed),
     };
   }
 
@@ -300,6 +304,14 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       // must not be mirrored straight back.
       hub.dispatch(GatewayEvent.MessageCreate, message);
       return message;
+    },
+
+    byId(messageId) {
+      const row = findMessage(sqlite, messageId);
+      if (!row || row.deleted_at) return null;
+      // The viewer is only used for the `me` reaction badge, which the clients
+      // keep themselves for an update, so no particular viewer is needed.
+      return render(row, '');
     },
 
     onMessageCreated(listener) {

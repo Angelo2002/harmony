@@ -322,6 +322,16 @@
                 {/each}
               </div>
             {/if}
+
+            {#if message.embed}
+              <a class="embed" href={message.embed.url} target="_blank" rel="noreferrer noopener">
+                {#if message.embed.siteName}<span class="embed-site">{message.embed.siteName}</span>{/if}
+                {#if message.embed.title}<span class="embed-title">{message.embed.title}</span>{/if}
+                {#if message.embed.description}
+                  <span class="embed-description">{message.embed.description}</span>
+                {/if}
+              </a>
+            {/if}
           {/if}
 
           {#if pickerFor === message.id}

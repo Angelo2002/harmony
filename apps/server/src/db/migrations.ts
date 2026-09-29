@@ -237,4 +237,12 @@ export const migrations: Migration[] = [
       db.exec(`ALTER TABLE users ADD COLUMN show_typing INTEGER NOT NULL DEFAULT 1`);
     },
   },
+  {
+    version: 9,
+    name: 'message_embeds',
+    up(db) {
+      /* The unfurled link preview as JSON, or NULL when there is none. */
+      db.exec(`ALTER TABLE messages ADD COLUMN embed TEXT`);
+    },
+  },
 ];

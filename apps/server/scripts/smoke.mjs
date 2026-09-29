@@ -14,6 +14,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import sharp from 'sharp';
+import { listEmbeddableUrls } from '@harmony/shared';
+import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8791;
@@ -422,6 +424,11 @@ try {
   const settings = await req('/settings', { token: ownerToken });
   check('owner reads settings', settings.status === 200 && settings.json?.serverName === 'Harmony');
   check('settings start with no default channel', settings.json?.defaultChannelId === null);
+  check('link previews default to on', settings.json?.embedsEnabled === true);
+
+  const embedsOff = await req('/settings', { method: 'PATCH', token: ownerToken, body: { embedsEnabled: false } });
+  check('link previews can be turned off', embedsOff.json?.embedsEnabled === false);
+  await req('/settings', { method: 'PATCH', token: ownerToken, body: { embedsEnabled: true } });
 
   // The default channel lives in settings and is echoed with the channel list so
   // clients can open it on load.
@@ -599,6 +606,50 @@ try {
   const typingBackOn = await req('/users/@me', { method: 'PATCH', token: ownerToken, body: { showTyping: true } });
   check('typing can be turned back on', typingBackOn.json?.user?.showTyping === true);
   typingWatcher.ws.close();
+
+  // --- Link previews ---
+  check('embeddable urls are found', listEmbeddableUrls('see https://example.com/a').includes('https://example.com/a'));
+  check('masked links are not unfurled', listEmbeddableUrls('[x](https://example.com/a)').length === 0);
+  check('angle links are not unfurled', listEmbeddableUrls('<https://example.com/a>').length === 0);
+  check('urls inside code are not unfurled', listEmbeddableUrls('`https://example.com/a`').length === 0);
+  check(
+    'trailing punctuation is trimmed from a link',
+    listEmbeddableUrls('see https://example.com/a.').includes('https://example.com/a'),
+  );
+
+  check('loopback is refused', isPrivateAddress('127.0.0.1') === true && isPrivateAddress('::1') === true);
+  check(
+    'private ranges are refused',
+    isPrivateAddress('10.1.2.3') &&
+      isPrivateAddress('192.168.1.1') &&
+      isPrivateAddress('172.16.5.5') &&
+      isPrivateAddress('169.254.1.1') &&
+      isPrivateAddress('fd00::1'),
+  );
+  check('public addresses are allowed', isPrivateAddress('1.1.1.1') === false && isPrivateAddress('8.8.8.8') === false);
+
+  const metadata = parseEmbedMetadata(
+    '<html><head><title>Fallback</title>' +
+      '<meta property="og:title" content="OG &amp; Title">' +
+      '<meta name="description" content="A description"></head></html>',
+    'https://example.com/post',
+  );
+  check('the open graph title wins over the title tag', metadata.title === 'OG & Title');
+  check('the description is read', metadata.description === 'A description');
+  check('the site name falls back to the host', metadata.siteName === 'example.com');
+
+  // A message linking to a private address must never be fetched.
+  const privateLink = await req(`/channels/${general.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'http://127.0.0.1:9/secret' },
+  });
+  await sleep(300);
+  const privateHistory = await req(`/channels/${general.id}/messages?limit=1`, { token: ownerToken });
+  check(
+    'a private address is never unfurled',
+    privateHistory.json?.messages?.[0]?.id === privateLink.json?.id && privateHistory.json?.messages?.[0]?.embed === null,
+  );
 
   const patched = await req('/settings', {
     method: 'PATCH',

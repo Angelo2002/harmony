@@ -55,6 +55,8 @@ export interface ServerSettingsResponse {
   requireInvite: boolean;
   /** Channel opened by default on load, or null to fall back to the first one. */
   defaultChannelId: string | null;
+  /** Whether the server unfurls link previews by fetching the linked pages. */
+  embedsEnabled: boolean;
 }
 
 /** A user together with the roles assigned to them. */

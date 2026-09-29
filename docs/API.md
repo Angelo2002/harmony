@@ -203,6 +203,14 @@ type Message = {
   attachments: Attachment[];
   replyTo: MessageReference | null;
   reactions: Reaction[];
+  embed: LinkEmbed | null;      // link preview, see "Link previews"
+};
+
+type LinkEmbed = {
+  url: string;                  // the final URL after redirects
+  title: string | null;
+  description: string | null;
+  siteName: string | null;      // og:site_name, or the host name
 };
 
 type Role = {
@@ -447,6 +455,17 @@ updated `Message` (with `editedAt` set) and fires `MESSAGE_UPDATE`.
 
 Returns `204` and fires `MESSAGE_DELETE`. Deletion is a soft delete: replies to the message keep a
 stub, and the bridge mirrors the removal to Discord.
+
+#### Link previews
+
+When `embedsEnabled` is on, the server takes the first link a message contains and, if it can reach
+it, attaches a small `embed` and fires a second `MESSAGE_UPDATE` carrying it. Only the first link is
+used, and only text is extracted — no remote images are fetched or stored.
+
+Links inside code, masked links (`[text](url)`) and angle-bracket links (`<url>`) are never
+unfurled. The fetch is guarded: `http` and `https` only, the host must resolve to a public address,
+and redirects are limited and re-checked at each hop. Editing a message drops its old preview and
+resolves the new text. Turn previews off instance-wide with `embedsEnabled` in the server settings.
 
 ### Reactions
 
@@ -727,15 +746,15 @@ Returns `204`.
 #### `GET /api/v1/settings` — `ManageServer`
 
 ```json
-{ "serverName": "My Community", "requireInvite": true, "defaultChannelId": null }
+{ "serverName": "My Community", "requireInvite": true, "defaultChannelId": null, "embedsEnabled": true }
 ```
 
 #### `PATCH /api/v1/settings` — `ManageServer`
 
-`{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null }`.
+`{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null, "embedsEnabled"?: boolean }`.
 Returns the updated settings. `serverName` changing also updates `GET /api/v1/meta`.
 `defaultChannelId` must reference an existing channel, or `400 invalid_default_channel`; `null`
-clears the preference.
+clears the preference. `embedsEnabled` turns link previews on or off for the whole instance.
 
 ### Retention
 
@@ -870,7 +889,7 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | --- | --- |
 | `READY` | `{ user, gateway_version }` |
 | `MESSAGE_CREATE` | `Message` |
-| `MESSAGE_UPDATE` | `Message` (edits, and bridged edits) |
+| `MESSAGE_UPDATE` | `Message` (edits, link previews, and bridged edits) |
 | `MESSAGE_DELETE` | `{ id, channelId }` |
 | `MESSAGE_REACTION_ADD` | `ReactionUpdatePayload` |
 | `MESSAGE_REACTION_REMOVE` | `ReactionUpdatePayload` |

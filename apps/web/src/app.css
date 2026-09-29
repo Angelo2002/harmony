@@ -353,6 +353,12 @@ button.link:hover {
   margin-top: 0.5rem;
 }
 
+/* A grouped message continues the one above: no margin, tighter padding. */
+.message.grouped {
+  margin-top: 0;
+  padding-top: 0;
+}
+
 .avatar {
   flex-shrink: 0;
   width: 40px;
@@ -382,6 +388,25 @@ img.avatar {
   width: 96px;
   height: 96px;
   font-size: 2rem;
+}
+
+/* Stands in for the avatar on a grouped message, revealing the time on hover. */
+.avatar-spacer {
+  display: flex;
+  flex-shrink: 0;
+  width: 40px;
+  justify-content: center;
+  padding-top: 0.15rem;
+}
+
+.gutter-time {
+  color: var(--h-text-muted);
+  font-size: 0.65rem;
+  opacity: 0;
+}
+
+.message:hover .gutter-time {
+  opacity: 1;
 }
 
 .body {

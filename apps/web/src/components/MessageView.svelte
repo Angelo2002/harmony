@@ -32,6 +32,21 @@
   // Custom emoji that can actually be rendered; deleted ones fall back to text.
   const knownEmojiIds = $derived(new Set(emojis.list.map((emoji) => emoji.id)));
 
+  /** Consecutive messages from one author within this window are grouped. */
+  const groupingWindowMs = 7 * 60 * 1000;
+
+  /**
+   * Whether a message continues the previous one: same author, close in time,
+   * and not a reply (a reply always shows its own header, like Discord).
+   */
+  function isGrouped(previous: Message | undefined, message: Message): boolean {
+    if (!previous?.author || !message.author) return false;
+    if (message.replyTo) return false;
+    if (previous.author.id !== message.author.id) return false;
+    const gap = new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime();
+    return gap >= 0 && gap <= groupingWindowMs;
+  }
+
   function formatTime(iso: string): string {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
@@ -154,7 +169,8 @@
   {:else if chat.messages.length === 0}
     <p class="muted pad">No messages yet. Say hello!</p>
   {:else}
-    {#each chat.messages as message (message.id)}
+    {#each chat.messages as message, index (message.id)}
+      {@const grouped = isGrouped(index > 0 ? chat.messages[index - 1] : undefined, message)}
       {@const authorColor =
         message.author?.roleColor == null
           ? null
@@ -164,8 +180,10 @@
       )}
       {@const mentionsMe = segments.some((segment) => segment.type === 'mention' && segment.user.id === myId)}
       {@const picture = avatarUrl(message.author)}
-      <article class="message" class:mentions-me={mentionsMe}>
-        {#if picture}
+      <article class="message" class:grouped class:mentions-me={mentionsMe}>
+        {#if grouped}
+          <div class="avatar-spacer" aria-hidden="true"><span class="gutter-time">{formatTime(message.createdAt)}</span></div>
+        {:else if picture}
           <img class="avatar" src={picture} alt="" loading="lazy" />
         {:else}
           <div class="avatar fallback">{initial(message.author)}</div>
@@ -180,13 +198,17 @@
             </div>
           {/if}
 
-          <div class="meta">
-            <span class="author" style={authorColor ? `color: ${authorColor}` : ''}>
-              {authorName(message)}
-            </span>
-            <time>{formatTime(message.createdAt)}</time>
-            {#if message.editedAt}<span class="edited">(edited)</span>{/if}
-          </div>
+          {#if !grouped}
+            <div class="meta">
+              <span class="author" style={authorColor ? `color: ${authorColor}` : ''}>
+                {authorName(message)}
+              </span>
+              <time>{formatTime(message.createdAt)}</time>
+              {#if message.editedAt}<span class="edited">(edited)</span>{/if}
+            </div>
+          {:else if message.editedAt}
+            <span class="edited">(edited)</span>
+          {/if}
 
           {#if editingId === message.id}
             <form class="edit-form" onsubmit={(event) => saveEdit(event, message)}>

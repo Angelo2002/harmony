@@ -33,13 +33,8 @@
   let actionError = $state<string | null>(null);
   /** The message whose action menu is open on touch, or null. */
   let actionsFor = $state<string | null>(null);
-  /** How long a finger must rest on a message before its menu opens. */
-  const longPressMs = 450;
-  let pressTimer: ReturnType<typeof setTimeout> | null = null;
-  let pressOrigin = { x: 0, y: 0 };
-  let pressId: string | null = null;
-  /** The kind of pointer last seen, so a touch long press can hide the browser menu. */
-  let lastPointerType = 'mouse';
+  /** Which message was open before the last tap, so a repeat tap can toggle it. */
+  let lastOpenId: string | null = null;
 
   const myId = $derived(session.user?.id);
   const permissions = $derived(BigInt(session.permissions || '0'));
@@ -142,50 +137,37 @@
     if (element.scrollTop < 80) void loadOlder();
   }
 
-  function cancelLongPress(): void {
-    if (pressTimer !== null) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
+  /**
+   * On a touch screen a tap opens a message's actions. Long press is left to the
+   * browser so text can still be selected, and anything with its own tap
+   * behaviour (a link, a button, a spoiler, a name or avatar) is left alone.
+   * On a device with hover the actions already appear on hover, so a click does
+   * nothing here.
+   */
+  function onMessageClick(event: MouseEvent, message: Message): void {
+    // A device with hover already shows the actions on hover.
+    if (window.matchMedia('(hover: hover)').matches) return;
+
+    const target = event.target as Element | null;
+    if (target?.closest('a, button, .spoiler, .profile-trigger')) return;
+
+    // A tap while text is selected just clears the selection.
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) {
+      selection.removeAllRanges();
+      return;
     }
-    pressId = null;
-  }
 
-  /** A mouse reveals the menu on hover; a finger needs a long press instead. */
-  function onMessagePointerDown(event: PointerEvent, message: Message): void {
-    lastPointerType = event.pointerType;
-    if (event.pointerType === 'mouse') return;
-    cancelLongPress();
-    pressOrigin = { x: event.clientX, y: event.clientY };
-    pressId = message.id;
-    pressTimer = setTimeout(() => {
-      pressTimer = null;
-      if (pressId !== message.id) return;
-      // A long press over a name/avatar would otherwise open its profile card
-      // at the same moment as the menu.
-      (document.activeElement as HTMLElement | null)?.blur();
-      profileCard.hide();
-      actionsFor = message.id;
-    }, longPressMs);
-  }
-
-  /** Scrolling or dragging the list must not count as a press. */
-  function onMessagePointerMove(event: PointerEvent): void {
-    if (pressTimer === null) return;
-    const dx = event.clientX - pressOrigin.x;
-    const dy = event.clientY - pressOrigin.y;
-    if (dx * dx + dy * dy > 100) cancelLongPress();
-  }
-
-  /** Suppresses the browser's own long-press menu, which would fight ours. */
-  function onMessageContextMenu(event: MouseEvent): void {
-    if (lastPointerType !== 'mouse') event.preventDefault();
+    actionsFor = lastOpenId === message.id ? null : message.id;
   }
 
   onMount(() => {
-    // Tapping anywhere except the menu itself dismisses it.
+    // A tap anywhere but the menu itself closes it, and records which message it
+    // was on so tapping that same message again toggles it shut.
     const onPointerDown = (event: PointerEvent): void => {
       const target = event.target as Element | null;
       if (target?.closest('.message-actions')) return;
+      lastOpenId = actionsFor;
       actionsFor = null;
     };
     window.addEventListener('pointerdown', onPointerDown, true);
@@ -308,18 +290,20 @@
           block.segments.some((segment) => segment.type === 'mention' && segment.user.id === myId),
       )}
       {@const picture = avatarUrl(message.author)}
+      <!--
+        The tap handler is a touch-only shortcut for opening the actions; it is
+        inert wherever hover exists, and keyboard users reveal the same actions
+        by focusing a control inside the message.
+      -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <article
         class="message"
         class:grouped
         class:mentions-me={mentionsMe}
         class:selected={chat.replyTarget?.id === message.id}
         class:actions-open={actionsFor === message.id}
-        onpointerdown={(event) => onMessagePointerDown(event, message)}
-        onpointermove={onMessagePointerMove}
-        onpointerup={cancelLongPress}
-        onpointercancel={cancelLongPress}
-        onpointerleave={cancelLongPress}
-        oncontextmenu={onMessageContextMenu}
+        onclick={(event) => onMessageClick(event, message)}
       >
         {#if grouped}
           <div class="avatar-spacer" aria-hidden="true"><span class="gutter-time">{formatTime(message.createdAt)}</span></div>

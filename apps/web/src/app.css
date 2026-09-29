@@ -722,8 +722,8 @@ button.avatar.fallback {
   padding: 0.1rem 0.5rem;
   margin: 0 -0.5rem;
   border-radius: 4px;
-  /* None of the browser's own long-press menu or callout, on touch. */
-  -webkit-touch-callout: none;
+  /* Taps open the actions on touch; long press stays free for text selection. */
+  touch-action: manipulation;
 }
 
 /*
@@ -1018,10 +1018,10 @@ img.avatar {
 }
 
 /*
- * On a device with a real pointer the actions appear on hover; for keyboard
- * users they appear whenever a control inside has focus. Touch devices get
- * neither, because a tap leaves a sticky :hover behind, so there the menu is
- * opened by a long press (the `open` class) and dismissed by tapping away.
+ * On a device with a real pointer the actions appear on hover. Touch devices
+ * get no hover (a tap would leave it stuck), so there a tap opens the menu by
+ * adding the `open` class; a tap elsewhere dismisses it. Keyboard focus still
+ * reveals it everywhere.
  */
 @media (hover: hover) and (pointer: fine) {
   .message:hover .message-actions {

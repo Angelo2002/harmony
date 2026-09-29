@@ -17,6 +17,8 @@
     unban: 'unban',
     role_add: 'role added',
     role_remove: 'role removed',
+    member_update: 'profile',
+    password_reset: 'password',
   };
 
   let entries = $state<AuditEntry[]>([]);
@@ -107,6 +109,10 @@
         return `gave ${targetName(entry)} the ${entry.detail.roleName ?? 'unknown'} role`;
       case 'role_remove':
         return `took the ${entry.detail.roleName ?? 'unknown'} role from ${targetName(entry)}`;
+      case 'member_update':
+        return `updated ${targetName(entry)}'s ${entry.detail.fields?.join(', ') ?? 'profile'}`;
+      case 'password_reset':
+        return `reset the password for ${targetName(entry)}`;
     }
   }
 </script>

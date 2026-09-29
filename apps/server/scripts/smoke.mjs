@@ -1690,6 +1690,130 @@ try {
     (await req('/members/directory', { token: ownerToken })).json?.users?.some((user) => user.id === modId) === true,
   );
 
+  // --- Changing your own password ---
+  const editInvite = await req('/invites', { method: 'POST', token: ownerToken, body: {} });
+  const editTarget = await req('/auth/register', {
+    method: 'POST',
+    body: { username: 'editme', password: 'editmepass1', inviteCode: editInvite.json?.code },
+  });
+  const editId = editTarget.json?.user?.id;
+  const ownToken = editTarget.json?.token;
+
+  const secondSession = await req('/auth/login', {
+    method: 'POST',
+    body: { username: 'editme', password: 'editmepass1' },
+  });
+  const otherToken = secondSession.json?.token;
+
+  check(
+    'changing a password needs the current one (403)',
+    (await req('/users/@me/password', {
+      method: 'PATCH',
+      token: ownToken,
+      body: { currentPassword: 'wrong-password', newPassword: 'brandnewpass1' },
+    })).status === 403,
+  );
+  check(
+    'a rejected change leaves the old password working',
+    (await req('/auth/login', { method: 'POST', body: { username: 'editme', password: 'editmepass1' } })).status === 200,
+  );
+  check(
+    'a member can change their own password',
+    (await req('/users/@me/password', {
+      method: 'PATCH',
+      token: ownToken,
+      body: { currentPassword: 'editmepass1', newPassword: 'brandnewpass1' },
+    })).status === 200,
+  );
+  check(
+    'the old password stops working',
+    (await req('/auth/login', { method: 'POST', body: { username: 'editme', password: 'editmepass1' } })).status === 401,
+  );
+  check(
+    'the new password works',
+    (await req('/auth/login', { method: 'POST', body: { username: 'editme', password: 'brandnewpass1' } })).status === 200,
+  );
+  check('the session that changed the password survives', (await req('/auth/me', { token: ownToken })).status === 200);
+  check("a member's other sessions are signed out", (await req('/auth/me', { token: otherToken })).status === 401);
+
+  // --- An administrator editing an account ---
+  // This is the instance's only password-recovery path: nobody can read a
+  // password, but an administrator can set a new one.
+  check(
+    'editing an account needs ManageMembers (403)',
+    (await req(`/members/${editId}`, { method: 'PATCH', token: bobToken, body: { displayName: 'Nope' } })).status === 403,
+  );
+
+  const editedAccount = await req(`/members/${editId}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { username: 'renameduser', displayName: 'Renamed User' },
+  });
+  check(
+    'an administrator can change a username and display name',
+    editedAccount.status === 200 &&
+      editedAccount.json?.user?.username === 'renameduser' &&
+      editedAccount.json?.user?.displayName === 'Renamed User',
+  );
+  check(
+    'the API never returns a password field',
+    editedAccount.json?.user !== undefined && !('password' in editedAccount.json.user),
+  );
+  check(
+    'a username already in use is refused (409)',
+    (await req(`/members/${editId}`, { method: 'PATCH', token: ownerToken, body: { username: 'alice' } })).status === 409,
+  );
+
+  const beforeReset = await req('/auth/login', {
+    method: 'POST',
+    body: { username: 'renameduser', password: 'brandnewpass1' },
+  });
+  const beforeResetToken = beforeReset.json?.token;
+  check(
+    'an administrator can reset a password',
+    (await req(`/members/${editId}`, {
+      method: 'PATCH',
+      token: ownerToken,
+      body: { password: 'adminreset123' },
+    })).status === 200,
+  );
+  check(
+    'the reset password works',
+    (await req('/auth/login', { method: 'POST', body: { username: 'renameduser', password: 'adminreset123' } })).status ===
+      200,
+  );
+  check('a reset signs existing sessions out', (await req('/auth/me', { token: beforeResetToken })).status === 401);
+
+  const ownerAvatar = new FormData();
+  ownerAvatar.append('file', new Blob([emojiPng], { type: 'image/png' }), 'member.png');
+  const bobAvatar = new FormData();
+  bobAvatar.append('file', new Blob([emojiPng], { type: 'image/png' }), 'member.png');
+
+  check(
+    'an administrator can set a member picture',
+    (
+      await fetch(`${BASE}/members/${editId}/avatar`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${ownerToken}` },
+        body: ownerAvatar,
+      })
+    ).status === 200,
+  );
+  check(
+    'setting a member picture needs ManageMembers (403)',
+    (
+      await fetch(`${BASE}/members/${editId}/avatar`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${bobToken}` },
+        body: bobAvatar,
+      })
+    ).status === 403,
+  );
+  check(
+    'an administrator can clear a member picture',
+    (await req(`/members/${editId}/avatar`, { method: 'DELETE', token: ownerToken })).status === 200,
+  );
+
   // --- Audit log ---
   check('the audit log needs ManageServer (403)', (await req('/audit', { token: bobToken })).status === 403);
 
@@ -1750,6 +1874,8 @@ try {
       'unban',
       'role_add',
       'role_remove',
+      'member_update',
+      'password_reset',
     ].every((kind) => auditKinds.has(kind)),
     [...auditKinds].join(', '),
   );
@@ -1796,6 +1922,20 @@ try {
     (entry) => entry.kind === 'role_add' && entry.detail.roleName === 'Audited',
   );
   check('a role change records the role name', Boolean(roleEntry));
+
+  const profileEntry = (audit?.entries ?? []).find(
+    (entry) => entry.kind === 'member_update' && entry.detail.fields?.includes('username'),
+  );
+  check(
+    'editing an account records the fields that changed',
+    profileEntry?.actor?.username === 'alice' && profileEntry?.target?.username === 'renameduser',
+  );
+
+  const resetEntry = (audit?.entries ?? []).find((entry) => entry.kind === 'password_reset');
+  check(
+    'a password reset is logged against the target',
+    resetEntry?.actor?.username === 'alice' && resetEntry?.target?.username === 'renameduser',
+  );
 
   const newest = audit?.entries?.[0];
   const olderPage = newest

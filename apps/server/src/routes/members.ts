@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  GatewayCloseCode,
   GatewayEvent,
   Permission,
+  adminUpdateUserSchema,
   banSchema,
   permissionsToString,
   timeoutSchema,
@@ -10,6 +12,7 @@ import {
   type MemberRosterEntry,
   type MemberRosterResponse,
   type MemberSummary,
+  type MemberUpdateResponse,
   type UserDirectoryResponse,
 } from '@harmony/shared';
 import { resolvePermissions } from '../auth/permissions.ts';
@@ -17,21 +20,24 @@ import { requirePermission } from '../auth/plugin.ts';
 import type { AuditService } from '../audit/service.ts';
 import type { Database } from '../db/index.ts';
 import { assignRole, findRole, listMemberRoles, unassignRole } from '../db/roles.ts';
+import { deleteSessionsForUser } from '../db/sessions.ts';
 import { findUserById, listUsers, presentUser } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import { parseBody } from '../http/validation.ts';
 import type { ModerationService } from '../moderation/service.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
+import type { UserService } from '../users/service.ts';
 
 export interface MemberRouteDeps {
   db: Database;
   hub: GatewayHub;
   moderation: ModerationService;
   audit: AuditService;
+  users: UserService;
 }
 
 export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps): void {
-  const { db, hub, moderation, audit } = deps;
+  const { db, hub, moderation, audit, users } = deps;
 
   app.get('/api/v1/members', async (request) => {
     requirePermission(request, Permission.ManageRoles);
@@ -108,6 +114,79 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     audit.roleChange(auth.user.id, userId, roleId, false);
     hub.dispatch(GatewayEvent.MemberUpdate, { userId });
     return reply.status(204).send();
+  });
+
+  // ---- Account editing ----
+  //
+  // Editing an account is how a forgotten password is reset: nobody can read a
+  // password, but an administrator can set a new one. Any member may be edited,
+  // including another administrator, because the flat role model offers no safe
+  // alternative and the owner must stay recoverable. Every change is logged.
+
+  /** Sets a member's username, display name and/or password. */
+  app.patch('/api/v1/members/:userId', async (request) => {
+    const auth = requirePermission(request, Permission.ManageMembers);
+    const { userId } = request.params as { userId: string };
+    const input = parseBody(adminUpdateUserSchema, request.body);
+
+    const fields: string[] = [];
+    if (input.username !== undefined) fields.push('username');
+    if (input.displayName !== undefined) fields.push('display name');
+
+    const row = await users.adminUpdate(userId, input);
+    if (fields.length > 0) audit.memberUpdated(auth.user.id, userId, fields);
+
+    // A reset ends their sessions; they sign back in with the password they were given.
+    if (input.password !== undefined) {
+      deleteSessionsForUser(db.sqlite, userId);
+      hub.disconnectUser(
+        userId,
+        GatewayCloseCode.AuthenticationFailed,
+        'An administrator reset your password.',
+      );
+      audit.passwordReset(auth.user.id, userId);
+    }
+
+    hub.dispatch(GatewayEvent.MemberUpdate, { userId });
+    const body: MemberUpdateResponse = { user: presentUser(db.sqlite, row) };
+    return body;
+  });
+
+  /** Replaces a member's profile picture, for an administrator. */
+  app.put('/api/v1/members/:userId/avatar', async (request) => {
+    const auth = requirePermission(request, Permission.ManageMembers);
+    const { userId } = request.params as { userId: string };
+
+    if (!request.isMultipart()) {
+      throw new HttpError(415, 'unsupported_media_type', 'Expected a multipart/form-data upload.');
+    }
+    const file = await request.file();
+    if (!file) throw new HttpError(400, 'file_required', 'No image was uploaded.');
+
+    let data: Buffer;
+    try {
+      data = await file.toBuffer();
+    } catch {
+      throw new HttpError(413, 'payload_too_large', 'That image is too large.');
+    }
+
+    const row = await users.updateAvatar(userId, { contentType: file.mimetype, data });
+    audit.memberUpdated(auth.user.id, userId, ['profile picture']);
+    hub.dispatch(GatewayEvent.MemberUpdate, { userId });
+    const body: MemberUpdateResponse = { user: presentUser(db.sqlite, row) };
+    return body;
+  });
+
+  /** Clears a member's profile picture, for an administrator. */
+  app.delete('/api/v1/members/:userId/avatar', async (request) => {
+    const auth = requirePermission(request, Permission.ManageMembers);
+    const { userId } = request.params as { userId: string };
+
+    const row = users.clearAvatar(userId);
+    audit.memberUpdated(auth.user.id, userId, ['profile picture']);
+    hub.dispatch(GatewayEvent.MemberUpdate, { userId });
+    const body: MemberUpdateResponse = { user: presentUser(db.sqlite, row) };
+    return body;
   });
 
   // ---- Moderation ----

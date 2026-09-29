@@ -65,6 +65,32 @@ export function findUserByDiscordId(sqlite: DatabaseSync, discordId: string): Us
   return (sqlite.prepare('SELECT * FROM users WHERE discord_id = ?').get(discordId) as UserRow | undefined) ?? null;
 }
 
+/**
+ * Updates the account credentials: the login name and the password hash. Kept
+ * apart from `updateUserProfile` because these are the fields an administrator
+ * resets, and a password is only ever written, never read back.
+ */
+export function updateUserAccount(
+  sqlite: DatabaseSync,
+  id: string,
+  patch: { username?: string; passwordHash?: string },
+): void {
+  const sets: string[] = [];
+  const values: string[] = [];
+  if (patch.username !== undefined) {
+    sets.push('username = ?');
+    values.push(patch.username);
+  }
+  if (patch.passwordHash !== undefined) {
+    sets.push('password_hash = ?');
+    values.push(patch.passwordHash);
+  }
+  if (sets.length === 0) return;
+
+  values.push(id);
+  sqlite.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+}
+
 export function updateUserProfile(
   sqlite: DatabaseSync,
   id: string,

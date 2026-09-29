@@ -1,17 +1,27 @@
 import { createReadStream, existsSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
-import { Permission, permissionsToString, updateProfileSchema, type MeResponse } from '@harmony/shared';
+import {
+  GatewayCloseCode,
+  Permission,
+  changePasswordSchema,
+  permissionsToString,
+  updateProfileSchema,
+  type MeResponse,
+} from '@harmony/shared';
 import { resolvePermissions } from '../auth/permissions.ts';
 import { requireAuth, requirePermission } from '../auth/plugin.ts';
 import type { Database } from '../db/index.ts';
+import { deleteOtherSessionsForUser } from '../db/sessions.ts';
 import { findUserById, presentUser, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import { parseBody } from '../http/validation.ts';
+import type { GatewayHub } from '../realtime/hub.ts';
 import type { UserService } from '../users/service.ts';
 
 export interface UserRouteDeps {
   db: Database;
   users: UserService;
+  hub: GatewayHub;
 }
 
 export function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): void {
@@ -26,6 +36,26 @@ export function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): v
     const auth = requireAuth(request);
     const input = parseBody(updateProfileSchema, request.body);
     return present(deps.users.updateProfile(auth.user.id, input));
+  });
+
+  /**
+   * Changes the caller's own password. Every other session is ended and its
+   * live connection closed, so a password change really does lock out anyone
+   * holding an older token, while the device making the change stays signed in.
+   */
+  app.patch('/api/v1/users/@me/password', async (request) => {
+    const auth = requireAuth(request);
+    const input = parseBody(changePasswordSchema, request.body);
+    await deps.users.changePassword(auth.user.id, input.currentPassword, input.newPassword);
+
+    deleteOtherSessionsForUser(deps.db.sqlite, auth.user.id, auth.sessionId);
+    deps.hub.disconnectUser(
+      auth.user.id,
+      GatewayCloseCode.AuthenticationFailed,
+      'Your password was changed on another device.',
+      auth.sessionId,
+    );
+    return { ok: true };
   });
 
   app.put('/api/v1/users/@me/avatar', async (request) => {

@@ -43,3 +43,16 @@ export function deleteSessionsForUser(sqlite: DatabaseSync, userId: string): num
   const result = sqlite.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
   return Number(result.changes);
 }
+
+/**
+ * Ends every session a user has except one, used after a password change so the
+ * device making the change stays signed in while any other one is signed out.
+ */
+export function deleteOtherSessionsForUser(
+  sqlite: DatabaseSync,
+  userId: string,
+  keepSessionId: string,
+): number {
+  const result = sqlite.prepare('DELETE FROM sessions WHERE user_id = ? AND id <> ?').run(userId, keepSessionId);
+  return Number(result.changes);
+}

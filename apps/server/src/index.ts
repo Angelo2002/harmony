@@ -149,7 +149,7 @@ registerRetentionRoutes(app, { settings: settingsService, pruner });
 registerAuditRoutes(app, { audit: auditService });
 registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
-registerMemberRoutes(app, { db, hub, moderation: moderationService, audit: auditService });
+registerMemberRoutes(app, { db, hub, moderation: moderationService, audit: auditService, users: userService });
 registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub, bridge, settings: settingsService, importer: channelImport });
 registerMessageRoutes(app, { service: messageService });
@@ -157,7 +157,7 @@ registerAttachmentRoutes(app, { service: attachmentService, settings: settingsSe
 registerEmbedRoutes(app, { settings: settingsService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
-registerUserRoutes(app, { db, users: userService });
+registerUserRoutes(app, { db, users: userService, hub });
 registerGateway(app, {
   heartbeatIntervalMs: GATEWAY_HEARTBEAT_MS,
   cookieName: config.cookieName,

@@ -14,6 +14,13 @@
   let message = $state<string | null>(null);
   let busy = $state(false);
 
+  let currentPassword = $state('');
+  let newPassword = $state('');
+  let confirmPassword = $state('');
+  let passwordError = $state<string | null>(null);
+  let passwordMessage = $state<string | null>(null);
+  let changingPassword = $state(false);
+
   const picture = $derived(avatarUrl(session.user));
 
   function apply(data: MeResponse): void {
@@ -81,6 +88,32 @@
       busy = false;
     }
   }
+
+  async function changePassword(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    passwordError = null;
+    passwordMessage = null;
+    if (newPassword !== confirmPassword) {
+      passwordError = 'The two new passwords do not match.';
+      return;
+    }
+
+    changingPassword = true;
+    try {
+      await api('/users/@me/password', {
+        method: 'PATCH',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      currentPassword = '';
+      newPassword = '';
+      confirmPassword = '';
+      passwordMessage = 'Password changed. Your other devices have been signed out.';
+    } catch (cause) {
+      passwordError = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      changingPassword = false;
+    }
+  }
 </script>
 
 <div class="admin-overlay">
@@ -129,6 +162,51 @@
         <div class="editor-actions">
           <button type="submit" disabled={busy}>Save</button>
           <button type="button" onclick={() => ui.closeProfile()}>Close</button>
+        </div>
+      </form>
+
+      <form onsubmit={changePassword}>
+        <h4 class="profile-section-title">Change password</h4>
+
+        <label>
+          Current password
+          <input
+            type="password"
+            bind:value={currentPassword}
+            autocomplete="current-password"
+            maxlength={LIMITS.password.max}
+          />
+        </label>
+
+        <label>
+          New password
+          <input
+            type="password"
+            bind:value={newPassword}
+            autocomplete="new-password"
+            minlength={LIMITS.password.min}
+            maxlength={LIMITS.password.max}
+          />
+        </label>
+
+        <label>
+          Confirm new password
+          <input
+            type="password"
+            bind:value={confirmPassword}
+            autocomplete="new-password"
+            minlength={LIMITS.password.min}
+            maxlength={LIMITS.password.max}
+          />
+        </label>
+
+        <p class="muted">Changing your password signs out every other device. Ask an admin if you have forgotten it.</p>
+
+        {#if passwordError}<p class="form-error">{passwordError}</p>{/if}
+        {#if passwordMessage}<p class="ok-text">{passwordMessage}</p>{/if}
+
+        <div class="editor-actions">
+          <button type="submit" disabled={changingPassword || !currentPassword || !newPassword}>Change password</button>
         </div>
       </form>
     </div>

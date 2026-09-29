@@ -1759,6 +1759,18 @@ button.danger {
   gap: 0.5rem;
 }
 
+/* Pushes the account editor toggle to the right edge of the row. */
+.member-head .member-edit-toggle {
+  margin-left: auto;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+}
+
+.member-editor {
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--h-bg-elevated);
+}
+
 .member-roles {
   display: flex;
   align-items: center;
@@ -2004,6 +2016,15 @@ button.danger {
   align-items: center;
   gap: 1rem;
   margin-bottom: 1rem;
+}
+
+/* Separates the password form from the profile form above it. */
+.profile-section-title {
+  margin: 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--h-bg-elevated);
+  color: var(--h-text);
+  font-size: 0.95rem;
 }
 
 /* ---- Mobile layout ---- */

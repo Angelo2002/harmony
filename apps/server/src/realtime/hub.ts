@@ -90,11 +90,14 @@ export class GatewayHub {
 
   /**
    * Closes every connection belonging to one user, used when they are kicked or
-   * banned. The client sees the close code and drops to the login screen.
+   * banned. The client sees the close code and drops to the login screen. Pass
+   * `exceptSessionId` to spare one session, e.g. the device that just changed
+   * the account's password.
    */
-  disconnectUser(userId: string, code: number, reason: string): void {
+  disconnectUser(userId: string, code: number, reason: string, exceptSessionId?: string): void {
     for (const client of this.#clients.values()) {
       if (client.auth?.user.id !== userId) continue;
+      if (exceptSessionId !== undefined && client.auth.sessionId === exceptSessionId) continue;
       try {
         client.disconnect(code, reason);
       } catch {

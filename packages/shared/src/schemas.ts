@@ -249,6 +249,32 @@ export const updateProfileSchema = z
   });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
+/** A signed-in member changing their own password. */
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(LIMITS.password.max),
+  newPassword: passwordSchema,
+});
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+/**
+ * An administrator editing another account. Everything is optional so a caller
+ * can change one field, but at least one must be present.
+ */
+export const adminUpdateUserSchema = z
+  .object({
+    username: usernameSchema.optional(),
+    /** `null` (or an empty string) clears it and falls back to the username. */
+    displayName: z.string().trim().max(LIMITS.displayName.max).nullable().optional(),
+    /** Only ever set by someone else; a password is never returned by the API. */
+    password: passwordSchema.optional(),
+  })
+  .refine(
+    (value) =>
+      value.username !== undefined || value.displayName !== undefined || value.password !== undefined,
+    { message: 'Nothing to update.' },
+  );
+export type AdminUpdateUserInput = z.infer<typeof adminUpdateUserSchema>;
+
 /** How long a moderation timeout lasts. */
 export const timeoutSchema = z.object({
   durationMinutes: z.number().int().min(1).max(TIMEOUT_MAX_MINUTES),

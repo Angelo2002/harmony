@@ -124,6 +124,7 @@ implicit `@everyone` role grants every member `ViewChannels`, `SendMessages`, `A
 | `MentionEveryone` | `1 << 13` | *Reserved* — not enforced yet |
 | `Administrator` | `1 << 14` | Implies every flag above |
 | `ModerateMembers` | `1 << 15` | Putting members in a timeout |
+| `ManageMembers` | `1 << 16` | Editing members' usernames, display names, pictures and passwords |
 
 Over the wire, permission bitfields are **decimal strings** (`"1"`, `"2081"`), never JSON numbers,
 because JSON cannot carry a 64-bit integer. `GET /api/v1/auth/me` returns your effective
@@ -329,7 +330,8 @@ type AuditKind =
   | 'message_delete' | 'message_edit' | 'media_delete'
   | 'timeout_add' | 'timeout_clear'
   | 'kick' | 'ban' | 'unban'
-  | 'role_add' | 'role_remove';
+  | 'role_add' | 'role_remove'
+  | 'member_update' | 'password_reset';
 
 type AuditDetail = {
   channelName?: string;   // message and media kinds
@@ -340,6 +342,7 @@ type AuditDetail = {
   durationMinutes?: number;
   reason?: string | null;
   roleName?: string;
+  fields?: string[];       // member_update: the account fields that changed
   actorName?: string;     // snapshots, so an entry stays readable after a rename
   targetName?: string;
 };
@@ -802,6 +805,17 @@ import is safe to run again. Each newly created emoji fires `EMOJI_CREATE`. Retu
 up to 32 characters; `null` or `""` clears it. `showTyping` turns typing indicators off entirely for
 the user: they neither send nor see them. Returns `MeResponse`.
 
+#### `PATCH /api/v1/users/@me/password` — auth
+
+```json
+{ "currentPassword": "old-secret", "newPassword": "new-secret" }
+```
+
+Changes your own password. `currentPassword` must match, else `403 wrong_password`; `newPassword` is
+subject to the registration policy (at least 8 characters). Every **other** session is ended and its
+gateway connection closed (close code `4004`), so an old token stops working at once, while the
+device making the change stays signed in. Returns `{ "ok": true }`.
+
 #### `PUT /api/v1/users/@me/avatar` — auth
 
 `multipart/form-data` with a single `file` field (an image). The picture is normalised server-side
@@ -914,6 +928,38 @@ role is implicit and cannot be assigned (`400 default_role`).
 
 Removes a role. Returns `204` and fires `MEMBER_UPDATE`.
 
+### Editing accounts
+
+An administrator holding `ManageMembers` can edit any account: its username, display name, picture
+and password. This is the instance's only password-recovery path — there is no email and no reset
+token, so a member who has forgotten their password asks an administrator to set a new one. A
+password can be **written but never read**: no endpoint returns one, and only the hash is stored.
+
+Any account may be edited, including another administrator and the owner. The flat role model offers
+no hierarchy to fall back on, and it keeps the owner recoverable; every change is written to the
+[audit log](#audit-log) instead.
+
+#### `PATCH /api/v1/members/:userId` — `ManageMembers`
+
+```json
+{ "username": "new-name", "displayName": "New Name", "password": "a-new-secret" }
+```
+
+Any subset of the three fields. `username` must be free (`409 username_taken` unless it is already
+this member's). `displayName` may be `null` or `""` to clear it. Setting `password` ends every session
+and connection the member has, so they sign back in with the new one. Returns
+`{ "user": { /* User */ } }` and fires `MEMBER_UPDATE`; the fields that changed are recorded as a
+`member_update` entry, and a password as a `password_reset` entry.
+
+#### `PUT /api/v1/members/:userId/avatar` — `ManageMembers`
+
+`multipart/form-data` with a single `file` field. Normalised server-side to a 256×256 WebP. Returns
+`{ "user": { /* User */ } }`, fires `MEMBER_UPDATE`, and logs a `member_update`.
+
+#### `DELETE /api/v1/members/:userId/avatar` — `ManageMembers`
+
+Clears the member's picture and returns `{ "user": { /* User */ } }`, firing `MEMBER_UPDATE`.
+
 ### Moderation
 
 Timeouts, kicks and bans share one rule set, deliberately without a role hierarchy: **nobody may
@@ -967,7 +1013,8 @@ The audit log records what was done, by whom and to whom. An entry is logged whe
 **deleted**, capturing the text and any images it carried; a message is **edited**, with the text
 either side of it; an image is **deleted from the media gallery**, naming the file; a member is
 **timed out** or the timeout is lifted; a member is **kicked**; a member is **banned** or unbanned;
-and a member's **roles change**.
+a member's **roles change**; a member's **account is edited**, naming the fields that changed; and a
+member's **password is reset**.
 
 Entries are append-only and are never edited. Names and the channel are captured when the action
 happens, so an entry stays readable once a role is renamed, a channel is deleted or an account is

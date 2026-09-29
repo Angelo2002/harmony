@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
+    ALLOWED_IMAGE_TYPES,
     Permission,
     hasPermission,
     isTimedOut,
@@ -13,10 +14,20 @@
   import { roleColor } from '../../lib/format';
   import { session } from '../../lib/session.svelte';
 
+  const acceptAttribute = ALLOWED_IMAGE_TYPES.join(',');
+
   let members = $state<MemberSummary[]>([]);
   let roles = $state<Role[]>([]);
   let error = $state<string | null>(null);
   let busy = $state(false);
+
+  // The account being edited inline, and the draft values for it.
+  let editingId = $state<string | null>(null);
+  let editUsername = $state('');
+  let editDisplayName = $state('');
+  let editPassword = $state('');
+  let editError = $state<string | null>(null);
+  let avatarInput = $state<HTMLInputElement | null>(null);
 
   // The bridge creates a stand-in account for every Discord user it sees, which
   // would drown out real members, so they are kept in their own collapsible group.
@@ -27,6 +38,7 @@
   const canTimeout = $derived(hasPermission(permissions, Permission.ModerateMembers));
   const canKick = $derived(hasPermission(permissions, Permission.KickMembers));
   const canBan = $derived(hasPermission(permissions, Permission.BanMembers));
+  const canEdit = $derived(hasPermission(permissions, Permission.ManageMembers));
 
   const timeoutPresets = [
     { minutes: 1, label: '1 minute' },
@@ -119,6 +131,77 @@
       }),
     );
   }
+
+  /** Opens the inline account editor, seeding it with the member's current values. */
+  function startEdit(member: MemberSummary): void {
+    editingId = member.user.id;
+    editUsername = member.user.username;
+    editDisplayName = member.user.displayName ?? '';
+    editPassword = '';
+    editError = null;
+  }
+
+  /** Sends only the fields that actually changed, leaving the rest untouched. */
+  async function saveEdit(event: SubmitEvent, member: MemberSummary): Promise<void> {
+    event.preventDefault();
+    editError = null;
+
+    const body: Record<string, unknown> = {};
+    const username = editUsername.trim();
+    if (username !== member.user.username) body.username = username;
+    const displayName = editDisplayName.trim();
+    if (displayName !== (member.user.displayName ?? '')) body.displayName = displayName || null;
+    if (editPassword) body.password = editPassword;
+
+    if (Object.keys(body).length === 0) {
+      editingId = null;
+      return;
+    }
+
+    busy = true;
+    try {
+      await api(`/members/${member.user.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      editingId = null;
+      await load();
+    } catch (cause) {
+      editError = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function saveAvatar(event: Event, member: MemberSummary): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+
+    busy = true;
+    editError = null;
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      await api(`/members/${member.user.id}/avatar`, { method: 'PUT', body: form });
+      await load();
+    } catch (cause) {
+      editError = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function clearAvatar(member: MemberSummary): Promise<void> {
+    busy = true;
+    editError = null;
+    try {
+      await api(`/members/${member.user.id}/avatar`, { method: 'DELETE' });
+      await load();
+    } catch (cause) {
+      editError = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 <section>
@@ -135,7 +218,55 @@
         <strong>{member.user.displayName ?? member.user.username}</strong>
         {#if member.user.displayName}<span class="muted">@{member.user.username}</span>{/if}
         {#if member.user.isOwner}<span class="badge">owner</span>{/if}
+        {#if canEdit}
+          <button
+            type="button"
+            class="member-edit-toggle"
+            onclick={() => (editingId === member.user.id ? (editingId = null) : startEdit(member))}
+          >
+            {editingId === member.user.id ? 'Close' : 'Edit'}
+          </button>
+        {/if}
       </div>
+
+      {#if canEdit && editingId === member.user.id}
+        <form class="member-editor" onsubmit={(event) => saveEdit(event, member)}>
+          <label>
+            Username
+            <input bind:value={editUsername} maxlength={32} autocomplete="off" />
+          </label>
+          <label>
+            Display name
+            <input bind:value={editDisplayName} maxlength={32} placeholder={member.user.username} />
+          </label>
+          <label>
+            New password <span class="muted">(leave blank to keep it)</span>
+            <input type="password" bind:value={editPassword} minlength={8} maxlength={200} autocomplete="new-password" />
+          </label>
+
+          <div class="editor-actions">
+            <button type="button" onclick={() => avatarInput?.click()} disabled={busy}>Change picture</button>
+            {#if member.user.avatarHash}
+              <button type="button" class="danger" onclick={() => clearAvatar(member)} disabled={busy}>Remove picture</button>
+            {/if}
+            <input
+              class="file-input"
+              type="file"
+              accept={acceptAttribute}
+              bind:this={avatarInput}
+              onchange={(event) => saveAvatar(event, member)}
+            />
+          </div>
+
+          {#if editError}<p class="form-error">{editError}</p>{/if}
+
+          <div class="editor-actions">
+            <button type="submit" disabled={busy || !editUsername.trim()}>Save</button>
+            <button type="button" onclick={() => (editingId = null)}>Cancel</button>
+          </div>
+          <p class="muted">Saving a new password signs the member out everywhere; tell them the new one.</p>
+        </form>
+      {/if}
 
       <div class="member-roles">
         {#each member.roleIds as roleId (roleId)}

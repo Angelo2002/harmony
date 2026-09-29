@@ -11,9 +11,11 @@ role-coloured usernames, profile pictures and display names, moderation (timeout
 kicks and bans), configurable storage retention, a two-way Discord bridge
 (messages, images and videos, replies, reactions, mentions, edits and deletes,
 with custom emoji matched by name), and an admin panel covering settings, roles,
-members, channels, emoji, media, retention, the bridge, invites and bans. The full
-HTTP and gateway API for custom clients and bots is documented in
-[`docs/API.md`](docs/API.md).
+members, channels, emoji, media, retention, the bridge, invites and bans. Members
+can change their own password, and an administrator can edit any account's
+username, display name, picture and password — which doubles as the password
+reset, since there is no email. The full HTTP and gateway API for custom clients
+and bots is documented in [`docs/API.md`](docs/API.md).
 
 ## Tech stack
 

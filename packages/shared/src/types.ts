@@ -131,7 +131,9 @@ export type AuditKind =
   | 'ban'
   | 'unban'
   | 'role_add'
-  | 'role_remove';
+  | 'role_remove'
+  | 'member_update'
+  | 'password_reset';
 
 /**
  * The kind-specific fields of an audit entry. Every field is optional because
@@ -142,6 +144,7 @@ export type AuditKind =
  * - `media_delete`: `filename` and `channelName`.
  * - `timeout_add`: `durationMinutes`. `ban`: `reason`.
  * - `role_add` / `role_remove`: `roleName`.
+ * - `member_update`: `fields`, the account fields an administrator changed.
  *
  * `actorName` and `targetName` are snapshots taken when the entry was written,
  * so it stays readable after a rename or a deletion.
@@ -156,6 +159,8 @@ export interface AuditDetail {
   after?: string;
   durationMinutes?: number;
   reason?: string | null;
+  /** member_update: the account fields that were changed, by name. */
+  fields?: string[];
   /** Images that went with a deleted message, so the log can still show them. */
   attachments?: Array<{ id: SnowflakeId; filename: string }>;
 }

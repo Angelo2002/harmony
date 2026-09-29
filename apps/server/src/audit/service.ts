@@ -34,6 +34,10 @@ export interface AuditService {
   moderation(kind: ModerationAuditKind, actorId: string, targetId: string, detail?: AuditDetail): void;
   /** Records a role being handed out or taken away. */
   roleChange(actorId: string, targetId: string, roleId: string, added: boolean): void;
+  /** Records an administrator editing a member's account fields. */
+  memberUpdated(actorId: string, targetId: string, fields: string[]): void;
+  /** Records an administrator setting a member's password. */
+  passwordReset(actorId: string, targetId: string): void;
   list(query: AuditQuery): AuditListResponse;
   /** Empties the log, returning how many entries were removed. */
   clear(): number;
@@ -118,6 +122,21 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
     roleChange(actorId, targetId, roleId, added) {
       write(added ? 'role_add' : 'role_remove', actorId, targetId, null, {
         roleName: findRole(sqlite, roleId)?.name,
+        actorName: userName(actorId),
+        targetName: userName(targetId),
+      });
+    },
+
+    memberUpdated(actorId, targetId, fields) {
+      write('member_update', actorId, targetId, null, {
+        fields,
+        actorName: userName(actorId),
+        targetName: userName(targetId),
+      });
+    },
+
+    passwordReset(actorId, targetId) {
+      write('password_reset', actorId, targetId, null, {
         actorName: userName(actorId),
         targetName: userName(targetId),
       });

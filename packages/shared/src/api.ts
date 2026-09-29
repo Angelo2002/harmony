@@ -15,6 +15,11 @@ export interface MeResponse {
   permissions: string;
 }
 
+/** Response for an administrator editing another member's account. */
+export interface MemberUpdateResponse {
+  user: User;
+}
+
 /** Consistent error body returned by every API endpoint. */
 export interface ApiErrorBody {
   error: { code: string; message: string };

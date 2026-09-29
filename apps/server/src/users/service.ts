@@ -7,12 +7,29 @@ import {
   type ImageContentType,
 } from '@harmony/shared';
 import type { Config } from '../config.ts';
-import { findUserById, updateUserProfile, type UserRow } from '../db/users.ts';
+import { hashPassword, verifyPassword } from '../auth/passwords.ts';
+import {
+  findUserById,
+  findUserByUsername,
+  updateUserAccount,
+  updateUserProfile,
+  type UserRow,
+} from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import { createBlobStore } from '../storage/blobs.ts';
 
 export interface UserService {
   updateProfile(userId: string, patch: { displayName?: string | null; showTyping?: boolean }): UserRow;
+  /** Changes a member's own password after checking the one they already have. */
+  changePassword(userId: string, currentPassword: string, nextPassword: string): Promise<void>;
+  /**
+   * An administrator editing another account. `password` sets a new one without
+   * ever reading the old; callers must end the target's sessions afterwards.
+   */
+  adminUpdate(
+    userId: string,
+    patch: { username?: string; displayName?: string | null; password?: string },
+  ): Promise<UserRow>;
   updateAvatar(userId: string, file: { contentType: string; data: Buffer }): Promise<UserRow>;
   /**
    * Stores a normalised avatar from raw bytes. Used by the bridge, where the
@@ -64,6 +81,36 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
       }
       if (patch.showTyping !== undefined) clean.showTyping = patch.showTyping;
       updateUserProfile(sqlite, row.id, clean);
+      return require(userId);
+    },
+
+    async changePassword(userId, currentPassword, nextPassword) {
+      const row = require(userId);
+      const ok = await verifyPassword(currentPassword, row.password_hash);
+      if (!ok) throw new HttpError(403, 'wrong_password', 'Your current password is not correct.');
+      updateUserAccount(sqlite, row.id, { passwordHash: await hashPassword(nextPassword) });
+    },
+
+    async adminUpdate(userId, patch) {
+      const row = require(userId);
+
+      if (patch.username !== undefined && patch.username !== row.username) {
+        const taken = findUserByUsername(sqlite, patch.username);
+        if (taken && taken.id !== row.id) {
+          throw new HttpError(409, 'username_taken', 'That username is already taken.');
+        }
+      }
+
+      const account: { username?: string; passwordHash?: string } = {};
+      if (patch.username !== undefined) account.username = patch.username;
+      if (patch.password !== undefined) account.passwordHash = await hashPassword(patch.password);
+      updateUserAccount(sqlite, row.id, account);
+
+      if (patch.displayName !== undefined) {
+        const trimmed = patch.displayName?.trim() ?? '';
+        updateUserProfile(sqlite, row.id, { displayName: trimmed.length > 0 ? trimmed : null });
+      }
+
       return require(userId);
     },
 

@@ -29,6 +29,7 @@ export const GatewayEvent = {
   MemberUpdate: 'MEMBER_UPDATE',
   EmojiCreate: 'EMOJI_CREATE',
   EmojiDelete: 'EMOJI_DELETE',
+  RetentionApplied: 'RETENTION_APPLIED',
 } as const;
 export type GatewayEventName = (typeof GatewayEvent)[keyof typeof GatewayEvent];
 

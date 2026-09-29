@@ -7,7 +7,7 @@
 //
 // Run with: npm run smoke --workspace @harmony/server
 import { spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -542,6 +542,104 @@ try {
   check(
     'deleted emoji is gone',
     (await req('/emojis', { token: ownerToken })).json?.emojis?.every((entry) => entry.name !== 'party') === true,
+  );
+
+  // --- Retention and pruning ---
+  const retention = await req('/retention', { token: ownerToken });
+  check(
+    'owner reads retention settings',
+    retention.status === 200 && retention.json?.settings?.imageRetentionDays === null,
+  );
+  check('retention reports usage', typeof retention.json?.usage?.blobBytes === 'number');
+  check('member cannot read retention (403)', (await req('/retention', { token: bobToken })).status === 403);
+
+  // The emoji was deleted earlier, so its blob is now orphaned on disk.
+  const emojiBlobPath = join(dataDir, 'uploads', emoji.hash.slice(0, 2), emoji.hash);
+  check('deleted emoji leaves an orphaned blob on disk', existsSync(emojiBlobPath));
+
+  // Emergency pruning: a 1-byte limit forces everything out.
+  const pruneUpload = new FormData();
+  pruneUpload.append('file', new Blob([emojiPng], { type: 'image/png' }), 'prune.png');
+  const pruneAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: pruneUpload,
+    })
+  ).json();
+  await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'will be pruned', attachmentIds: [pruneAttachment.id] },
+  });
+  const pruneBlobPath = join(dataDir, 'uploads', pruneAttachment.hash.slice(0, 2), pruneAttachment.hash);
+  check('attachment blob exists before pruning', existsSync(pruneBlobPath));
+
+  await req('/retention', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { storageLimitBytes: 1, storageTargetBytes: 0 },
+  });
+  const emergency = await req('/retention/run', { method: 'POST', token: ownerToken });
+  check(
+    'emergency pruning deletes attachments',
+    emergency.json?.summary?.deletedAttachments > 0,
+    JSON.stringify(emergency.json?.summary),
+  );
+  check(
+    'emergency pruning empties stored media',
+    emergency.json?.usage?.blobBytes === 0,
+    `bytes ${emergency.json?.usage?.blobBytes}`,
+  );
+  check('pruned attachment blob is removed', !existsSync(pruneBlobPath));
+  check('orphaned emoji blob is swept', !existsSync(emojiBlobPath));
+
+  await req('/retention', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { storageLimitBytes: null, storageTargetBytes: null },
+  });
+
+  // Age-based image retention.
+  const ageUpload = new FormData();
+  ageUpload.append('file', new Blob([emojiPng], { type: 'image/png' }), 'age.png');
+  const ageAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: ageUpload,
+    })
+  ).json();
+  await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'aged image', attachmentIds: [ageAttachment.id] },
+  });
+
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { imageRetentionDays: 0 } });
+  const aged = await req('/retention/run', { method: 'POST', token: ownerToken });
+  check('image retention deletes old attachments', aged.json?.summary?.deletedAttachments > 0);
+  check(
+    'expired attachment is no longer served (404)',
+    (
+      await fetch(`${BASE}/attachments/${ageAttachment.id}`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })
+    ).status === 404,
+  );
+
+  // Age-based message retention.
+  await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'aged text' },
+  });
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { messageRetentionDays: 0 } });
+  const msgPruned = await req('/retention/run', { method: 'POST', token: ownerToken });
+  check('message retention deletes old messages', msgPruned.json?.summary?.deletedMessages > 0);
+  check(
+    'channel is empty after message retention',
+    (await req(`/channels/${colourChannel.id}/messages`, { token: ownerToken })).json?.messages?.length === 0,
   );
 
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);

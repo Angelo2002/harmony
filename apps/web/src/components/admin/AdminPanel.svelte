@@ -4,6 +4,7 @@
   import EmojisSection from './EmojisSection.svelte';
   import InvitesSection from './InvitesSection.svelte';
   import MembersSection from './MembersSection.svelte';
+  import RetentionSection from './RetentionSection.svelte';
   import RolesSection from './RolesSection.svelte';
   import SettingsSection from './SettingsSection.svelte';
 
@@ -13,6 +14,7 @@
     { id: 'members', label: 'Members' },
     { id: 'channels', label: 'Channels' },
     { id: 'emojis', label: 'Emojis' },
+    { id: 'retention', label: 'Retention' },
     { id: 'invites', label: 'Invites' },
   ] as const;
   type TabId = (typeof tabs)[number]['id'];
@@ -43,6 +45,8 @@
         <ChannelsSection />
       {:else if active === 'emojis'}
         <EmojisSection />
+      {:else if active === 'retention'}
+        <RetentionSection />
       {:else}
         <InvitesSection />
       {/if}

@@ -116,6 +116,10 @@ class ChatStore {
       case 'EMOJI_DELETE':
         void emojis.load();
         break;
+      case 'RETENTION_APPLIED':
+        // Content may have been pruned from the open channel.
+        if (this.activeChannelId) void this.loadHistory(this.activeChannelId);
+        break;
     }
   }
 }

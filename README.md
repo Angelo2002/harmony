@@ -6,9 +6,9 @@ Selfhosted discord alternative, aimed to make migration painless
 
 Playable end to end: username/password auth with optional invites, channels and
 categories, realtime messaging, image attachments, custom emoji with
-role-coloured usernames, and an admin panel covering settings, roles, members,
-channels and invites. Still to come: message retention, the Discord bridge and
-the public API docs.
+role-coloured usernames, configurable storage retention, and an admin panel
+covering settings, roles, members, channels, emoji, retention and invites.
+Still to come: the Discord bridge and the public API docs.
 
 ## Tech stack
 

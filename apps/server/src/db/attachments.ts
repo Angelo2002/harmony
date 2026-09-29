@@ -68,6 +68,40 @@ export function attachToMessage(sqlite: DatabaseSync, attachmentId: string, mess
   sqlite.prepare('UPDATE attachments SET message_id = ? WHERE id = ?').run(messageId, attachmentId);
 }
 
+export function countAttachments(sqlite: DatabaseSync): number {
+  const row = sqlite.prepare('SELECT COUNT(*) AS count FROM attachments').get() as { count: number };
+  return row.count;
+}
+
+/** Every blob hash still referenced by an attachment or an emoji. */
+export function listReferencedHashes(sqlite: DatabaseSync): Set<string> {
+  const rows = sqlite
+    .prepare('SELECT hash FROM attachments UNION SELECT hash FROM emojis')
+    .all() as unknown as Array<{ hash: string }>;
+  return new Set(rows.map((row) => row.hash));
+}
+
+/** Deletes rows only; callers sweep the blobs afterwards. */
+export function deleteAttachmentsOlderThan(sqlite: DatabaseSync, before: string): number {
+  const result = sqlite.prepare('DELETE FROM attachments WHERE created_at < ?').run(before);
+  return Number(result.changes);
+}
+
+/** Uploads that were never attached to a message (abandoned drafts). */
+export function deleteUnattachedAttachmentsOlderThan(sqlite: DatabaseSync, before: string): number {
+  const result = sqlite
+    .prepare('DELETE FROM attachments WHERE message_id IS NULL AND created_at < ?')
+    .run(before);
+  return Number(result.changes);
+}
+
+export function deleteOldestAttachments(sqlite: DatabaseSync, limit: number): number {
+  const result = sqlite
+    .prepare('DELETE FROM attachments WHERE id IN (SELECT id FROM attachments ORDER BY created_at, rowid LIMIT ?)')
+    .run(limit);
+  return Number(result.changes);
+}
+
 /** Loads attachments for several messages at once, keyed by message id. */
 export function listAttachmentsForMessages(
   sqlite: DatabaseSync,

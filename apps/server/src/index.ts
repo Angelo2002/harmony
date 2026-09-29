@@ -12,6 +12,7 @@ import { createAttachmentService } from './attachments/service.ts';
 import { createEmojiService } from './emojis/service.ts';
 import { createMessageService } from './messages/service.ts';
 import { GatewayHub } from './realtime/hub.ts';
+import { createPruner } from './retention/pruner.ts';
 import { registerErrorHandler } from './http/errors.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerMetaRoutes } from './routes/meta.ts';
@@ -24,6 +25,7 @@ import { registerChannelRoutes } from './routes/channels.ts';
 import { registerMessageRoutes } from './routes/messages.ts';
 import { registerAttachmentRoutes } from './routes/attachments.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
+import { registerRetentionRoutes } from './routes/retention.ts';
 import { registerGateway } from './gateway/index.ts';
 
 const config = loadConfig();
@@ -40,6 +42,14 @@ const messageService = createMessageService(db.sqlite, hub);
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
 
+const pruner = createPruner({
+  sqlite: db.sqlite,
+  config,
+  settings: settingsService,
+  hub,
+  log: (message, detail) => app.log.info(detail ?? {}, message),
+});
+
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1 } });
 await app.register(websocket);
@@ -51,6 +61,7 @@ registerHealthRoutes(app, db);
 registerMetaRoutes(app, { config, settings: settingsService });
 registerAuthRoutes(app, { service: authService, config });
 registerSettingsRoutes(app, settingsService);
+registerRetentionRoutes(app, { settings: settingsService, pruner });
 registerRoleRoutes(app, { db, hub });
 registerMemberRoutes(app, { db, hub });
 registerInviteRoutes(app, db);
@@ -66,6 +77,7 @@ registerGateway(app, {
 });
 
 app.addHook('onClose', async () => {
+  pruner.stop();
   db.close();
 });
 
@@ -85,3 +97,6 @@ try {
   app.log.error(error);
   process.exit(1);
 }
+
+// Pruning runs once at startup, then on the configured interval.
+pruner.start();

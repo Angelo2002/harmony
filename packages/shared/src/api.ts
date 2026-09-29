@@ -76,3 +76,41 @@ export interface InviteListResponse {
 export interface EmojiListResponse {
   emojis: Emoji[];
 }
+
+/** When content is automatically deleted. `null` means "keep forever". */
+export interface RetentionSettings {
+  /** Delete image attachments older than this many days. */
+  imageRetentionDays: number | null;
+  /** Delete messages older than this many days. */
+  messageRetentionDays: number | null;
+  /** Start emergency pruning once stored media exceeds this many bytes. */
+  storageLimitBytes: number | null;
+  /** Emergency pruning deletes oldest content until usage is back under this. */
+  storageTargetBytes: number | null;
+}
+
+export interface RetentionUsage {
+  /** Bytes of stored media (attachments and emoji). */
+  blobBytes: number;
+  attachmentCount: number;
+  messageCount: number;
+}
+
+export interface PruneSummary {
+  ranAt: string;
+  deletedAttachments: number;
+  deletedMessages: number;
+  deletedBlobs: number;
+  freedBytes: number;
+}
+
+export interface RetentionResponse {
+  settings: RetentionSettings;
+  usage: RetentionUsage;
+  lastRun: PruneSummary | null;
+}
+
+export interface RetentionRunResponse {
+  summary: PruneSummary;
+  usage: RetentionUsage;
+}

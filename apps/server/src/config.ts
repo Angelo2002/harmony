@@ -25,6 +25,8 @@ export interface Config {
   cookieSecure: boolean;
   /** Enable when running behind a reverse proxy so client IPs are read from `X-Forwarded-For`. */
   trustProxy: boolean;
+  /** How often automatic retention pruning runs, in minutes. */
+  pruneIntervalMinutes: number;
 }
 
 // Load `.env` if present, without pulling in a dotenv dependency.
@@ -66,5 +68,6 @@ export function loadConfig(): Config {
     cookieName: process.env.HARMONY_COOKIE_NAME ?? 'harmony_session',
     cookieSecure: readBoolean(process.env.HARMONY_COOKIE_SECURE, false),
     trustProxy: readBoolean(process.env.HARMONY_TRUST_PROXY, false),
+    pruneIntervalMinutes: readNumber(process.env.HARMONY_PRUNE_INTERVAL_MINUTES, 60),
   };
 }

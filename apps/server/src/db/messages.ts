@@ -61,3 +61,21 @@ export function updateMessageContent(sqlite: DatabaseSync, id: string, content: 
 export function softDeleteMessage(sqlite: DatabaseSync, id: string, deletedAt: string): void {
   sqlite.prepare('UPDATE messages SET deleted_at = ? WHERE id = ?').run(deletedAt, id);
 }
+
+export function countMessages(sqlite: DatabaseSync): number {
+  const row = sqlite.prepare('SELECT COUNT(*) AS count FROM messages').get() as { count: number };
+  return row.count;
+}
+
+/** Retention removes rows outright; attachments cascade via their foreign key. */
+export function deleteMessagesOlderThan(sqlite: DatabaseSync, before: string): number {
+  const result = sqlite.prepare('DELETE FROM messages WHERE created_at < ?').run(before);
+  return Number(result.changes);
+}
+
+export function deleteOldestMessages(sqlite: DatabaseSync, limit: number): number {
+  const result = sqlite
+    .prepare('DELETE FROM messages WHERE id IN (SELECT id FROM messages ORDER BY created_at, rowid LIMIT ?)')
+    .run(limit);
+  return Number(result.changes);
+}

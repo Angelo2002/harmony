@@ -122,3 +122,14 @@ export const createEmojiSchema = z.object({
   name: emojiNameSchema,
 });
 export type CreateEmojiInput = z.infer<typeof createEmojiSchema>;
+
+/** `null` disables the rule; omitted fields are left unchanged. */
+const retentionNumber = z.number().int().min(0).nullable().optional();
+
+export const updateRetentionSchema = z.object({
+  imageRetentionDays: retentionNumber,
+  messageRetentionDays: retentionNumber,
+  storageLimitBytes: retentionNumber,
+  storageTargetBytes: retentionNumber,
+});
+export type UpdateRetentionInput = z.infer<typeof updateRetentionSchema>;

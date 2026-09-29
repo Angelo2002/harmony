@@ -79,6 +79,21 @@ export interface UserDirectoryResponse {
   users: User[];
 }
 
+/**
+ * One member of the public roster. Unlike the management view this carries no
+ * permissions, but it does carry role ids so clients can group members the way
+ * the server's hoisted roles describe, plus a live online flag.
+ */
+export interface MemberRosterEntry {
+  user: User;
+  roleIds: string[];
+  online: boolean;
+}
+
+export interface MemberRosterResponse {
+  members: MemberRosterEntry[];
+}
+
 /** Banned users, for `GET /api/v1/bans`. */
 export interface BanListResponse {
   bans: Ban[];

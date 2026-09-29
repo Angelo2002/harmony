@@ -7,12 +7,14 @@ import type {
   Reaction,
   ReactionsClearPayload,
   ReactionUpdatePayload,
+  PresenceUpdatePayload,
   TypingStartPayload,
   User,
 } from '@harmony/shared';
 import { api } from './api';
 import { emojis } from './emojis.svelte';
 import { members } from './members.svelte';
+import { roster } from './roster.svelte';
 import { session } from './session.svelte';
 import { GatewayClient, type GatewayFrame } from './gateway';
 
@@ -89,6 +91,7 @@ class ChatStore {
     await this.loadChannels();
     await emojis.load();
     await members.load();
+    await roster.load();
     this.#gateway.connect();
   }
 
@@ -103,6 +106,7 @@ class ChatStore {
     this.hasMore = false;
     this.loadingOlder = false;
     this.#clearTyping();
+    roster.reset();
   }
 
   async loadChannels(): Promise<void> {
@@ -322,6 +326,13 @@ class ChatStore {
         this.#noteTyping(payload.user);
         break;
       }
+      case 'PRESENCE_UPDATE':
+        roster.applyPresence(frame.d as PresenceUpdatePayload);
+        break;
+      case 'READY':
+        // Closes the gap between the first roster load and the gateway connecting.
+        void roster.load();
+        break;
       case 'CHANNEL_CREATE':
       case 'CHANNEL_UPDATE':
       case 'CHANNEL_DELETE':
@@ -333,14 +344,17 @@ class ChatStore {
       case 'ROLE_CREATE':
       case 'ROLE_UPDATE':
       case 'ROLE_DELETE':
-        // Username colours may have changed; refresh the open channel.
+        // Username colours may have changed; refresh the open channel and the
+        // roster, whose grouping depends on which roles are hoisted.
         if (this.activeChannelId) void this.loadHistory(this.activeChannelId);
+        void roster.load();
         break;
       case 'MEMBER_UPDATE': {
         const payload = frame.d as { userId: string };
         // The roster and mention list may have changed, and if it was us the
         // change could be our own timeout, so refresh our profile too.
         void members.load();
+        void roster.load();
         if (payload.userId === session.user?.id) void this.#refreshSession();
         if (this.activeChannelId) void this.loadHistory(this.activeChannelId);
         break;

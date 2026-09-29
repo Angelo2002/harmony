@@ -20,6 +20,7 @@ export const GatewayEvent = {
   MessageReactionRemove: 'MESSAGE_REACTION_REMOVE',
   MessageReactionsClear: 'MESSAGE_REACTIONS_CLEAR',
   TypingStart: 'TYPING_START',
+  PresenceUpdate: 'PRESENCE_UPDATE',
   ChannelCreate: 'CHANNEL_CREATE',
   ChannelUpdate: 'CHANNEL_UPDATE',
   ChannelDelete: 'CHANNEL_DELETE',
@@ -91,6 +92,15 @@ export interface ReactionsClearPayload {
 export interface TypingStartPayload {
   channelId: string;
   user: User;
+}
+
+/**
+ * Someone came online or went offline. Presence is ephemeral: it is derived from
+ * live gateway connections and never stored.
+ */
+export interface PresenceUpdatePayload {
+  user: User;
+  online: boolean;
 }
 
 /** Envelope for every gateway frame. */

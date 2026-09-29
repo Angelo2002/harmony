@@ -5,6 +5,7 @@
   import { session } from '../lib/session.svelte';
   import ChannelSidebar from './ChannelSidebar.svelte';
   import Composer from './Composer.svelte';
+  import MemberList from './MemberList.svelte';
   import MessageView from './MessageView.svelte';
 
   onMount(() => void chat.start());
@@ -38,4 +39,6 @@
       <p class="muted">No channels yet.</p>
     </section>
   {/if}
+
+  <MemberList />
 </div>

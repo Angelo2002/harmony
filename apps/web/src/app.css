@@ -324,6 +324,69 @@ button.link:hover {
   justify-content: center;
 }
 
+/* ---- Member list ---- */
+
+.members {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 220px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0.75rem 0.5rem;
+  background: var(--h-bg-elevated);
+}
+
+.member-empty {
+  padding: 0 0.5rem;
+}
+
+.member-group + .member-group {
+  margin-top: 0.9rem;
+}
+
+.member-group-name {
+  display: block;
+  padding: 0 0.5rem 0.3rem;
+  color: var(--h-text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.member {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.member:hover {
+  background: rgb(255 255 255 / 4%);
+}
+
+.member.offline {
+  opacity: 0.45;
+}
+
+.member-name {
+  overflow: hidden;
+  color: var(--h-text);
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The sidebar needs room; below this it would crowd the chat. */
+@media (max-width: 900px) {
+  .members {
+    display: none;
+  }
+}
+
 .chat-header {
   flex-shrink: 0;
   padding: 0.9rem 1rem;

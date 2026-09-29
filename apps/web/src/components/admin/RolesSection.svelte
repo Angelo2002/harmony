@@ -19,6 +19,8 @@
   let editName = $state('');
   let editColor = $state('');
   let editPermissions = $state<string[]>([]);
+  /** Whether the role gets its own group in the member list. */
+  let editHoist = $state(false);
   let newRoleName = $state('');
   let error = $state<string | null>(null);
   let message = $state<string | null>(null);
@@ -37,6 +39,7 @@
     editName = role.name;
     editColor = role.color == null ? '' : `#${role.color.toString(16).padStart(6, '0')}`;
     editPermissions = permissionsToNames(BigInt(role.permissions));
+    editHoist = role.hoist;
     error = null;
     message = null;
   }
@@ -59,6 +62,7 @@
       if (!selected.isDefault) {
         body.name = editName.trim();
         body.color = parseColor(editColor);
+        body.hoist = editHoist;
       }
       await api(`/roles/${selected.id}`, { method: 'PATCH', body: JSON.stringify(body) });
       await load();
@@ -175,6 +179,11 @@
         <label>
           Colour <span class="muted">(#rrggbb)</span>
           <input bind:value={editColor} placeholder="#5865f2" disabled={selected.isDefault} />
+        </label>
+
+        <label class="checkbox">
+          <input type="checkbox" bind:checked={editHoist} disabled={selected.isDefault} />
+          Show as its own group in the member list
         </label>
 
         <fieldset>

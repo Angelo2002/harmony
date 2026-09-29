@@ -651,6 +651,44 @@ try {
     privateHistory.json?.messages?.[0]?.id === privateLink.json?.id && privateHistory.json?.messages?.[0]?.embed === null,
   );
 
+  // --- Presence ---
+  await sleep(200);
+  const rosterRes = await req('/members/roster', { token: ownerToken });
+  check(
+    'the roster lists members with roles and presence',
+    Array.isArray(rosterRes.json?.members) &&
+      rosterRes.json.members.every(
+        (entry) => typeof entry.online === 'boolean' && Array.isArray(entry.roleIds) && Boolean(entry.user?.id),
+      ),
+  );
+  check('everyone starts offline', rosterRes.json?.members?.every((entry) => entry.online === false));
+
+  const presenceWatcher = await openGateway({ token: ownerToken });
+  const bobGateway = await openGateway({ token: bobToken });
+  await sleep(300);
+  check(
+    'a member coming online is announced',
+    presenceWatcher.events.some(
+      (frame) => frame.t === 'PRESENCE_UPDATE' && frame.d?.user?.id === bob.json?.user?.id && frame.d?.online === true,
+    ),
+  );
+  check(
+    'the roster reports them online',
+    (await req('/members/roster', { token: ownerToken })).json?.members?.find(
+      (entry) => entry.user.id === bob.json?.user?.id,
+    )?.online === true,
+  );
+
+  bobGateway.ws.close();
+  await sleep(400);
+  check(
+    'a member going offline is announced',
+    presenceWatcher.events.some(
+      (frame) => frame.t === 'PRESENCE_UPDATE' && frame.d?.user?.id === bob.json?.user?.id && frame.d?.online === false,
+    ),
+  );
+  presenceWatcher.ws.close();
+
   const patched = await req('/settings', {
     method: 'PATCH',
     token: ownerToken,

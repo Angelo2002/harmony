@@ -1,0 +1,88 @@
+<script lang="ts">
+  import type { MemberRosterEntry, Role } from '@harmony/shared';
+  import { avatarUrl, initial } from '../lib/avatar';
+  import { roster } from '../lib/roster.svelte';
+
+  interface Group {
+    key: string;
+    label: string;
+    color: number | null;
+    members: MemberRosterEntry[];
+  }
+
+  function nameOf(entry: MemberRosterEntry): string {
+    return entry.user.displayName ?? entry.user.username;
+  }
+
+  function byName(a: MemberRosterEntry, b: MemberRosterEntry): number {
+    return nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: 'base' });
+  }
+
+  /** The highest hoisted role a member holds, or null when they hold none. */
+  function hoistedRole(entry: MemberRosterEntry, byId: Map<string, Role>): Role | null {
+    let best: Role | null = null;
+    for (const roleId of entry.roleIds) {
+      const role = byId.get(roleId);
+      if (!role || !role.hoist || role.isDefault) continue;
+      if (!best || role.position > best.position) best = role;
+    }
+    return best;
+  }
+
+  function cssColor(value: number | null): string {
+    return value == null ? '' : `#${value.toString(16).padStart(6, '0')}`;
+  }
+
+  const groups = $derived.by((): Group[] => {
+    const byId = new Map(roster.roles.map((role) => [role.id, role]));
+    // Discord stand-in accounts are never really present, so they would only
+    // pad the offline list; they are left out of the roster on purpose.
+    const humans = roster.members.filter((entry) => !entry.user.isBot);
+    const online = humans.filter((entry) => entry.online);
+    const offline = humans.filter((entry) => !entry.online);
+
+    const result: Group[] = [];
+
+    // Members holding no hoisted role come first, under a plain "Online".
+    const ungrouped = online.filter((entry) => hoistedRole(entry, byId) === null).sort(byName);
+    if (ungrouped.length > 0) result.push({ key: 'online', label: 'Online', color: null, members: ungrouped });
+
+    // Then one section per hoisted role, highest position first.
+    const hoisted = roster.roles
+      .filter((role) => role.hoist && !role.isDefault)
+      .sort((a, b) => b.position - a.position);
+    for (const role of hoisted) {
+      const group = online.filter((entry) => hoistedRole(entry, byId)?.id === role.id).sort(byName);
+      if (group.length > 0) result.push({ key: role.id, label: role.name, color: role.color, members: group });
+    }
+
+    if (offline.length > 0) {
+      result.push({ key: 'offline', label: 'Offline', color: null, members: offline.sort(byName) });
+    }
+    return result;
+  });
+</script>
+
+<aside class="members" aria-label="Members">
+  {#if groups.length === 0}
+    <p class="muted member-empty">No members yet.</p>
+  {:else}
+    {#each groups as group (group.key)}
+      <div class="member-group">
+        <span class="member-group-name" style={cssColor(group.color)}>
+          {group.label} — {group.members.length}
+        </span>
+        {#each group.members as entry (entry.user.id)}
+          <div class="member" class:offline={!entry.online}>
+            {#if avatarUrl(entry.user)}
+              <img class="avatar small" src={avatarUrl(entry.user)} alt="" loading="lazy" />
+            {:else}
+              <span class="avatar small fallback">{initial(entry.user)}</span>
+            {/if}
+            <span class="member-name" style={cssColor(entry.user.roleColor)}>{nameOf(entry)}</span>
+          </div>
+        {/each}
+      </div>
+    {/each}
+  {/if}
+</aside>

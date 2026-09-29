@@ -7,6 +7,8 @@ import {
   timeoutSchema,
   type BanListResponse,
   type MemberListResponse,
+  type MemberRosterEntry,
+  type MemberRosterResponse,
   type MemberSummary,
   type UserDirectoryResponse,
 } from '@harmony/shared';
@@ -53,6 +55,26 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     const body: UserDirectoryResponse = {
       users: listUsers(db.sqlite).map((row) => presentUser(db.sqlite, row)),
     };
+    return body;
+  });
+
+  /**
+   * The public roster behind the member list sidebar. Every member may read it,
+   * because the sidebar is visible to everyone; it carries role ids and presence
+   * but no permissions, unlike the management view above.
+   */
+  app.get('/api/v1/members/roster', async (request) => {
+    requirePermission(request, Permission.ViewChannels);
+    const rolesByUser = listMemberRoles(db.sqlite);
+    const online = hub.onlineUserIds();
+
+    const members: MemberRosterEntry[] = listUsers(db.sqlite).map((row) => ({
+      user: presentUser(db.sqlite, row),
+      roleIds: rolesByUser.get(row.id) ?? [],
+      online: online.has(row.id),
+    }));
+
+    const body: MemberRosterResponse = { members };
     return body;
   });
 

@@ -663,6 +663,26 @@ use to resolve and autocomplete `@username` mentions (see
 [Mentions](#mentions)), so unlike the management view above it is readable by
 anyone with `ViewChannels`.
 
+#### `GET /api/v1/members/roster` — `ViewChannels`
+
+```json
+{
+  "members": [
+    { "user": { "...": "..." }, "roleIds": ["..."], "online": true }
+  ]
+}
+```
+
+The member list sidebar. Like the directory it is readable by anyone with
+`ViewChannels`, but it adds each member's role ids and a live `online` flag, and
+leaves out permissions. Group members by their highest hoisted role to match how
+the server orders them; a `Role.hoist` of `true` gives a role its own section,
+ordered by `Role.position` from highest to lowest.
+
+Presence is not stored: a member is online while they hold at least one live
+gateway connection. Clients keep it current with `PRESENCE_UPDATE` rather than
+refetching this endpoint.
+
 #### `PUT /api/v1/members/:userId/roles/:roleId` — `ManageRoles`
 
 Assigns a role. Returns `204` and fires `MEMBER_UPDATE` with `{ "userId": "..." }`. The `@everyone`
@@ -895,6 +915,7 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | `MESSAGE_REACTION_REMOVE` | `ReactionUpdatePayload` |
 | `MESSAGE_REACTIONS_CLEAR` | `ReactionsClearPayload` |
 | `TYPING_START` | `TypingStartPayload` |
+| `PRESENCE_UPDATE` | `PresenceUpdatePayload` |
 | `CHANNEL_CREATE` / `CHANNEL_UPDATE` | `Channel` |
 | `CHANNEL_DELETE` | `{ id }` |
 | `CATEGORY_CREATE` / `CATEGORY_UPDATE` | `Category` |
@@ -944,6 +965,17 @@ type TypingStartPayload = {
 
 The server broadcasts one payload to everyone; a client hides its own typing and the whole feature
 when `user.showTyping` is false.
+
+`PRESENCE_UPDATE` is sent when a member's first gateway connection identifies and when their last one
+closes. It is derived from live connections and never stored, so a restart begins with everyone
+offline:
+
+```ts
+type PresenceUpdatePayload = {
+  user: User;
+  online: boolean;
+};
+```
 
 ### Close codes
 

@@ -20,18 +20,21 @@ import {
   insertBridgeMessage,
 } from '../db/bridge.ts';
 import { findChannel, findChannelByDiscordId, setChannelWebhook, type ChannelRow } from '../db/channels.ts';
+import { findEmojiByName } from '../db/emojis.ts';
 import { findUserByDiscordId, insertGhostUser, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
-import type { MessageService } from '../messages/service.ts';
+import type { MessageService, ReactionEvent } from '../messages/service.ts';
 import type { SettingsService } from '../settings/service.ts';
 import type { UserService } from '../users/service.ts';
 import { createBlobStore } from '../storage/blobs.ts';
 import type {
   BridgeLogger,
+  DiscordEmoji,
   DiscordIncomingAttachment,
   DiscordIncomingDelete,
   DiscordIncomingEdit,
   DiscordIncomingMessage,
+  DiscordIncomingReaction,
   DiscordTransport,
   MirrorFile,
   MirrorResult,
@@ -106,23 +109,52 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   }
 
   /** Finds the stand-in account for a Discord author, creating it on first sight. */
-  function resolveGhostUser(message: DiscordIncomingMessage): UserRow {
-    const existing = findUserByDiscordId(deps.sqlite, message.authorId);
+  function resolveGhostUser(discordId: string, displayName: string): UserRow {
+    const existing = findUserByDiscordId(deps.sqlite, discordId);
     if (existing) return existing;
 
     const id = randomUUID();
     insertGhostUser(deps.sqlite, {
       id,
       // Never shown: the display name carries what users actually see.
-      username: `discord_${message.authorId}`,
-      displayName: message.authorName,
-      discordId: message.authorId,
+      username: `discord_${discordId}`,
+      displayName,
+      discordId,
       createdAt: new Date().toISOString(),
     });
 
-    const created = findUserByDiscordId(deps.sqlite, message.authorId);
+    const created = findUserByDiscordId(deps.sqlite, discordId);
     if (!created) throw new Error('Failed to create the bridged user');
     return created;
+  }
+
+  // The guild's custom emoji, resolved by name so `:name:` can be translated to
+  // a real Discord `<:name:id>` tag. Cached until the bridge reconnects.
+  let guildEmojiByName: Map<string, DiscordEmoji> | null = null;
+
+  async function discordEmojiMap(): Promise<Map<string, DiscordEmoji>> {
+    if (guildEmojiByName) return guildEmojiByName;
+    if (!transport) return new Map();
+    try {
+      guildEmojiByName = new Map((await transport.guildEmojis()).map((emoji) => [emoji.name, emoji]));
+    } catch (error) {
+      logger.debug('could not list discord emojis', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      guildEmojiByName = new Map();
+    }
+    return guildEmojiByName;
+  }
+
+  /**
+   * Discord's emoji parameter for a reaction: a unicode character is sent as-is,
+   * while a `:name:` shortcode becomes `name:id` using the guild's emoji. Returns
+   * null when a custom emoji has no counterpart on Discord.
+   */
+  async function discordReactionParam(emoji: string): Promise<string | null> {
+    if (!emoji.startsWith(':')) return emoji;
+    const target = (await discordEmojiMap()).get(emoji.slice(1, -1));
+    return target ? `${target.name}:${target.id}` : null;
   }
 
   // ---- Outbound: Harmony -> Discord ----
@@ -252,6 +284,28 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     deleteBridgeMessage(deps.sqlite, info.id);
   }
 
+  /**
+   * Mirrors a reaction change out to Discord. Note that all Harmony reactions to
+   * a message come from the single webhook, so Discord shows one reaction per
+   * emoji regardless of how many Harmony users reacted.
+   */
+  async function mirrorReaction(event: ReactionEvent, kind: 'add' | 'remove' | 'clear'): Promise<void> {
+    if (!transport) return;
+    const target = mirrorTarget(event.message.id, event.message.channelId);
+    if (!target) return;
+
+    const emoji = await discordReactionParam(event.emoji);
+    if (!emoji) {
+      logger.debug('not mirroring a reaction: no matching discord emoji', { emoji: event.emoji });
+      return;
+    }
+
+    const input = { webhook: target.webhook, discordMessageId: target.discordMessageId, emoji };
+    if (kind === 'add') await transport.addReaction(input);
+    else if (kind === 'remove') await transport.removeReaction(input);
+    else await transport.clearReaction(input);
+  }
+
   // ---- Inbound: Discord -> Harmony ----
 
   async function storeInboundAttachment(
@@ -325,7 +379,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     const channel = findChannelByDiscordId(deps.sqlite, message.channelId);
     if (!channel) return;
 
-    const author = resolveGhostUser(message);
+    const author = resolveGhostUser(message.authorId, message.authorName);
     await mirrorGhostAvatar(active, author, message);
 
     const attachmentIds: string[] = [];
@@ -367,6 +421,40 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     deleteBridgeMessage(deps.sqlite, mapping.harmony_message_id);
   }
 
+  /** Maps a Discord reaction to the canonical Harmony reaction key. */
+  function toHarmonyReaction(reaction: DiscordIncomingReaction): { emoji: string; emojiId: string | null } {
+    if (!reaction.emojiId) return { emoji: reaction.emoji, emojiId: null };
+    // A custom emoji: reuse the Harmony emoji of the same name so it renders.
+    const row = findEmojiByName(deps.sqlite, reaction.emoji);
+    return { emoji: `:${reaction.emoji}:`, emojiId: row?.id ?? null };
+  }
+
+  async function ingestReaction(reaction: DiscordIncomingReaction): Promise<void> {
+    const mapping = findBridgeMessageByDiscordId(deps.sqlite, reaction.messageId);
+    if (!mapping) return;
+
+    const author = resolveGhostUser(reaction.userId, reaction.userName);
+    const { emoji, emojiId } = toHarmonyReaction(reaction);
+    deps.messages.addReactionBridged(mapping.harmony_message_id, author.id, emoji, emojiId);
+  }
+
+  async function ingestReactionRemoved(reaction: DiscordIncomingReaction): Promise<void> {
+    const mapping = findBridgeMessageByDiscordId(deps.sqlite, reaction.messageId);
+    if (!mapping) return;
+
+    const author = resolveGhostUser(reaction.userId, reaction.userName);
+    const { emoji } = toHarmonyReaction(reaction);
+    deps.messages.removeReactionBridged(mapping.harmony_message_id, author.id, emoji);
+  }
+
+  async function ingestReactionCleared(reaction: DiscordIncomingReaction): Promise<void> {
+    const mapping = findBridgeMessageByDiscordId(deps.sqlite, reaction.messageId);
+    if (!mapping) return;
+
+    const { emoji, emojiId } = toHarmonyReaction(reaction);
+    deps.messages.clearReactionsBridged(mapping.harmony_message_id, emoji, emojiId);
+  }
+
   // Messages created or changed in Harmony are mirrored out; bridged-in changes
   // are applied through the *Bridged methods, which never notify, so nothing
   // ever bounces back to Discord.
@@ -382,6 +470,9 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   deps.messages.onMessageCreated((message) => watch(() => mirror(message), message.channelId));
   deps.messages.onMessageEdited((message) => watch(() => mirrorEdit(message), message.channelId));
   deps.messages.onMessageDeleted((info) => watch(() => mirrorDelete(info), info.channelId));
+  deps.messages.onReactionAdded((event) => watch(() => mirrorReaction(event, 'add'), event.message.channelId));
+  deps.messages.onReactionRemoved((event) => watch(() => mirrorReaction(event, 'remove'), event.message.channelId));
+  deps.messages.onReactionsCleared((event) => watch(() => mirrorReaction(event, 'clear'), event.message.channelId));
 
   return {
     status,
@@ -396,6 +487,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
         await transport.stop();
         transport = null;
         activeToken = null;
+        guildEmojiByName = null;
       }
       if (!desired) return;
 
@@ -408,6 +500,19 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       });
       transport.onMessageDeleted((deletion) => {
         void ingestDelete(deletion).catch((error: unknown) => logger.info('bridge delete sync failed', error));
+      });
+      transport.onReactionAdded((reaction) => {
+        void ingestReaction(reaction).catch((error: unknown) => logger.info('bridge reaction sync failed', error));
+      });
+      transport.onReactionRemoved((reaction) => {
+        void ingestReactionRemoved(reaction).catch((error: unknown) =>
+          logger.info('bridge reaction sync failed', error),
+        );
+      });
+      transport.onReactionCleared((reaction) => {
+        void ingestReactionCleared(reaction).catch((error: unknown) =>
+          logger.info('bridge reaction sync failed', error),
+        );
       });
       activeToken = desired;
       await transport.start();

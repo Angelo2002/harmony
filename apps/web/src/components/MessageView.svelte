@@ -4,8 +4,14 @@
   import { avatarUrl, initial } from '../lib/avatar';
   import { tokenizeEmoji } from '../lib/emoji-text';
   import { emojis } from '../lib/emojis.svelte';
+  import EmojiPicker from './EmojiPicker.svelte';
 
   let scroller = $state<HTMLDivElement | null>(null);
+  /** The message whose reaction picker is open, if any. */
+  let pickerFor = $state<string | null>(null);
+
+  // Custom emoji that can actually be rendered; deleted ones fall back to text.
+  const knownEmojiIds = $derived(new Set(emojis.list.map((emoji) => emoji.id)));
 
   function formatTime(iso: string): string {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -23,6 +29,11 @@
   function replySnippet(message: Message): string {
     if (message.replyTo?.deleted) return 'original message was deleted';
     return message.replyTo?.content.replace(/\s+/g, ' ').trim() ?? '';
+  }
+
+  function pickReaction(message: Message, emoji: string, emojiId: string | null): void {
+    pickerFor = null;
+    void chat.toggleReaction(message.id, emoji, emojiId);
   }
 
   // Keep the newest message in view as messages arrive.
@@ -100,10 +111,42 @@
               {/each}
             </div>
           {/if}
+
+          {#if message.reactions.length > 0 || pickerFor === message.id}
+            <div class="reactions">
+              {#each message.reactions as reaction (reaction.emoji)}
+                <button
+                  type="button"
+                  class="reaction"
+                  class:me={reaction.me}
+                  title={reaction.me ? 'Remove your reaction' : 'Add your reaction'}
+                  onclick={() => pickReaction(message, reaction.emoji, reaction.emojiId)}
+                >
+                  {#if reaction.emojiId && knownEmojiIds.has(reaction.emojiId)}
+                    <img class="emoji" src={`/api/v1/emojis/${reaction.emojiId}`} alt={reaction.emoji} />
+                  {:else}
+                    <span class="reaction-emoji">{reaction.emoji}</span>
+                  {/if}
+                  <span class="reaction-count">{reaction.count}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+
+          {#if pickerFor === message.id}
+            <EmojiPicker onpick={(emoji, emojiId) => pickReaction(message, emoji, emojiId)} />
+          {/if}
         </div>
 
         <div class="message-actions">
           <button type="button" title="Reply" onclick={() => (chat.replyTarget = message)}>Reply</button>
+          <button
+            type="button"
+            title="Add reaction"
+            onclick={() => (pickerFor = pickerFor === message.id ? null : message.id)}
+          >
+            React
+          </button>
         </div>
       </article>
     {/each}

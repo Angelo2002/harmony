@@ -16,6 +16,9 @@ export const GatewayEvent = {
   MessageCreate: 'MESSAGE_CREATE',
   MessageUpdate: 'MESSAGE_UPDATE',
   MessageDelete: 'MESSAGE_DELETE',
+  MessageReactionAdd: 'MESSAGE_REACTION_ADD',
+  MessageReactionRemove: 'MESSAGE_REACTION_REMOVE',
+  MessageReactionsClear: 'MESSAGE_REACTIONS_CLEAR',
   TypingStart: 'TYPING_START',
   ChannelCreate: 'CHANNEL_CREATE',
   ChannelUpdate: 'CHANNEL_UPDATE',
@@ -58,6 +61,29 @@ export interface GatewayReady {
 export interface MessageDeletePayload {
   id: string;
   channelId: string;
+}
+
+/**
+ * One user's reaction being added or removed. Carries the reacting user so each
+ * client can decide for itself whether the `me` badge applies, instead of the
+ * server baking one viewer's perspective into a shared broadcast.
+ */
+export interface ReactionUpdatePayload {
+  messageId: string;
+  channelId: string;
+  emoji: string;
+  emojiId: string | null;
+  userId: string;
+  /** Total reactions for this emoji after the change. Zero means it is gone. */
+  count: number;
+}
+
+/** Every reaction for one emoji was cleared from a message. */
+export interface ReactionsClearPayload {
+  messageId: string;
+  channelId: string;
+  emoji: string;
+  emojiId: string | null;
 }
 
 export interface TypingStartPayload {

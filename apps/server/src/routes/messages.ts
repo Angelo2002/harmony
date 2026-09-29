@@ -4,6 +4,8 @@ import {
   createMessageSchema,
   editMessageSchema,
   messageHistoryQuerySchema,
+  reactionQuerySchema,
+  reactionSchema,
   type MessageListResponse,
 } from '@harmony/shared';
 import { requireAuth, requirePermission } from '../auth/plugin.ts';
@@ -16,10 +18,10 @@ export interface MessageRouteDeps {
 
 export function registerMessageRoutes(app: FastifyInstance, deps: MessageRouteDeps): void {
   app.get('/api/v1/channels/:id/messages', async (request) => {
-    requirePermission(request, Permission.ViewChannels);
+    const auth = requirePermission(request, Permission.ViewChannels);
     const { id } = request.params as { id: string };
     const query = parseQuery(messageHistoryQuerySchema, request.query);
-    const body: MessageListResponse = deps.service.history(id, query);
+    const body: MessageListResponse = deps.service.history(id, query, auth.user.id);
     return body;
   });
 
@@ -42,5 +44,21 @@ export function registerMessageRoutes(app: FastifyInstance, deps: MessageRouteDe
     const { id } = request.params as { id: string };
     deps.service.remove(auth, id);
     return reply.status(204).send();
+  });
+
+  /** Adds the caller's reaction, or removes it when they already reacted. */
+  app.post('/api/v1/messages/:id/reactions', async (request) => {
+    const auth = requirePermission(request, Permission.AddReactions);
+    const { id } = request.params as { id: string };
+    const input = parseBody(reactionSchema, request.body);
+    return deps.service.toggleReaction(auth, id, input.emoji, input.emojiId ?? null);
+  });
+
+  /** Clears every user's reaction of one emoji. Requires ManageMessages. */
+  app.delete('/api/v1/messages/:id/reactions', async (request) => {
+    const auth = requireAuth(request);
+    const { id } = request.params as { id: string };
+    const query = parseQuery(reactionQuerySchema, request.query);
+    return deps.service.clearReactions(auth, id, query.emoji, query.emojiId ?? null);
   });
 }

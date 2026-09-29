@@ -13,6 +13,7 @@ import { Database } from '../src/db/index.ts';
 import { insertChannel } from '../src/db/channels.ts';
 import { findUserById, insertUser } from '../src/db/users.ts';
 import { findBridgeMessageByHarmonyId } from '../src/db/bridge.ts';
+import { insertEmoji } from '../src/db/emojis.ts';
 import { createAttachmentService } from '../src/attachments/service.ts';
 import { GatewayHub } from '../src/realtime/hub.ts';
 import { createSettingsService } from '../src/settings/service.ts';
@@ -36,9 +37,15 @@ function createFakeTransport() {
     mirrors: [],
     edits: [],
     deletes: [],
+    reactions: [],
+    clearedReactions: [],
     created: [],
     edited: [],
     deleted: [],
+    reactionAdded: [],
+    reactionRemoved: [],
+    reactionCleared: [],
+    guildEmojis: [{ id: '700', name: 'YES', animated: false }],
     downloadBytes: null,
     downloads: [],
   };
@@ -66,6 +73,27 @@ function createFakeTransport() {
     onMessageDeleted(handler) {
       state.deleted.push(handler);
     },
+    onReactionAdded(handler) {
+      state.reactionAdded.push(handler);
+    },
+    onReactionRemoved(handler) {
+      state.reactionRemoved.push(handler);
+    },
+    onReactionCleared(handler) {
+      state.reactionCleared.push(handler);
+    },
+    async guildEmojis() {
+      return state.guildEmojis;
+    },
+    async addReaction(input) {
+      state.reactions.push({ kind: 'add', ...input });
+    },
+    async removeReaction(input) {
+      state.reactions.push({ kind: 'remove', ...input });
+    },
+    async clearReaction(input) {
+      state.clearedReactions.push(input);
+    },
     async mirror(input) {
       state.mirrors.push(input);
       return { messageId: `discord-${state.mirrors.length}`, webhook: input.webhook ?? { id: 'wh1', token: 'tok1' } };
@@ -88,6 +116,15 @@ function createFakeTransport() {
     },
     emitDelete(deletion) {
       for (const handler of state.deleted) handler(deletion);
+    },
+    emitReactionAdd(reaction) {
+      for (const handler of state.reactionAdded) handler(reaction);
+    },
+    emitReactionRemove(reaction) {
+      for (const handler of state.reactionRemoved) handler(reaction);
+    },
+    emitReactionClear(reaction) {
+      for (const handler of state.reactionCleared) handler(reaction);
     },
   };
 }
@@ -188,7 +225,7 @@ try {
   });
   await sleep(50);
 
-  const history = messages.history(channelId, { limit: 50 });
+  const history = messages.history(channelId, { limit: 50 }, userId);
   const ingested = history.messages.find((message) => message.content === 'hi harmony');
   check('discord message lands in harmony', Boolean(ingested));
   check('ingested message is attributed to a ghost user', ingested?.author?.isBot === true);
@@ -223,7 +260,7 @@ try {
   });
   await sleep(50);
   const replyIngested = messages
-    .history(channelId, { limit: 50 })
+    .history(channelId, { limit: 50 }, userId)
     .messages.find((message) => message.content === 'a reply from discord');
   check('discord reply references the bridged message', replyIngested?.replyTo?.id === ingested?.id);
 
@@ -242,7 +279,7 @@ try {
   await sleep(50);
   check(
     'unsupported attachments become links',
-    messages.history(channelId, { limit: 50 }).messages.some((m) => m.content.includes('notes.txt')),
+    messages.history(channelId, { limit: 50 }, userId).messages.some((m) => m.content.includes('notes.txt')),
   );
 
   // 6. Edits and deletes, Discord -> Harmony.
@@ -250,14 +287,14 @@ try {
   await sleep(50);
   check(
     'discord edit reaches harmony',
-    messages.history(channelId, { limit: 50 }).messages.some((m) => m.content === 'edited in discord'),
+    messages.history(channelId, { limit: 50 }, userId).messages.some((m) => m.content === 'edited in discord'),
   );
 
   transport.emitDelete({ id: 'd1', channelId: '111' });
   await sleep(50);
   check(
     'discord delete reaches harmony',
-    messages.history(channelId, { limit: 50 }).messages.every((m) => m.id !== ingested?.id),
+    messages.history(channelId, { limit: 50 }, userId).messages.every((m) => m.id !== ingested?.id),
   );
 
   // 7. Edits and deletes, Harmony -> Discord.
@@ -298,8 +335,86 @@ try {
     String(quoted?.content),
   );
 
+  // 7d. Reactions mirror out. Custom emoji are matched to the guild's emoji by name.
+  const target = messages.create(auth, channelId, 'react to me', [], null);
+  await sleep(50);
+  messages.toggleReaction(auth, target.id, '👍', null);
+  await sleep(50);
+  check(
+    'a unicode reaction is mirrored out',
+    transport.state.reactions.at(-1)?.kind === 'add' && transport.state.reactions.at(-1)?.emoji === '👍',
+  );
+
+  insertEmoji(db.sqlite, {
+    id: 'emoji-yes',
+    name: 'YES',
+    hash: 'deadbeef',
+    contentType: 'image/png',
+    animated: false,
+    createdBy: userId,
+    createdAt: new Date().toISOString(),
+  });
+  messages.toggleReaction(auth, target.id, ':YES:', 'emoji-yes');
+  await sleep(50);
+  check(
+    'a custom reaction is translated to a discord emoji',
+    transport.state.reactions.at(-1)?.emoji === 'YES:700',
+    String(transport.state.reactions.at(-1)?.emoji),
+  );
+
+  messages.toggleReaction(auth, target.id, '👍', null);
+  await sleep(50);
+  check('removing a reaction is mirrored out', transport.state.reactions.at(-1)?.kind === 'remove');
+
+  // 7e. Reactions flow back in, and are attributed to a ghost user.
+  const targetDiscordId = findBridgeMessageByHarmonyId(db.sqlite, target.id)?.discord_message_id;
+  const reactionsOut = transport.state.reactions.length;
+  transport.emitReactionAdd({
+    messageId: targetDiscordId,
+    channelId: '111',
+    userId: '777',
+    userName: 'Discord Rhea',
+    emoji: '🎉',
+    emojiId: null,
+  });
+  await sleep(50);
+  const reacted = messages.history(channelId, { limit: 50 }, userId).messages.find((m) => m.id === target.id);
+  check(
+    'a discord reaction lands in harmony',
+    reacted?.reactions.some((reaction) => reaction.emoji === '🎉' && reaction.count === 1) === true,
+  );
+  check('inbound reactions are not mirrored back', transport.state.reactions.length === reactionsOut);
+
+  transport.emitReactionAdd({
+    messageId: targetDiscordId,
+    channelId: '111',
+    userId: '777',
+    userName: 'Discord Rhea',
+    emoji: 'YES',
+    emojiId: '700',
+  });
+  await sleep(50);
+  const customReacted = messages.history(channelId, { limit: 50 }, userId).messages.find((m) => m.id === target.id);
+  check(
+    'a discord custom reaction maps to the harmony emoji',
+    customReacted?.reactions.some((reaction) => reaction.emoji === ':YES:' && reaction.emojiId === 'emoji-yes') ===
+      true,
+  );
+
+  transport.emitReactionRemove({
+    messageId: targetDiscordId,
+    channelId: '111',
+    userId: '777',
+    userName: 'Discord Rhea',
+    emoji: '🎉',
+    emojiId: null,
+  });
+  await sleep(50);
+  const unreacted = messages.history(channelId, { limit: 50 }, userId).messages.find((m) => m.id === target.id);
+  check('a removed discord reaction disappears', unreacted?.reactions.some((r) => r.emoji === '🎉') === false);
+
   // 8. Bots and webhooks never get ingested.
-  const before = messages.history(channelId, { limit: 100 }).messages.length;
+  const before = messages.history(channelId, { limit: 100 }, userId).messages.length;
   transport.emit({
     id: 'd3',
     channelId: '111',
@@ -312,7 +427,7 @@ try {
     fromBot: true,
   });
   await sleep(50);
-  check('bot/webhook messages are ignored', messages.history(channelId, { limit: 100 }).messages.length === before);
+  check('bot/webhook messages are ignored', messages.history(channelId, { limit: 100 }, userId).messages.length === before);
 
   // 9. Unmapped Discord channels are ignored.
   transport.emit({
@@ -327,7 +442,7 @@ try {
     fromBot: false,
   });
   await sleep(50);
-  check('unmapped discord channels are ignored', messages.history(channelId, { limit: 100 }).messages.length === before);
+  check('unmapped discord channels are ignored', messages.history(channelId, { limit: 100 }, userId).messages.length === before);
 
   // 10. The admin test message surfaces problems clearly.
   const unbridgedId = randomUUID();

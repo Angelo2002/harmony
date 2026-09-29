@@ -10,14 +10,17 @@ import {
 import type { BridgeStatus, DiscordChannelOption } from '@harmony/shared';
 import type {
   BridgeLogger,
+  DiscordEmoji,
   DiscordIncomingDelete,
   DiscordIncomingEdit,
   DiscordIncomingMessage,
+  DiscordIncomingReaction,
   DiscordTransport,
   EditInput,
   DeleteInput,
   MirrorInput,
   MirrorResult,
+  ReactionInput,
   WebhookRef,
 } from './transport.ts';
 
@@ -27,14 +30,22 @@ const MAX_DISCORD_USERNAME = 80;
 
 export function createDiscordTransport(token: string, logger: BridgeLogger): DiscordTransport {
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
-    // Partials let us see edits and deletes of messages sent before startup.
-    partials: [Partials.Message, Partials.Channel],
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+      GatewayIntentBits.GuildMessageReactions,
+    ],
+    // Partials let us see edits, deletes and reactions of messages sent before startup.
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction],
   });
 
   const createdHandlers: Array<(message: DiscordIncomingMessage) => void> = [];
   const editedHandlers: Array<(message: DiscordIncomingEdit) => void> = [];
   const deletedHandlers: Array<(message: DiscordIncomingDelete) => void> = [];
+  const reactionAddedHandlers: Array<(reaction: DiscordIncomingReaction) => void> = [];
+  const reactionRemovedHandlers: Array<(reaction: DiscordIncomingReaction) => void> = [];
+  const reactionClearedHandlers: Array<(reaction: DiscordIncomingReaction) => void> = [];
   let status: BridgeStatus = { ready: false, botTag: null, guildName: null, error: null };
 
   client.once(Events.ClientReady, (ready) => {
@@ -90,6 +101,68 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
   client.on(Events.MessageDelete, (message) => {
     const deletion = { id: message.id, channelId: message.channelId ?? '' };
     for (const handler of deletedHandlers) handler(deletion);
+  });
+
+  // Reactions from bots or webhooks (including our own mirrored ones) are ignored,
+  // exactly like bot messages, so nothing ping-pongs across the bridge.
+  client.on(Events.MessageReactionAdd, (reaction, user) => {
+    void (async () => {
+      if (user.bot) return;
+      try {
+        const full = reaction.partial ? await reaction.fetch() : reaction;
+        const incoming: DiscordIncomingReaction = {
+          messageId: full.message.id,
+          channelId: full.message.channelId ?? '',
+          userId: user.id,
+          userName: user.globalName ?? user.username ?? 'Discord user',
+          emoji: full.emoji.name ?? '',
+          emojiId: full.emoji.id ?? null,
+        };
+        for (const handler of reactionAddedHandlers) handler(incoming);
+      } catch {
+        // The message was gone before we could read the reaction.
+      }
+    })();
+  });
+
+  client.on(Events.MessageReactionRemove, (reaction, user) => {
+    void (async () => {
+      if (user.bot) return;
+      try {
+        const full = reaction.partial ? await reaction.fetch() : reaction;
+        const incoming: DiscordIncomingReaction = {
+          messageId: full.message.id,
+          channelId: full.message.channelId ?? '',
+          userId: user.id,
+          userName: user.globalName ?? user.username ?? 'Discord user',
+          emoji: full.emoji.name ?? '',
+          emojiId: full.emoji.id ?? null,
+        };
+        for (const handler of reactionRemovedHandlers) handler(incoming);
+      } catch {
+        // The message was gone before we could read the reaction.
+      }
+    })();
+  });
+
+  // Every reaction of a single emoji was removed at once.
+  client.on(Events.MessageReactionRemoveEmoji, (reaction) => {
+    void (async () => {
+      try {
+        const full = reaction.partial ? await reaction.fetch() : reaction;
+        const incoming: DiscordIncomingReaction = {
+          messageId: full.message.id,
+          channelId: full.message.channelId ?? '',
+          userId: '',
+          userName: '',
+          emoji: full.emoji.name ?? '',
+          emojiId: full.emoji.id ?? null,
+        };
+        for (const handler of reactionClearedHandlers) handler(incoming);
+      } catch {
+        // The message was gone before we could read the reaction.
+      }
+    })();
   });
 
   function firstGuild() {
@@ -172,6 +245,31 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       deletedHandlers.push(handler);
     },
 
+    onReactionAdded(handler) {
+      reactionAddedHandlers.push(handler);
+    },
+
+    onReactionRemoved(handler) {
+      reactionRemovedHandlers.push(handler);
+    },
+
+    onReactionCleared(handler) {
+      reactionClearedHandlers.push(handler);
+    },
+
+    async guildEmojis(): Promise<DiscordEmoji[]> {
+      const guild = firstGuild();
+      if (!guild) return [];
+
+      const fetched = await guild.emojis.fetch();
+      const emojis: DiscordEmoji[] = [];
+      for (const emoji of fetched.values()) {
+        if (!emoji.name) continue;
+        emojis.push({ id: emoji.id, name: emoji.name, animated: emoji.animated ?? false });
+      }
+      return emojis;
+    },
+
     async mirror(input: MirrorInput): Promise<MirrorResult> {
       logger.debug('mirroring to discord', {
         channelId: input.discordChannelId,
@@ -233,6 +331,28 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
     async deleteMessage(input: DeleteInput) {
       await client.rest.delete(
         `/webhooks/${input.webhook.id}/${input.webhook.token}/messages/${input.discordMessageId}`,
+        { auth: false },
+      );
+    },
+
+    async addReaction(input: ReactionInput) {
+      await client.rest.put(
+        `/webhooks/${input.webhook.id}/${input.webhook.token}/messages/${input.discordMessageId}/reactions/${input.emoji}/@me`,
+        { auth: false },
+      );
+    },
+
+    async removeReaction(input: ReactionInput) {
+      await client.rest.delete(
+        `/webhooks/${input.webhook.id}/${input.webhook.token}/messages/${input.discordMessageId}/reactions/${input.emoji}/@me`,
+        { auth: false },
+      );
+    },
+
+    async clearReaction(input: ReactionInput) {
+      // No trailing /@me: this removes everyone's reactions for the emoji.
+      await client.rest.delete(
+        `/webhooks/${input.webhook.id}/${input.webhook.token}/messages/${input.discordMessageId}/reactions/${input.emoji}`,
         { auth: false },
       );
     },

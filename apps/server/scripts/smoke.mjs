@@ -243,6 +243,54 @@ try {
       ).status === 400,
     );
 
+    // --- Reactions ---
+    const reactTarget = await req(`/channels/${general.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'react target' },
+    });
+    const reacted = await req(`/messages/${reactTarget.json?.id}/reactions`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { emoji: '👍' },
+    });
+    check(
+      'a reaction is added',
+      reacted.json?.reactions?.some((r) => r.emoji === '👍' && r.count === 1 && r.me === true) === true,
+    );
+    const unreacted = await req(`/messages/${reactTarget.json?.id}/reactions`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { emoji: '👍' },
+    });
+    check('reacting again toggles the reaction off', unreacted.json?.reactions?.length === 0);
+
+    await req(`/messages/${reactTarget.json?.id}/reactions`, {
+      method: 'POST',
+      token: bobToken,
+      body: { emoji: '🎉' },
+    });
+    const seenByOwner = await req(`/channels/${general.id}/messages`, { token: ownerToken });
+    const seenMessage = seenByOwner.json?.messages?.find((m) => m.id === reactTarget.json?.id);
+    check(
+      "another user's reaction is visible but not 'me'",
+      seenMessage?.reactions?.some((r) => r.emoji === '🎉' && r.me === false) === true,
+    );
+    check(
+      'member cannot clear reactions (403)',
+      (await req(`/messages/${reactTarget.json?.id}/reactions?emoji=${encodeURIComponent('🎉')}`, {
+        method: 'DELETE',
+        token: bobToken,
+      })).status === 403,
+    );
+    check(
+      'owner can clear reactions',
+      (await req(`/messages/${reactTarget.json?.id}/reactions?emoji=${encodeURIComponent('🎉')}`, {
+        method: 'DELETE',
+        token: ownerToken,
+      })).json?.reactions?.length === 0,
+    );
+
     const edited = await req(`/messages/${messageId}`, {
       method: 'PATCH',
       token: ownerToken,

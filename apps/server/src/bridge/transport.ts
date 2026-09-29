@@ -38,6 +38,25 @@ export interface WebhookRef {
   token: string;
 }
 
+/** A custom emoji that exists in the bridged Discord guild. */
+export interface DiscordEmoji {
+  id: string;
+  name: string;
+  animated: boolean;
+}
+
+/** A reaction change on a Discord message that we care about. */
+export interface DiscordIncomingReaction {
+  messageId: string;
+  channelId: string;
+  userId: string;
+  userName: string;
+  /** A unicode character, or the custom emoji's name. */
+  emoji: string;
+  /** The custom emoji id, or null for a unicode emoji. */
+  emojiId: string | null;
+}
+
 /** Minimal logger the bridge hands down to the transport. */
 export interface BridgeLogger {
   info(message: string, detail?: unknown): void;
@@ -78,6 +97,13 @@ export interface DeleteInput {
   discordMessageId: string;
 }
 
+export interface ReactionInput {
+  webhook: WebhookRef;
+  discordMessageId: string;
+  /** Discord's emoji parameter: a unicode character, or `name:id`. */
+  emoji: string;
+}
+
 /**
  * Everything the bridge needs from Discord, behind one small interface. The
  * real implementation wraps discord.js; tests substitute a fake so the
@@ -91,9 +117,19 @@ export interface DiscordTransport {
   onMessage(handler: (message: DiscordIncomingMessage) => void): void;
   onMessageEdited(handler: (message: DiscordIncomingEdit) => void): void;
   onMessageDeleted(handler: (message: DiscordIncomingDelete) => void): void;
+  onReactionAdded(handler: (reaction: DiscordIncomingReaction) => void): void;
+  onReactionRemoved(handler: (reaction: DiscordIncomingReaction) => void): void;
+  /** Every reaction of one emoji was cleared from a message. */
+  onReactionCleared(handler: (reaction: DiscordIncomingReaction) => void): void;
   mirror(input: MirrorInput): Promise<MirrorResult>;
   editMessage(input: EditInput): Promise<void>;
   deleteMessage(input: DeleteInput): Promise<void>;
+  /** Custom emoji available in the guild, for translating `:name:` shortcodes. */
+  guildEmojis(): Promise<DiscordEmoji[]>;
+  addReaction(input: ReactionInput): Promise<void>;
+  removeReaction(input: ReactionInput): Promise<void>;
+  /** Removes everyone's reactions of one emoji from the message. */
+  clearReaction(input: ReactionInput): Promise<void>;
   /** Fetches an attachment's bytes from the Discord CDN. */
   download(url: string): Promise<Buffer>;
 }

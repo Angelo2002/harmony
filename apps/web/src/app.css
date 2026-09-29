@@ -493,6 +493,57 @@ img.avatar {
   filter: none;
 }
 
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}
+
+.reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--h-bg-elevated);
+  color: var(--h-text-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reaction:hover:not(:disabled) {
+  border-color: var(--h-text-muted);
+  filter: none;
+}
+
+.reaction.me {
+  border-color: var(--h-accent);
+  background: rgb(88 101 242 / 18%);
+  color: var(--h-text);
+}
+
+.reaction-emoji {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.reaction .emoji {
+  height: 1.1em;
+  vertical-align: middle;
+}
+
+.reaction-count {
+  font-size: 0.78rem;
+}
+
+.reaction-picker {
+  margin-top: 0.35rem;
+}
+
 .composer {
   display: flex;
   flex-direction: column;

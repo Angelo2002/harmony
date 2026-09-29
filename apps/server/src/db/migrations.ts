@@ -193,4 +193,23 @@ export const migrations: Migration[] = [
       db.exec(`ALTER TABLE messages ADD COLUMN reply_to_id TEXT REFERENCES messages(id) ON DELETE SET NULL`);
     },
   },
+  {
+    version: 6,
+    name: 'message_reactions',
+    up(db) {
+      db.exec(`
+        CREATE TABLE reactions (
+          message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          /* A unicode character, or ':name:' for a custom emoji. */
+          emoji      TEXT NOT NULL,
+          /* The custom emoji id, for custom emoji only. */
+          emoji_id   TEXT,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (message_id, user_id, emoji)
+        );
+        CREATE INDEX idx_reactions_message ON reactions(message_id);
+      `);
+    },
+  },
 ];

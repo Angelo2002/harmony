@@ -71,6 +71,22 @@ export interface Message {
   attachments: Attachment[];
   /** The message this one replies to, or null for a normal message. */
   replyTo: MessageReference | null;
+  /** Distinct emoji reactions, aggregated. Empty when there are none. */
+  reactions: Reaction[];
+}
+
+/**
+ * One emoji's worth of reactions on a message. Individual reactors are not
+ * exposed; the client only needs the tally and whether it is one of them.
+ */
+export interface Reaction {
+  /** A unicode character, or `:name:` for a custom Harmony emoji. */
+  emoji: string;
+  /** The custom emoji id when `emoji` is a `:name:` shortcode, else null. */
+  emojiId: SnowflakeId | null;
+  count: number;
+  /** Whether the requesting user is among the reactors. */
+  me: boolean;
 }
 
 /**

@@ -78,6 +78,23 @@ export const editMessageSchema = z.object({
 });
 export type EditMessageInput = z.infer<typeof editMessageSchema>;
 
+/**
+ * A reaction target. `emoji` is a unicode character, or `:name:` paired with
+ * `emojiId` for a custom emoji.
+ */
+export const reactionSchema = z.object({
+  emoji: z.string().trim().min(1).max(64),
+  emojiId: z.string().nullable().optional(),
+});
+export type ReactionInput = z.infer<typeof reactionSchema>;
+
+/** Same fields, but for a query string (used by the clear-all endpoint). */
+export const reactionQuerySchema = z.object({
+  emoji: z.string().trim().min(1).max(64),
+  emojiId: z.string().optional(),
+});
+export type ReactionQuery = z.infer<typeof reactionQuerySchema>;
+
 export const messageHistoryQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   /** Return messages strictly older than this ISO timestamp. */

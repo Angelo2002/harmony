@@ -10,7 +10,8 @@ attachments, custom emoji with role-coloured usernames, profile pictures and
 display names, configurable storage retention, a two-way Discord bridge
 (messages, images, replies, reactions, edits and deletes, with custom emoji
 matched by name), and an admin panel covering settings, roles, members, channels,
-emoji, retention, the bridge and invites. Still to come: the public API docs.
+emoji, retention, the bridge and invites. The full HTTP and gateway API for
+custom clients and bots is documented in [`docs/API.md`](docs/API.md).
 
 ## Tech stack
 
@@ -90,6 +91,8 @@ apps/
   web/      Svelte 5 single-page client
 packages/
   shared/   Types, permission bitfield, gateway protocol and zod schemas
+docs/
+  API.md    HTTP and gateway reference for custom clients and bots
 ```
 
 Runtime data — the SQLite database and uploaded files — lives in `data/` and is

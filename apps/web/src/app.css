@@ -22,13 +22,17 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
+  /* A fixed viewport height lets the sidebar and message list scroll on their
+     own instead of growing the whole page. */
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--h-bg);
   color: var(--h-text);
 }
 
 #app {
-  min-height: 100vh;
+  height: 100%;
   display: flex;
 }
 
@@ -217,7 +221,8 @@ button.link:hover {
   display: flex;
   flex: 1;
   width: 100%;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 .sidebar {
@@ -225,6 +230,7 @@ button.link:hover {
   flex-direction: column;
   flex-shrink: 0;
   width: 240px;
+  height: 100%;
   background: var(--h-bg-elevated);
 }
 
@@ -236,6 +242,7 @@ button.link:hover {
 
 .channels {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0.75rem 0.5rem;
 }
@@ -308,6 +315,7 @@ button.link:hover {
   flex: 1;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   background: var(--h-bg);
 }
 
@@ -317,6 +325,7 @@ button.link:hover {
 }
 
 .chat-header {
+  flex-shrink: 0;
   padding: 0.9rem 1rem;
   font-weight: 600;
   box-shadow: 0 1px 0 rgb(0 0 0 / 20%);
@@ -324,6 +333,7 @@ button.link:hover {
 
 .messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 1rem;
 }
@@ -589,6 +599,7 @@ button.ghost {
 .composer {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 0.5rem;
   padding: 0 1rem 1rem;
 }

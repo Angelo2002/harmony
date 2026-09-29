@@ -16,6 +16,8 @@
     "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run dev --workspace @harmony/server",
     "dev:web": "npm run dev --workspace @harmony/web",
+    "dev:lan": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web:lan\"",
+    "dev:web:lan": "npm run dev:lan --workspace @harmony/web",
     "build:web": "npm run build --workspace @harmony/web",
     "start": "npm run start --workspace @harmony/server",
     "smoke": "npm run smoke --workspace @harmony/server",

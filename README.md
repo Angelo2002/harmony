@@ -35,12 +35,19 @@ npm run dev
 - Web client: <http://127.0.0.1:5173>
 - API and gateway: <http://127.0.0.1:8787>
 
+Both bind to loopback only, so the instance is not reachable from other devices by default. To open
+it to your local network — a phone on the same Wi-Fi, say — run `npm run dev:lan` instead. It starts
+the same pair but lets the web client listen on every interface and prints a `Network:` URL to open
+on the other device. The API and gateway stay on loopback and are reached through the web client's
+proxy, so no other port needs opening.
+
 Configuration is read from environment variables. Copy `.env.example` to `.env`
 to override the defaults.
 
 Other useful scripts:
 
 - `npm run dev:server` / `npm run dev:web` — run one side only
+- `npm run dev:lan` — like `npm run dev`, but the web client is reachable from other devices
 - `npm run build:web` — production build of the web client
 - `npm run typecheck` — type-check every workspace (`tsc` for the server and shared package,
   `svelte-check` for the web client)

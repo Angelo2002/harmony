@@ -12,6 +12,7 @@ export interface ChannelRow {
   discord_channel_id: string | null;
   discord_webhook_id: string | null;
   discord_webhook_token: string | null;
+  required_role_id: string | null;
 }
 
 export function toChannel(row: ChannelRow): Channel {
@@ -24,6 +25,7 @@ export function toChannel(row: ChannelRow): Channel {
     position: row.position,
     createdAt: row.created_at,
     discordChannelId: row.discord_channel_id,
+    requiredRoleId: row.required_role_id,
   };
 }
 
@@ -68,12 +70,13 @@ export function insertChannel(
     position: number;
     createdAt: string;
     discordChannelId: string | null;
+    requiredRoleId: string | null;
   },
 ): void {
   sqlite
     .prepare(
-      `INSERT INTO channels (id, name, topic, type, category_id, position, created_at, discord_channel_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO channels (id, name, topic, type, category_id, position, created_at, discord_channel_id, required_role_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.id,
@@ -84,6 +87,7 @@ export function insertChannel(
       input.position,
       input.createdAt,
       input.discordChannelId,
+      input.requiredRoleId,
     );
 }
 
@@ -96,6 +100,7 @@ export function updateChannel(
     categoryId?: string | null;
     position?: number;
     discordChannelId?: string | null;
+    requiredRoleId?: string | null;
   },
 ): void {
   const sets: string[] = [];
@@ -103,6 +108,10 @@ export function updateChannel(
   if (patch.name !== undefined) {
     sets.push('name = ?');
     values.push(patch.name);
+  }
+  if (patch.requiredRoleId !== undefined) {
+    sets.push('required_role_id = ?');
+    values.push(patch.requiredRoleId);
   }
   if (patch.topic !== undefined) {
     sets.push('topic = ?');

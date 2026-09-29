@@ -13,12 +13,17 @@ import {
 } from '@harmony/shared';
 import { assertNotTimedOut } from '../auth/guards.ts';
 import { requirePermission } from '../auth/plugin.ts';
+import {
+  canAccessChannel,
+  channelAccessFor,
+  visibleCategories,
+  visibleChannels,
+} from '../access/service.ts';
 import type { BridgeService } from '../bridge/service.ts';
 import {
   deleteCategory,
   findCategory,
   insertCategory,
-  listCategories,
   moveCategory,
   nextCategoryPosition,
   toCategory,
@@ -31,7 +36,6 @@ import {
   findChannel,
   findChannelByDiscordId,
   insertChannel,
-  listChannels,
   moveChannel,
   nextChannelPosition,
   toChannel,
@@ -39,6 +43,7 @@ import {
   type ChannelRow,
 } from '../db/channels.ts';
 import type { Database } from '../db/index.ts';
+import { findRole } from '../db/roles.ts';
 import { HttpError } from '../http/errors.ts';
 import { createRateLimiter } from '../http/rate-limit.ts';
 import { parseBody } from '../http/validation.ts';
@@ -79,6 +84,13 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     return row;
   }
 
+  /** A channel or category may only demand a role that actually exists. */
+  function assertRoleExists(roleId: string): void {
+    if (!findRole(db.sqlite, roleId)) {
+      throw new HttpError(400, 'invalid_role', 'That role does not exist.');
+    }
+  }
+
   /** A Discord channel can only feed one Harmony channel. */
   function assertDiscordChannelFree(discordChannelId: string, exceptChannelId: string | null): void {
     const existing = findChannelByDiscordId(db.sqlite, discordChannelId);
@@ -88,10 +100,12 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
   }
 
   app.get('/api/v1/channels', async (request) => {
-    requirePermission(request, Permission.ViewChannels);
+    const auth = requirePermission(request, Permission.ViewChannels);
+    // Locked channels and categories are left out rather than listed and refused.
+    const access = channelAccessFor(db.sqlite, auth.user.id);
     const body: ChannelListResponse = {
-      categories: listCategories(db.sqlite).map(toCategory),
-      channels: listChannels(db.sqlite).map(toChannel),
+      categories: visibleCategories(db.sqlite, access).map(toCategory),
+      channels: visibleChannels(db.sqlite, access).map(toChannel),
       // Freshly read every time, so a client picks up an admin's change on reload.
       defaultChannelId: settings.get().defaultChannelId,
     };
@@ -107,6 +121,9 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     const discordChannelId = input.discordChannelId ?? null;
     if (discordChannelId) assertDiscordChannelFree(discordChannelId, null);
 
+    const requiredRoleId = input.requiredRoleId ?? null;
+    if (requiredRoleId) assertRoleExists(requiredRoleId);
+
     const id = randomUUID();
     insertChannel(db.sqlite, {
       id,
@@ -117,10 +134,11 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
       position: nextChannelPosition(db.sqlite, categoryId),
       createdAt: new Date().toISOString(),
       discordChannelId,
+      requiredRoleId,
     });
 
     const channel = toChannel(requireChannelRow(id));
-    hub.dispatch(GatewayEvent.ChannelCreate, channel);
+    hub.dispatch(GatewayEvent.ChannelCreate, channel, { channelId: channel.id });
     if (channel.discordChannelId) backfill(channel.id);
     return channel;
   });
@@ -133,6 +151,7 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     const input = parseBody(updateChannelSchema, request.body);
     if (input.categoryId) requireCategoryRow(input.categoryId);
     if (input.discordChannelId) assertDiscordChannelFree(input.discordChannelId, id);
+    if (input.requiredRoleId) assertRoleExists(input.requiredRoleId);
 
     // Moving a channel to another category appends it to the end of that one,
     // unless a position was given. Otherwise it would keep a position from its
@@ -148,10 +167,11 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
       categoryId: input.categoryId,
       position,
       discordChannelId: input.discordChannelId,
+      requiredRoleId: input.requiredRoleId,
     });
 
     const channel = toChannel(requireChannelRow(id));
-    hub.dispatch(GatewayEvent.ChannelUpdate, channel);
+    hub.dispatch(GatewayEvent.ChannelUpdate, channel, { channelId: channel.id });
     if (input.discordChannelId) backfill(channel.id);
     return channel;
   });
@@ -166,7 +186,7 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     moveChannel(db.sqlite, id, input.direction);
 
     const channel = toChannel(requireChannelRow(id));
-    hub.dispatch(GatewayEvent.ChannelUpdate, channel);
+    hub.dispatch(GatewayEvent.ChannelUpdate, channel, { channelId: channel.id });
     return channel;
   });
 
@@ -179,11 +199,14 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     const { id } = request.params as { id: string };
     requireChannelRow(id);
     assertNotTimedOut(auth);
+    if (!canAccessChannel(db.sqlite, channelAccessFor(db.sqlite, auth.user.id), id)) {
+      throw new HttpError(403, 'channel_forbidden', 'You do not have access to that channel.');
+    }
     typingLimiter.check(auth.user.id);
 
     if (auth.user.showTyping) {
       const payload: TypingStartPayload = { channelId: id, user: auth.user };
-      hub.dispatch(GatewayEvent.TypingStart, payload);
+      hub.dispatch(GatewayEvent.TypingStart, payload, { channelId: id });
     }
     return reply.status(204).send();
   });
@@ -196,7 +219,7 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     deleteChannel(db.sqlite, id);
     // Do not leave the default pointing at a channel that no longer exists.
     if (settings.get().defaultChannelId === id) settings.update({ defaultChannelId: null });
-    hub.dispatch(GatewayEvent.ChannelDelete, { id });
+    hub.dispatch(GatewayEvent.ChannelDelete, { id }, { channelId: id });
     return reply.status(204).send();
   });
 
@@ -204,11 +227,19 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     requirePermission(request, Permission.ManageChannels);
     const input = parseBody(createCategorySchema, request.body);
 
+    const requiredRoleId = input.requiredRoleId ?? null;
+    if (requiredRoleId) assertRoleExists(requiredRoleId);
+
     const id = randomUUID();
-    insertCategory(db.sqlite, { id, name: input.name, position: nextCategoryPosition(db.sqlite) });
+    insertCategory(db.sqlite, {
+      id,
+      name: input.name,
+      position: nextCategoryPosition(db.sqlite),
+      requiredRoleId,
+    });
 
     const category = toCategory(requireCategoryRow(id));
-    hub.dispatch(GatewayEvent.CategoryCreate, category);
+    hub.dispatch(GatewayEvent.CategoryCreate, category, { categoryId: category.id });
     return category;
   });
 
@@ -218,10 +249,15 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     requireCategoryRow(id);
 
     const input = parseBody(updateCategorySchema, request.body);
-    updateCategory(db.sqlite, id, { name: input.name, position: input.position });
+    if (input.requiredRoleId) assertRoleExists(input.requiredRoleId);
+    updateCategory(db.sqlite, id, {
+      name: input.name,
+      position: input.position,
+      requiredRoleId: input.requiredRoleId,
+    });
 
     const category = toCategory(requireCategoryRow(id));
-    hub.dispatch(GatewayEvent.CategoryUpdate, category);
+    hub.dispatch(GatewayEvent.CategoryUpdate, category, { categoryId: category.id });
     return category;
   });
 
@@ -235,7 +271,7 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     moveCategory(db.sqlite, id, input.direction);
 
     const category = toCategory(requireCategoryRow(id));
-    hub.dispatch(GatewayEvent.CategoryUpdate, category);
+    hub.dispatch(GatewayEvent.CategoryUpdate, category, { categoryId: category.id });
     return category;
   });
 
@@ -252,7 +288,7 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     }
 
     deleteCategory(db.sqlite, id);
-    hub.dispatch(GatewayEvent.CategoryDelete, { id });
+    hub.dispatch(GatewayEvent.CategoryDelete, { id }, { categoryId: id });
     return reply.status(204).send();
   });
 }

@@ -11,7 +11,7 @@ import type {
   TypingStartPayload,
   User,
 } from '@harmony/shared';
-import { api } from './api';
+import { ApiError, api } from './api';
 import { emojis } from './emojis.svelte';
 import { members } from './members.svelte';
 import { roster } from './roster.svelte';
@@ -75,6 +75,8 @@ class ChatStore {
   #gateway = new GatewayClient(GatewayClient.defaultUrl());
   #started = false;
   #typingTimer: ReturnType<typeof setInterval> | null = null;
+  /** Guards the channel-list refresh that a denied channel triggers. */
+  #healing = false;
 
   get activeChannel(): Channel | null {
     return this.channels.find((channel) => channel.id === this.activeChannelId) ?? null;
@@ -141,6 +143,22 @@ class ChatStore {
       if (channelId === this.activeChannelId) {
         this.messages = data.messages;
         this.hasMore = data.messages.length >= historyPageSize;
+      }
+    } catch (cause) {
+      // Access to a locked channel can be taken away while it is open. Refresh the
+      // list, which drops it and opens one we can still see.
+      if (
+        cause instanceof ApiError &&
+        (cause.status === 403 || cause.status === 404) &&
+        channelId === this.activeChannelId &&
+        !this.#healing
+      ) {
+        this.#healing = true;
+        try {
+          await this.loadChannels();
+        } finally {
+          this.#healing = false;
+        }
       }
     } finally {
       this.loading = false;
@@ -344,18 +362,22 @@ class ChatStore {
       case 'ROLE_CREATE':
       case 'ROLE_UPDATE':
       case 'ROLE_DELETE':
-        // Username colours may have changed; refresh the open channel and the
-        // roster, whose grouping depends on which roles are hoisted.
+        // Roles decide username colours, member list grouping and which channels
+        // are locked, so refresh the channel list, the open channel and the roster.
+        void this.loadChannels();
         if (this.activeChannelId) void this.loadHistory(this.activeChannelId);
         void roster.load();
         break;
       case 'MEMBER_UPDATE': {
         const payload = frame.d as { userId: string };
         // The roster and mention list may have changed, and if it was us the
-        // change could be our own timeout, so refresh our profile too.
+        // change could be our own timeout or a role that unlocks channels.
         void members.load();
         void roster.load();
-        if (payload.userId === session.user?.id) void this.#refreshSession();
+        if (payload.userId === session.user?.id) {
+          void this.loadChannels();
+          void this.#refreshSession();
+        }
         if (this.activeChannelId) void this.loadHistory(this.activeChannelId);
         break;
       }

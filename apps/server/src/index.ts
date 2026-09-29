@@ -5,6 +5,7 @@ import websocket from '@fastify/websocket';
 import { GATEWAY_HEARTBEAT_MS } from '@harmony/shared';
 import { loadConfig } from './config.ts';
 import { Database } from './db/index.ts';
+import { canSeeResource, channelAccessFor } from './access/service.ts';
 import { createAuthService } from './auth/service.ts';
 import { registerAuth } from './auth/plugin.ts';
 import { createSettingsService } from './settings/service.ts';
@@ -40,6 +41,10 @@ import { registerGateway } from './gateway/index.ts';
 const config = loadConfig();
 const db = new Database(config);
 const hub = new GatewayHub();
+// Locked channels stay out of the gateway traffic of members who cannot see them.
+hub.setVisibilityResolver((userId, visibility) =>
+  canSeeResource(db.sqlite, channelAccessFor(db.sqlite, userId), visibility),
+);
 const settingsService = createSettingsService(db.sqlite, {
   serverName: config.serverName,
   requireInvite: config.requireInvite,

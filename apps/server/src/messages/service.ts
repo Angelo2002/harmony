@@ -16,6 +16,7 @@ import {
 } from '@harmony/shared';
 import type { AuthContext } from '../auth/service.ts';
 import { assertNotTimedOut } from '../auth/guards.ts';
+import { canAccessChannel, channelAccessFor } from '../access/service.ts';
 import { attachToMessage, findAttachment, listAttachmentsForMessages } from '../db/attachments.ts';
 import { findChannel } from '../db/channels.ts';
 import { findEmoji } from '../db/emojis.ts';
@@ -147,6 +148,16 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     }
   }
 
+  /**
+   * Channel locking: a member may only read or touch channels they can see. Like
+   * a missing channel, a locked one is reported as forbidden rather than hidden.
+   */
+  function assertChannelAccess(userId: string, channelId: string): void {
+    if (!canAccessChannel(sqlite, channelAccessFor(sqlite, userId), channelId)) {
+      throw new HttpError(403, 'channel_forbidden', 'You do not have access to that channel.');
+    }
+  }
+
   function requireMessage(messageId: string): MessageRow {
     const row = findMessage(sqlite, messageId);
     if (!row || row.deleted_at) throw new HttpError(404, 'message_not_found', 'That message does not exist.');
@@ -241,17 +252,17 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
   }
 
   function announce(message: Message): void {
-    hub.dispatch(GatewayEvent.MessageCreate, message);
+    hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
     for (const listener of createdListeners) safeNotify(listener, message);
   }
 
   function announceEdit(message: Message): void {
-    hub.dispatch(GatewayEvent.MessageUpdate, message);
+    hub.dispatch(GatewayEvent.MessageUpdate, message, { channelId: message.channelId });
     for (const listener of editedListeners) safeNotify(listener, message);
   }
 
   function announceDelete(info: MessageDeletePayload): void {
-    hub.dispatch(GatewayEvent.MessageDelete, info);
+    hub.dispatch(GatewayEvent.MessageDelete, info, { channelId: info.channelId });
     for (const listener of deletedListeners) safeNotify(listener, info);
   }
 
@@ -259,6 +270,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     hub.dispatch(
       kind === 'add' ? GatewayEvent.MessageReactionAdd : GatewayEvent.MessageReactionRemove,
       payload,
+      { channelId: payload.channelId },
     );
     const event: ReactionEvent = { message, emoji: payload.emoji, emojiId: payload.emojiId };
     const listeners = kind === 'add' ? reactionAddedListeners : reactionRemovedListeners;
@@ -266,7 +278,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
   }
 
   function announceReactionsCleared(payload: ReactionsClearPayload, message: Message): void {
-    hub.dispatch(GatewayEvent.MessageReactionsClear, payload);
+    hub.dispatch(GatewayEvent.MessageReactionsClear, payload, { channelId: payload.channelId });
     const event: ReactionEvent = { message, emoji: payload.emoji, emojiId: payload.emojiId };
     for (const listener of reactionsClearedListeners) safeNotify(listener, event);
   }
@@ -274,6 +286,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
   return {
     history(channelId, query, viewerId) {
       requireChannel(channelId);
+      assertChannelAccess(viewerId, channelId);
       const rows = listMessages(sqlite, channelId, {
         limit: query.limit,
         before: query.before,
@@ -292,6 +305,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     create(auth, channelId, content, attachmentIds, replyToId) {
       assertNotTimedOut(auth);
       requireChannel(channelId);
+      assertChannelAccess(auth.user.id, channelId);
       const message = insertWithAttachments(channelId, auth.user.id, content, attachmentIds, replyToId);
       announce(message);
       return message;
@@ -302,7 +316,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       const message = insertWithAttachments(channelId, authorId, content, attachmentIds, replyToId, createdAt);
       // Broadcast to clients, but do not announce: this came from Discord and
       // must not be mirrored straight back.
-      hub.dispatch(GatewayEvent.MessageCreate, message);
+      hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
       return message;
     },
 
@@ -341,6 +355,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
     edit(auth, messageId, content) {
       assertNotTimedOut(auth);
       const row = requireMessage(messageId);
+      assertChannelAccess(auth.user.id, row.channel_id);
       assertCanEdit(auth, row);
 
       updateMessageContent(sqlite, messageId, content, new Date().toISOString());
@@ -355,12 +370,13 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
 
       updateMessageContent(sqlite, messageId, content, new Date().toISOString());
       const message = render(requireMessage(messageId), row.author_id ?? '');
-      hub.dispatch(GatewayEvent.MessageUpdate, message);
+      hub.dispatch(GatewayEvent.MessageUpdate, message, { channelId: message.channelId });
       return message;
     },
 
     remove(auth, messageId) {
       const row = requireMessage(messageId);
+      assertChannelAccess(auth.user.id, row.channel_id);
       assertCanDelete(auth, row);
 
       softDeleteMessage(sqlite, messageId, new Date().toISOString());
@@ -372,12 +388,15 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
       if (!row || row.deleted_at) return;
 
       softDeleteMessage(sqlite, messageId, new Date().toISOString());
-      hub.dispatch(GatewayEvent.MessageDelete, { id: messageId, channelId: row.channel_id });
+      hub.dispatch(GatewayEvent.MessageDelete, { id: messageId, channelId: row.channel_id }, {
+        channelId: row.channel_id,
+      });
     },
 
     toggleReaction(auth, messageId, emoji, emojiId) {
       assertNotTimedOut(auth);
       const row = requireMessage(messageId);
+      assertChannelAccess(auth.user.id, row.channel_id);
       const target = canonicalReaction(emoji, emojiId);
 
       // Deleting first makes this a toggle: a row that was there is removed.
@@ -407,6 +426,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
 
     clearReactions(auth, messageId, emoji, emojiId) {
       const row = requireMessage(messageId);
+      assertChannelAccess(auth.user.id, row.channel_id);
       if (!hasPermission(auth.permissions, Permission.ManageMessages)) {
         throw new HttpError(403, 'forbidden', 'You need Manage Messages to clear reactions.');
       }
@@ -443,7 +463,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
         emojiId,
         userId,
         count: countReaction(sqlite, row.id, emoji),
-      } satisfies ReactionUpdatePayload);
+      } satisfies ReactionUpdatePayload, { channelId: row.channel_id });
     },
 
     removeReactionBridged(messageId, userId, emoji) {
@@ -458,7 +478,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
         emojiId: null,
         userId,
         count: countReaction(sqlite, row.id, emoji),
-      } satisfies ReactionUpdatePayload);
+      } satisfies ReactionUpdatePayload, { channelId: row.channel_id });
     },
 
     clearReactionsBridged(messageId, emoji, emojiId) {
@@ -471,7 +491,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub): Mes
         channelId: row.channel_id,
         emoji,
         emojiId,
-      } satisfies ReactionsClearPayload);
+      } satisfies ReactionsClearPayload, { channelId: row.channel_id });
     },
   };
 }

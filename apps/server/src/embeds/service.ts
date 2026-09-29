@@ -50,7 +50,7 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
     if (!message) return;
     // Straight to the websocket clients: routing this through the message
     // service's edit listeners would let the bridge mistake it for a user edit.
-    deps.hub.dispatch(GatewayEvent.MessageUpdate, message);
+    deps.hub.dispatch(GatewayEvent.MessageUpdate, message, { channelId: message.channelId });
   }
 
   async function lookup(url: string): Promise<LinkEmbed | null> {

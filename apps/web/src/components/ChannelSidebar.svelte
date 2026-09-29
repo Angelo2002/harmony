@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Permission, hasPermission } from '@harmony/shared';
+  import { Permission, hasPermission, type Channel } from '@harmony/shared';
   import { api } from '../lib/api';
   import { avatarUrl, initial } from '../lib/avatar';
   import { chat } from '../lib/chat.svelte';
@@ -19,6 +19,18 @@
     return color == null ? null : `#${color.toString(16).padStart(6, '0')}`;
   });
   const myPicture = $derived(avatarUrl(session.user));
+
+  /** Categories that demand a role; every channel inside one is locked too. */
+  const lockedCategories = $derived(
+    new Set(chat.categories.filter((category) => category.requiredRoleId !== null).map((category) => category.id)),
+  );
+
+  function isLocked(channel: Channel): boolean {
+    return (
+      channel.requiredRoleId !== null ||
+      (channel.categoryId !== null && lockedCategories.has(channel.categoryId))
+    );
+  }
 
   async function logout(): Promise<void> {
     await api('/auth/logout', { method: 'POST' });
@@ -42,6 +54,7 @@
             onclick={() => chat.selectChannel(channel.id)}
           >
             <span class="hash">{channelGlyph(channel)}</span>{channel.name}
+            {#if isLocked(channel)}<span class="lock" title="Only members with a certain role can see this">🔒</span>{/if}
           </button>
         {/each}
       </div>
@@ -55,6 +68,7 @@
         onclick={() => chat.selectChannel(channel.id)}
       >
         <span class="hash">{channelGlyph(channel)}</span>{channel.name}
+        {#if isLocked(channel)}<span class="lock" title="Only members with a certain role can see this">🔒</span>{/if}
       </button>
     {/each}
   </nav>

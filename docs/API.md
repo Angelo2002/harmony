@@ -154,7 +154,12 @@ type User = {
   showTyping: boolean;          // typing indicators on/off for this user
 };
 
-type Category = { id: string; name: string; position: number };
+type Category = {
+  id: string;
+  name: string;
+  position: number;
+  requiredRoleId: string | null; // a role required to see it and its channels
+};
 
 type Channel = {
   id: string;
@@ -165,6 +170,7 @@ type Channel = {
   position: number;
   createdAt: string;
   discordChannelId: string | null; // set when bridged
+  requiredRoleId: string | null;   // its own lock, or null to inherit the category's
 };
 
 type Attachment = {
@@ -360,15 +366,18 @@ next load.
 { "name": "general", "topic": null, "categoryId": null, "discordChannelId": null }
 ```
 
-`topic`, `categoryId` and `discordChannelId` are optional. Linking a `discordChannelId` requires a
-configured bridge and a Discord channel not already linked elsewhere (`409 discord_channel_taken`).
-Returns the new `Channel` and fires `CHANNEL_CREATE`.
+`topic`, `categoryId`, `discordChannelId` and `requiredRoleId` are optional. Linking a
+`discordChannelId` requires a configured bridge and a Discord channel not already linked elsewhere
+(`409 discord_channel_taken`). `requiredRoleId` must name a real role (`400 invalid_role`) and locks
+the channel; see [Channel locking](#channel-locking). Returns the new `Channel` and fires
+`CHANNEL_CREATE`.
 
 #### `PATCH /api/v1/channels/:id` — `ManageChannels`
 
-Any of `name`, `topic`, `categoryId`, `position`, `discordChannelId`. Returns the updated
-`Channel` and fires `CHANNEL_UPDATE`. Changing `categoryId` appends the channel to the end of the
-target category, unless `position` is given explicitly.
+Any of `name`, `topic`, `categoryId`, `position`, `discordChannelId`, `requiredRoleId`. Returns the
+updated `Channel` and fires `CHANNEL_UPDATE`. Changing `categoryId` appends the channel to the end of
+the target category, unless `position` is given explicitly. `requiredRoleId: null` drops the
+channel's own lock, so it falls back to its category's.
 
 #### `POST /api/v1/channels/:id/move` — `ManageChannels`
 
@@ -393,14 +402,16 @@ effort: the server throttles it per user, a timed-out member is refused, and a m
 #### `POST /api/v1/categories` — `ManageChannels`
 
 ```json
-{ "name": "Text Channels" }
+{ "name": "Text Channels", "requiredRoleId": null }
 ```
 
-Returns the new `Category`, fires `CATEGORY_CREATE`.
+Returns the new `Category`, fires `CATEGORY_CREATE`. `requiredRoleId` must name a real role
+(`400 invalid_role`) and locks the category and every channel inside it.
 
 #### `PATCH /api/v1/categories/:id` — `ManageChannels`
 
-`{ "name"?: string, "position"?: number }`. Returns the `Category`, fires `CATEGORY_UPDATE`.
+`{ "name"?: string, "position"?: number, "requiredRoleId"?: string | null }`. Returns the
+`Category`, fires `CATEGORY_UPDATE`.
 
 #### `POST /api/v1/categories/:id/move` — `ManageChannels`
 
@@ -416,6 +427,27 @@ a no-op at either end. Returns the moved `Category` and fires `CATEGORY_UPDATE`.
 Returns `204`, fires `CATEGORY_DELETE` with `{ "id": "..." }`. A category that still holds
 channels cannot be deleted: the request is refused with `409 category_not_empty`. Move or delete its
 channels first.
+
+### Channel locking
+
+A channel or category may require a single role. It is deliberately not a permission system: there is
+one requirement per resource and no overwrites.
+
+- A member sees a channel when they hold the role it requires.
+- A channel with no role of its own inherits its category's, so locking a category covers everything
+  inside it. A channel can tighten that further, but never loosen it: a channel whose category is
+  hidden is hidden too.
+- Anyone with `Administrator` — which includes the instance owner — bypasses every requirement.
+- `GET /api/v1/channels` leaves out locked channels and categories a member cannot see, rather than
+  listing them and refusing access.
+- Reading, posting, editing, deleting, reacting and typing in a locked channel all fail with
+  `403 channel_forbidden`.
+- Gateway events are filtered per member too, so `MESSAGE_CREATE`, reactions and typing for a locked
+  channel are never sent to someone who cannot see it.
+
+One deliberate gap: an attachment's bytes are served by id to anyone with `ViewChannels`, because
+attachment ids are unguessable capability URLs. Someone with access to a locked channel can therefore
+hand out a working image link; treat that as sharing the file, not as a leak.
 
 ### Messages
 

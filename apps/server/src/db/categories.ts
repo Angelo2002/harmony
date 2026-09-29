@@ -5,10 +5,11 @@ export interface CategoryRow {
   id: string;
   name: string;
   position: number;
+  required_role_id: string | null;
 }
 
 export function toCategory(row: CategoryRow): Category {
-  return { id: row.id, name: row.name, position: row.position };
+  return { id: row.id, name: row.name, position: row.position, requiredRoleId: row.required_role_id };
 }
 
 export function listCategories(sqlite: DatabaseSync): CategoryRow[] {
@@ -26,13 +27,22 @@ export function nextCategoryPosition(sqlite: DatabaseSync): number {
   return row.position;
 }
 
-export function insertCategory(sqlite: DatabaseSync, input: { id: string; name: string; position: number }): void {
-  sqlite.prepare('INSERT INTO categories (id, name, position) VALUES (?, ?, ?)').run(input.id, input.name, input.position);
+export function insertCategory(
+  sqlite: DatabaseSync,
+  input: { id: string; name: string; position: number; requiredRoleId: string | null },
+): void {
+  sqlite
+    .prepare('INSERT INTO categories (id, name, position, required_role_id) VALUES (?, ?, ?, ?)')
+    .run(input.id, input.name, input.position, input.requiredRoleId);
 }
 
-export function updateCategory(sqlite: DatabaseSync, id: string, patch: { name?: string; position?: number }): void {
+export function updateCategory(
+  sqlite: DatabaseSync,
+  id: string,
+  patch: { name?: string; position?: number; requiredRoleId?: string | null },
+): void {
   const sets: string[] = [];
-  const values: Array<string | number> = [];
+  const values: Array<string | number | null> = [];
   if (patch.name !== undefined) {
     sets.push('name = ?');
     values.push(patch.name);
@@ -40,6 +50,10 @@ export function updateCategory(sqlite: DatabaseSync, id: string, patch: { name?:
   if (patch.position !== undefined) {
     sets.push('position = ?');
     values.push(patch.position);
+  }
+  if (patch.requiredRoleId !== undefined) {
+    sets.push('required_role_id = ?');
+    values.push(patch.requiredRoleId);
   }
   if (sets.length === 0) return;
 

@@ -725,6 +725,103 @@ try {
   check('a dark accent takes light text', deriveTheme({ accent: '#1a3ea8' }).onAccent === '#ffffff');
   check('a near black background still separates its panels', deriveTheme({ background: '#050505' }).bgElevated !== '#050505');
 
+  // --- Channel locking ---
+  const staffRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Staff' } });
+  const staffChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'staff-only', requiredRoleId: staffRole.json.id },
+  });
+  check('a channel can require a role', staffChannel.json?.requiredRoleId === staffRole.json.id);
+
+  const badRole = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'bad-lock', requiredRoleId: 'no-such-role' },
+  });
+  check('a channel lock must name a real role (400)', badRole.status === 400, `status ${badRole.status}`);
+
+  const seesStaffChannel = async (token) =>
+    (await req('/channels', { token })).json?.channels?.some((channel) => channel.id === staffChannel.json.id);
+  check('a locked channel is hidden from a member without the role', (await seesStaffChannel(bobToken)) === false);
+  check('a locked channel is listed for an administrator', (await seesStaffChannel(ownerToken)) === true);
+  check(
+    'reading a locked channel is refused (403)',
+    (await req(`/channels/${staffChannel.json.id}/messages`, { token: bobToken })).status === 403,
+  );
+  check(
+    'posting to a locked channel is refused (403)',
+    (
+      await req(`/channels/${staffChannel.json.id}/messages`, {
+        method: 'POST',
+        token: bobToken,
+        body: { content: 'let me in' },
+      })
+    ).status === 403,
+  );
+
+  // Locked traffic must not reach a member who cannot see the channel.
+  const lockWatcher = await openGateway({ token: bobToken });
+  await req(`/channels/${staffChannel.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'a secret' },
+  });
+  await sleep(250);
+  check(
+    'a locked channel broadcasts nothing to a member without the role',
+    lockWatcher.events.every((frame) => frame.t !== 'MESSAGE_CREATE' || frame.d?.channelId !== staffChannel.json.id),
+  );
+
+  // Granting the role opens it up live.
+  await req(`/members/${bob.json.user.id}/roles/${staffRole.json.id}`, { method: 'PUT', token: ownerToken });
+  await sleep(200);
+  check('granting the role reveals the channel', (await seesStaffChannel(bobToken)) === true);
+  await req(`/channels/${staffChannel.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'welcome' },
+  });
+  await sleep(250);
+  check(
+    'the unlocked channel now reaches the member',
+    lockWatcher.events.some(
+      (frame) => frame.t === 'MESSAGE_CREATE' && frame.d?.channelId === staffChannel.json.id,
+    ),
+  );
+  lockWatcher.ws.close();
+
+  // A locked category covers every channel inside it.
+  const staffCategory = await req('/categories', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Staff area', requiredRoleId: staffRole.json.id },
+  });
+  await req(`/members/${bob.json.user.id}/roles/${staffRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  await sleep(200);
+  const insideCategory = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'staff-room', categoryId: staffCategory.json.id },
+  });
+  const bobList = await req('/channels', { token: bobToken });
+  check(
+    'a locked category hides its channels and itself',
+    bobList.json?.channels?.every((channel) => channel.categoryId !== staffCategory.json.id) &&
+      bobList.json?.categories?.every((category) => category.id !== staffCategory.json.id),
+  );
+  check(
+    'the locked category is still visible to an administrator',
+    (await req('/channels', { token: ownerToken })).json?.channels?.some(
+      (channel) => channel.id === insideCategory.json.id,
+    ) === true,
+  );
+
+  await req(`/channels/${insideCategory.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/categories/${staffCategory.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/channels/${staffChannel.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${staffRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
   const patched = await req('/settings', {
     method: 'PATCH',
     token: ownerToken,

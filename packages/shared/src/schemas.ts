@@ -31,6 +31,8 @@ export const createChannelSchema = z.object({
   topic: z.string().max(1024).nullable().optional(),
   categoryId: z.string().nullable().optional(),
   discordChannelId: z.string().nullable().optional(),
+  /** A role required to see the channel, or null for open access. */
+  requiredRoleId: z.string().nullable().optional(),
 });
 export type CreateChannelInput = z.infer<typeof createChannelSchema>;
 
@@ -57,12 +59,16 @@ export type CreateInviteInput = z.infer<typeof createInviteSchema>;
 
 export const createCategorySchema = z.object({
   name: z.string().min(1).max(LIMITS.channelName.max),
+  /** A role required to see the category and its channels, or null for open. */
+  requiredRoleId: z.string().nullable().optional(),
 });
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 
 export const updateCategorySchema = z.object({
   name: z.string().min(1).max(LIMITS.channelName.max).optional(),
   position: z.number().int().optional(),
+  /** A role required to see the category and its channels, or null for open. */
+  requiredRoleId: z.string().nullable().optional(),
 });
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 
@@ -72,6 +78,8 @@ export const updateChannelSchema = z.object({
   categoryId: z.string().nullable().optional(),
   position: z.number().int().optional(),
   discordChannelId: z.string().nullable().optional(),
+  /** A role required to see the channel, or null to inherit or open it up. */
+  requiredRoleId: z.string().nullable().optional(),
 });
 export type UpdateChannelInput = z.infer<typeof updateChannelSchema>;
 

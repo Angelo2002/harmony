@@ -299,6 +299,13 @@ button.link:hover {
   color: var(--h-text-muted);
 }
 
+/* A lock marks a channel only some roles may see. */
+.channel .lock {
+  margin-left: auto;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
 .channel.active .hash {
   color: var(--h-text);
 }

@@ -6,11 +6,14 @@
     ChannelListResponse,
     DiscordChannelListResponse,
     DiscordChannelOption,
+    Role,
+    RoleListResponse,
   } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
 
   let categories = $state<Category[]>([]);
   let channels = $state<Channel[]>([]);
+  let roles = $state<Role[]>([]);
   let discordChannels = $state<DiscordChannelOption[]>([]);
   let newChannelName = $state('');
   let newChannelCategory = $state('');
@@ -30,6 +33,14 @@
     void load().catch((cause: unknown) => {
       error = cause instanceof ApiError ? cause.message : String(cause);
     });
+    // @everyone is implicit, so it is never a useful requirement.
+    void api<RoleListResponse>('/roles')
+      .then((data) => {
+        roles = data.roles.filter((role) => !role.isDefault);
+      })
+      .catch(() => {
+        roles = [];
+      });
     // Only available once the Discord bridge is connected; ignore failures.
     void api<DiscordChannelListResponse>('/bridge/channels')
       .then((data) => {
@@ -112,6 +123,14 @@
     void run(() => api(`/categories/${category.id}/move`, { method: 'POST', body: JSON.stringify({ direction }) }));
   }
 
+  /** Requires one role to see a channel or category. Empty means open. */
+  function setRequiredRole(kind: 'channel' | 'category', id: string, roleId: string): void {
+    void run(async () => {
+      const path = kind === 'channel' ? `/channels/${id}` : `/categories/${id}`;
+      await api(path, { method: 'PATCH', body: JSON.stringify({ requiredRoleId: roleId || null }) });
+    });
+  }
+
   function saveRename(): void {
     if (!editing) return;
     const { kind, id, name } = editing;
@@ -134,6 +153,15 @@
     disabled={busy || index === count - 1}
     onclick={() => onMove('down')}>↓</button
   >
+{/snippet}
+
+{#snippet roleSelect(kind: 'channel' | 'category', id: string, current: string | null)}
+  <select title="Role required to see this" value={current ?? ''} onchange={(event) => setRequiredRole(kind, id, event.currentTarget.value)}>
+    <option value="">Open to everyone</option>
+    {#each roles as role (role.id)}
+      <option value={role.id}>{role.name}</option>
+    {/each}
+  </select>
 {/snippet}
 
 {#snippet discordSelect(channel: Channel)}
@@ -171,6 +199,7 @@
           <option value={category.id}>{category.name}</option>
         {/each}
       </select>
+      {@render roleSelect('channel', channel.id, channel.requiredRoleId)}
       {@render discordSelect(channel)}
       <button
         type="button"
@@ -234,6 +263,7 @@
         {:else}
           {@render moveButtons(index, categories.length, (direction) => moveCategory(category, direction))}
           <strong class="grow">{category.name}</strong>
+          {@render roleSelect('category', category.id, category.requiredRoleId)}
           <button
             type="button"
             onclick={() => (editing = { kind: 'category', id: category.id, name: category.name })}>Rename</button

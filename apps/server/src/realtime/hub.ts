@@ -14,6 +14,15 @@ interface Client {
 }
 
 /**
+ * What a dispatched event is about, when it belongs to one channel or category.
+ * Events with neither are broadcast to everyone.
+ */
+export interface DispatchVisibility {
+  channelId?: string;
+  categoryId?: string;
+}
+
+/**
  * In-process registry of connected gateway clients, used to fan out dispatch
  * events and to end a specific member's connections. One instance means no need
  * for Redis or any cross-process bus.
@@ -27,6 +36,13 @@ export class GatewayHub {
   #nextId = 1;
   /** How many live connections each member holds. */
   #onlineCounts = new Map<string, number>();
+  /** Injected by the app so the hub can ask who may see a locked resource. */
+  #canSee: (userId: string, visibility: DispatchVisibility) => boolean = () => true;
+
+  /** Lets the hub keep locked channels out of a member's gateway traffic. */
+  setVisibilityResolver(resolver: (userId: string, visibility: DispatchVisibility) => boolean): void {
+    this.#canSee = resolver;
+  }
 
   /** Registers a freshly connected (but not yet identified) client. */
   register(send: (payload: string) => void, disconnect: (code: number, reason: string) => void): number {
@@ -87,11 +103,29 @@ export class GatewayHub {
     }
   }
 
-  /** Sends a dispatch event to every authenticated client. */
-  dispatch(event: GatewayEventName, payload: unknown): void {
+  /**
+   * Sends a dispatch event to every authenticated client. When the event belongs
+   * to a locked channel or category, members who cannot see it are skipped, so a
+   * locked channel's messages never reach them.
+   */
+  dispatch(event: GatewayEventName, payload: unknown, visibility?: DispatchVisibility): void {
     const frame = JSON.stringify({ op: GatewayOp.Dispatch, t: event, d: payload });
+    // One access check per member per broadcast, however many connections they hold.
+    const decided = new Map<string, boolean>();
+
     for (const client of this.#clients.values()) {
       if (!client.auth) continue;
+
+      if (visibility) {
+        const userId = client.auth.user.id;
+        let allowed = decided.get(userId);
+        if (allowed === undefined) {
+          allowed = this.#canSee(userId, visibility);
+          decided.set(userId, allowed);
+        }
+        if (!allowed) continue;
+      }
+
       try {
         client.send(frame);
       } catch {

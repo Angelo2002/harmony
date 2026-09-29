@@ -245,4 +245,16 @@ export const migrations: Migration[] = [
       db.exec(`ALTER TABLE messages ADD COLUMN embed TEXT`);
     },
   },
+  {
+    version: 10,
+    name: 'channel_roles',
+    up(db) {
+      db.exec(`
+        /* A role required to see a channel; NULL means open to everyone. */
+        ALTER TABLE channels ADD COLUMN required_role_id TEXT REFERENCES roles(id) ON DELETE SET NULL;
+        /* A required role on a category covers every channel inside it. */
+        ALTER TABLE categories ADD COLUMN required_role_id TEXT REFERENCES roles(id) ON DELETE SET NULL;
+      `);
+    },
+  },
 ];

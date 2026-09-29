@@ -50,6 +50,11 @@ export interface Category {
   id: SnowflakeId;
   name: string;
   position: number;
+  /**
+   * A role required to see this category and every channel in it, or null when
+   * it is open to everyone. Categories are never more open than their role.
+   */
+  requiredRoleId: SnowflakeId | null;
 }
 
 export interface Channel {
@@ -62,6 +67,11 @@ export interface Channel {
   createdAt: IsoTimestamp;
   /** Discord channel this one is bridged with, or null when not bridged. */
   discordChannelId: string | null;
+  /**
+   * A role required to see this channel, or null to inherit from its category
+   * and ultimately to be open to everyone.
+   */
+  requiredRoleId: SnowflakeId | null;
 }
 
 export interface Attachment {

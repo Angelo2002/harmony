@@ -172,14 +172,14 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   }
 
   /**
-   * Discord's emoji parameter for a reaction: a unicode character is sent as-is,
-   * while a `:name:` shortcode becomes `name:id` using the guild's emoji. Returns
-   * null when a custom emoji has no counterpart on Discord.
+   * Discord's emoji parameter for a reaction: a percent-encoded unicode
+   * character, or `name:id` (with an `a:` prefix when animated) using the
+   * guild's emoji. Returns null when a custom emoji has no counterpart.
    */
   async function discordReactionParam(emoji: string): Promise<string | null> {
-    if (!emoji.startsWith(':')) return emoji;
+    if (!emoji.startsWith(':')) return encodeURIComponent(emoji);
     const target = (await discordEmojiMap()).get(emoji.slice(1, -1));
-    return target ? `${target.name}:${target.id}` : null;
+    return target ? `${target.animated ? 'a:' : ''}${target.name}:${target.id}` : null;
   }
 
   // ---- Outbound: Harmony -> Discord ----
@@ -310,14 +310,36 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   }
 
   /**
-   * Mirrors a reaction change out to Discord. Note that all Harmony reactions to
-   * a message come from the single webhook, so Discord shows one reaction per
-   * emoji regardless of how many Harmony users reacted.
+   * Where a bridged Harmony message lives on the Discord side, for reactions.
+   * Reactions cannot use the webhook (Discord has no such route), so they need
+   * the channel id and go through the bot.
+   */
+  function reactionTarget(
+    harmonyMessageId: string,
+    channelId: string,
+  ): { discordChannelId: string; discordMessageId: string } | null {
+    const mapping = findBridgeMessageByHarmonyId(deps.sqlite, harmonyMessageId);
+    if (!mapping) return null;
+
+    const channel = findChannel(deps.sqlite, channelId);
+    if (!channel?.discord_channel_id) return null;
+
+    return { discordChannelId: channel.discord_channel_id, discordMessageId: mapping.discord_message_id };
+  }
+
+  /**
+   * Mirrors a reaction change out to Discord. Reactions are placed by the bot,
+   * because Discord has no webhook reaction route. Since the bot can only hold
+   * one reaction per emoji, it represents the whole Harmony tally: it is added
+   * when the first person reacts and removed only once the last one does.
    */
   async function mirrorReaction(event: ReactionEvent, kind: 'add' | 'remove' | 'clear'): Promise<void> {
     if (!transport) return;
-    const target = mirrorTarget(event.message.id, event.message.channelId);
+    const target = reactionTarget(event.message.id, event.message.channelId);
     if (!target) return;
+
+    // For a removal, keep the bot's reaction while others remain in Harmony.
+    if (kind !== 'add' && event.message.reactions.some((reaction) => reaction.emoji === event.emoji)) return;
 
     const emoji = await discordReactionParam(event.emoji);
     if (!emoji) {
@@ -325,10 +347,9 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       return;
     }
 
-    const input = { webhook: target.webhook, discordMessageId: target.discordMessageId, emoji };
+    const input = { channelId: target.discordChannelId, discordMessageId: target.discordMessageId, emoji };
     if (kind === 'add') await transport.addReaction(input);
-    else if (kind === 'remove') await transport.removeReaction(input);
-    else await transport.clearReaction(input);
+    else await transport.removeReaction(input);
   }
 
   // ---- Inbound: Discord -> Harmony ----
@@ -487,7 +508,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   // ever bounces back to Discord.
   function watch(action: () => Promise<void>, channelId: string | undefined): void {
     void action().catch((error: unknown) => {
-      logger.info('bridge could not sync a message to Discord', {
+      logger.info('bridge could not sync a change to Discord', {
         channelId,
         error: error instanceof Error ? error.message : String(error),
       });

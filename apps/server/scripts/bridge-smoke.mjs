@@ -38,7 +38,6 @@ function createFakeTransport() {
     edits: [],
     deletes: [],
     reactions: [],
-    clearedReactions: [],
     created: [],
     edited: [],
     deleted: [],
@@ -90,9 +89,6 @@ function createFakeTransport() {
     },
     async removeReaction(input) {
       state.reactions.push({ kind: 'remove', ...input });
-    },
-    async clearReaction(input) {
-      state.clearedReactions.push(input);
     },
     async mirror(input) {
       state.mirrors.push(input);
@@ -342,8 +338,11 @@ try {
   await sleep(50);
   check(
     'a unicode reaction is mirrored out',
-    transport.state.reactions.at(-1)?.kind === 'add' && transport.state.reactions.at(-1)?.emoji === '👍',
+    transport.state.reactions.at(-1)?.kind === 'add' &&
+      transport.state.reactions.at(-1)?.emoji === encodeURIComponent('👍'),
+    String(transport.state.reactions.at(-1)?.emoji),
   );
+  check('the bot reacts in the linked discord channel', transport.state.reactions.at(-1)?.channelId === '111');
 
   insertEmoji(db.sqlite, {
     id: 'emoji-yes',
@@ -365,6 +364,27 @@ try {
   messages.toggleReaction(auth, target.id, '👍', null);
   await sleep(50);
   check('removing a reaction is mirrored out', transport.state.reactions.at(-1)?.kind === 'remove');
+
+  // A second reactor keeps the bot's single reaction until the last one leaves.
+  const bobId = randomUUID();
+  insertUser(db.sqlite, { id: bobId, username: 'bob', passwordHash: 'scrypt$x$y$z', isOwner: false });
+  const bobAuth = { user: { id: bobId }, permissions: 0n, sessionId: 'sb', token: 'tb' };
+  messages.toggleReaction(auth, target.id, '🔥', null);
+  await sleep(50);
+  messages.toggleReaction(bobAuth, target.id, '🔥', null);
+  await sleep(50);
+  const beforePartialRemove = transport.state.reactions.length;
+  messages.toggleReaction(auth, target.id, '🔥', null);
+  await sleep(50);
+  check('the bot reaction stays while others remain', transport.state.reactions.length === beforePartialRemove);
+  messages.toggleReaction(bobAuth, target.id, '🔥', null);
+  await sleep(50);
+  check(
+    'the bot reaction is removed once the last reactor leaves',
+    transport.state.reactions.at(-1)?.kind === 'remove' &&
+      transport.state.reactions.at(-1)?.emoji === encodeURIComponent('🔥'),
+    String(transport.state.reactions.at(-1)?.emoji),
+  );
 
   // 7e. Reactions flow back in, and are attributed to a ghost user.
   const targetDiscordId = findBridgeMessageByHarmonyId(db.sqlite, target.id)?.discord_message_id;

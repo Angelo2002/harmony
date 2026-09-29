@@ -98,9 +98,13 @@ export interface DeleteInput {
 }
 
 export interface ReactionInput {
-  webhook: WebhookRef;
+  /** Discord channel holding the message. Reactions go through the bot, not the webhook. */
+  channelId: string;
   discordMessageId: string;
-  /** Discord's emoji parameter: a unicode character, or `name:id`. */
+  /**
+   * Discord's emoji parameter, ready to drop into the URL: a percent-encoded
+   * unicode character, or `name:id` (prefixed with `a:` when animated).
+   */
   emoji: string;
 }
 
@@ -128,8 +132,6 @@ export interface DiscordTransport {
   guildEmojis(): Promise<DiscordEmoji[]>;
   addReaction(input: ReactionInput): Promise<void>;
   removeReaction(input: ReactionInput): Promise<void>;
-  /** Removes everyone's reactions of one emoji from the message. */
-  clearReaction(input: ReactionInput): Promise<void>;
   /** Fetches an attachment's bytes from the Discord CDN. */
   download(url: string): Promise<Buffer>;
 }

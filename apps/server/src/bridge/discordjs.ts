@@ -336,24 +336,16 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
     },
 
     async addReaction(input: ReactionInput) {
+      // Reactions cannot go through a webhook: Discord has no such route, so the
+      // bot reacts instead. The emoji must be URL-encoded by the caller.
       await client.rest.put(
-        `/webhooks/${input.webhook.id}/${input.webhook.token}/messages/${input.discordMessageId}/reactions/${input.emoji}/@me`,
-        { auth: false },
+        `/channels/${input.channelId}/messages/${input.discordMessageId}/reactions/${input.emoji}/@me`,
       );
     },
 
     async removeReaction(input: ReactionInput) {
       await client.rest.delete(
-        `/webhooks/${input.webhook.id}/${input.webhook.token}/messages/${input.discordMessageId}/reactions/${input.emoji}/@me`,
-        { auth: false },
-      );
-    },
-
-    async clearReaction(input: ReactionInput) {
-      // No trailing /@me: this removes everyone's reactions for the emoji.
-      await client.rest.delete(
-        `/webhooks/${input.webhook.id}/${input.webhook.token}/messages/${input.discordMessageId}/reactions/${input.emoji}`,
-        { auth: false },
+        `/channels/${input.channelId}/messages/${input.discordMessageId}/reactions/${input.emoji}/@me`,
       );
     },
 

@@ -50,8 +50,8 @@ The bridge mirrors messages both ways. On the Discord side you need to:
 1. Create an application and a bot at <https://discord.com/developers/applications>.
 2. Enable the **Message Content** intent on the Bot page. This is a privileged intent, so the
    toggle only works for apps that Discord has approved for it.
-3. Invite the bot with at least **View Channels**, **Send Messages**, **Read Message History**
-   and **Manage Webhooks**.
+3. Invite the bot with at least **View Channels**, **Send Messages**, **Read Message History**,
+   **Add Reactions** and **Manage Webhooks**.
 
 Then paste the token into **Admin → Bridge**, enable it, and pick a Discord channel when
 creating or editing a Harmony channel. Only bridged channels sync.
@@ -68,10 +68,11 @@ mirrored out.
 
 Custom emoji are matched by name: a Harmony `:YES:` is sent to Discord as its `<:YES:id>` tag,
 and a Discord `<:YES:id>` tag is turned back into `:YES:` on the way in, rendering the Harmony
-emoji of the same name. Reactions work the same way. Two limitations come from mirroring through
-a single webhook: Discord webhooks cannot post real replies, so a Harmony reply is mirrored as a
-quoted line, and every Harmony reaction is posted by the webhook, so Discord shows one reaction
-per emoji regardless of how many Harmony users reacted.
+emoji of the same name. Reactions work both ways too. Two limitations come from mirroring
+through a single app account: Discord webhooks cannot post real replies, so a Harmony reply is
+mirrored as a quoted line, and Discord has no webhook reaction route at all, so the bot places
+reactions itself — they appear as the bot, and one reaction stands in for however many Harmony
+users reacted.
 
 Display names and profile pictures are mirrored to Discord automatically (they become the
 webhook username and avatar). A Discord user's name and picture are imported into Harmony the

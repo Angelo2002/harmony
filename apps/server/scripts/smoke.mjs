@@ -42,6 +42,15 @@ function check(name, condition, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok || !detail ? '' : ` — ${detail}`}`);
 }
 
+/** A minimal well-formed MP4 header: a size word, then the required ftyp box. */
+const MP4 = Buffer.concat([
+  Buffer.from([0x00, 0x00, 0x00, 0x18]),
+  Buffer.from('ftypisom'),
+  Buffer.from([0x00, 0x00, 0x02, 0x00]),
+  Buffer.from('isomiso2'),
+  Buffer.alloc(64),
+]);
+
 async function req(path, { method = 'GET', body, cookie, token } = {}) {
   const headers = {};
   if (body) headers['Content-Type'] = 'application/json';
@@ -415,17 +424,85 @@ try {
       body: fakeImage,
     });
     check('unreadable image rejected (415)', fakeRes.status === 415, `status ${fakeRes.status}`);
+
+    // --- Videos ---
+    const videoForm = new FormData();
+    videoForm.append('file', new Blob([MP4], { type: 'video/mp4' }), 'clip.mp4');
+    const videoRes = await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: videoForm,
+    });
+    const clip = await videoRes.json();
+    check(
+      'an mp4 uploads',
+      videoRes.status === 200 && clip?.contentType === 'video/mp4',
+      `status ${videoRes.status}`,
+    );
+    check('a clip records no dimensions', clip?.width === null && clip?.height === null);
+
+    const ranged = await fetch(`${BASE}/attachments/${clip.id}`, {
+      headers: { authorization: `Bearer ${ownerToken}`, range: 'bytes=0-3' },
+    });
+    const rangedBytes = Buffer.from(await ranged.arrayBuffer());
+    check(
+      'a range request returns just that slice',
+      ranged.status === 206 &&
+        ranged.headers.get('content-range') === `bytes 0-3/${MP4.length}` &&
+        rangedBytes.equals(MP4.subarray(0, 4)),
+      `status ${ranged.status} ${ranged.headers.get('content-range')}`,
+    );
+    check('clips advertise range support', ranged.headers.get('accept-ranges') === 'bytes');
+
+    const fakeVideo = new FormData();
+    fakeVideo.append('file', new Blob([Buffer.from('definitely not an mp4')], { type: 'video/mp4' }), 'fake.mp4');
+    const fakeVideoRes = await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: fakeVideo,
+    });
+    check('unreadable video rejected (415)', fakeVideoRes.status === 415, `status ${fakeVideoRes.status}`);
+
+    await req('/settings', { method: 'PATCH', token: ownerToken, body: { maxVideoBytes: 1024 } });
+    const bigClip = new FormData();
+    bigClip.append('file', new Blob([Buffer.concat([MP4, Buffer.alloc(4096)])], { type: 'video/mp4' }), 'big.mp4');
+    const bigClipRes = await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: bigClip,
+    });
+    check('an oversized clip is rejected (413)', bigClipRes.status === 413, `status ${bigClipRes.status}`);
+    await req('/settings', { method: 'PATCH', token: ownerToken, body: { maxVideoBytes: 20 * 1024 * 1024 } });
   }
 
   // --- Admin: settings, roles, members, invites ---
   const metaRes = await req('/meta');
   check('public meta is available', metaRes.status === 200 && typeof metaRes.json?.name === 'string');
   check('meta reports requireInvite', metaRes.json?.requireInvite === true);
+  check('meta reports the upload limits', metaRes.json?.maxImageBytes > 0 && metaRes.json?.maxVideoBytes > 0);
+  check('meta lists mp4 as a video type', metaRes.json?.allowedVideoTypes?.includes('video/mp4') === true);
 
   const settings = await req('/settings', { token: ownerToken });
   check('owner reads settings', settings.status === 200 && settings.json?.serverName === 'Harmony');
   check('settings start with no default channel', settings.json?.defaultChannelId === null);
   check('link previews default to on', settings.json?.embedsEnabled === true);
+  check('settings report the upload limits', settings.json?.maxImageBytes > 0 && settings.json?.maxVideoBytes > 0);
+
+  const resized = await req('/settings', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { maxImageBytes: 3 * 1024 * 1024, maxVideoBytes: 25 * 1024 * 1024 },
+  });
+  check(
+    'the upload limits can be changed',
+    resized.json?.maxImageBytes === 3 * 1024 * 1024 && resized.json?.maxVideoBytes === 25 * 1024 * 1024,
+  );
+  check('meta follows the upload limits', (await req('/meta')).json?.maxVideoBytes === 25 * 1024 * 1024);
+  await req('/settings', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { maxImageBytes: 10 * 1024 * 1024, maxVideoBytes: 20 * 1024 * 1024 },
+  });
 
   const embedsOff = await req('/settings', { method: 'PATCH', token: ownerToken, body: { embedsEnabled: false } });
   check('link previews can be turned off', embedsOff.json?.embedsEnabled === false);
@@ -1190,6 +1267,33 @@ try {
     'expired attachment is no longer served (404)',
     (
       await fetch(`${BASE}/attachments/${ageAttachment.id}`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })
+    ).status === 404,
+  );
+
+  // Clip retention runs on its own schedule, independent of images.
+  const clipUpload = new FormData();
+  clipUpload.append('file', new Blob([MP4], { type: 'video/mp4' }), 'aged.mp4');
+  const agedClip = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: clipUpload,
+    })
+  ).json();
+  await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'aged clip', attachmentIds: [agedClip.id] },
+  });
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { videoRetentionDays: 0 } });
+  const clipPruned = await req('/retention/run', { method: 'POST', token: ownerToken });
+  check('video retention deletes clips', clipPruned.json?.summary?.deletedAttachments > 0);
+  check(
+    'expired clip is no longer served (404)',
+    (
+      await fetch(`${BASE}/attachments/${agedClip.id}`, {
         headers: { authorization: `Bearer ${ownerToken}` },
       })
     ).status === 404,

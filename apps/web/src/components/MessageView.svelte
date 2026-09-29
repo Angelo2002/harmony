@@ -390,15 +390,26 @@
             {#if message.attachments.length > 0}
               <div class="attachments">
                 {#each message.attachments as attachment (attachment.id)}
-                  <a href={`/api/v1/attachments/${attachment.id}`} target="_blank" rel="noreferrer">
-                    <img
+                  {#if attachment.contentType.startsWith('video/')}
+                    <!-- Clips are stored as they arrive, with no caption track to offer. -->
+                    <!-- svelte-ignore a11y_media_has_caption -->
+                    <video
+                      class="attachment-video"
                       src={`/api/v1/attachments/${attachment.id}`}
-                      alt={attachment.filename}
-                      width={attachment.width ?? undefined}
-                      height={attachment.height ?? undefined}
-                      loading="lazy"
-                    />
-                  </a>
+                      controls
+                      preload="metadata"
+                    ></video>
+                  {:else}
+                    <a href={`/api/v1/attachments/${attachment.id}`} target="_blank" rel="noreferrer">
+                      <img
+                        src={`/api/v1/attachments/${attachment.id}`}
+                        alt={attachment.filename}
+                        width={attachment.width ?? undefined}
+                        height={attachment.height ?? undefined}
+                        loading="lazy"
+                      />
+                    </a>
+                  {/if}
                 {/each}
               </div>
             {/if}

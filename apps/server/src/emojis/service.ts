@@ -57,7 +57,7 @@ export function createEmojiService(sqlite: DatabaseSync, config: Config): EmojiS
         );
       }
 
-      const limit = Math.min(config.maxUploadBytes, DEFAULT_MAX_EMOJI_BYTES);
+      const limit = DEFAULT_MAX_EMOJI_BYTES;
       if (file.data.length > limit) {
         throw new HttpError(413, 'payload_too_large', `Emoji images must be at most ${limit / 1024} KB.`);
       }

@@ -25,8 +25,24 @@ export const LIMITS = {
 export const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
 export type ImageContentType = (typeof ALLOWED_IMAGE_TYPES)[number];
 
-/** Default maximum size of a single upload, in bytes (10 MiB). */
-export const DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** Video formats accepted by the attachment upload endpoint. */
+export const ALLOWED_VIDEO_TYPES = ['video/mp4'] as const;
+export type VideoContentType = (typeof ALLOWED_VIDEO_TYPES)[number];
+
+/** Everything the attachment upload endpoint accepts. */
+export const ALLOWED_ATTACHMENT_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_VIDEO_TYPES] as const;
+
+/** Default maximum size of an image upload, in bytes (10 MiB). */
+export const DEFAULT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/** Default maximum size of a video upload, in bytes (20 MiB). */
+export const DEFAULT_MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+
+/**
+ * The largest single upload the multipart layer will buffer. An admin cannot
+ * configure a per-type limit above this.
+ */
+export const MAX_UPLOAD_CEILING_BYTES = 100 * 1024 * 1024;
 
 /** Maximum size of a custom emoji image, in bytes (256 KiB). */
 export const DEFAULT_MAX_EMOJI_BYTES = 256 * 1024;

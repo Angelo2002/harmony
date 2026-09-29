@@ -72,7 +72,7 @@
 
 <section>
   <h3>Media</h3>
-  <p class="muted">Every image stored on this instance, newest first. Deleting one frees its bytes.</p>
+  <p class="muted">Every image and video stored on this instance, newest first. Deleting one frees its bytes.</p>
   {#if error}<p class="form-error">{error}</p>{/if}
 
   {#if media.length === 0 && !loading}
@@ -81,13 +81,19 @@
     <ul class="media-grid">
       {#each media as item (item.attachment.id)}
         <li class="media-card">
-          <a href={`/api/v1/attachments/${item.attachment.id}`} target="_blank" rel="noreferrer">
-            <img
-              src={`/api/v1/attachments/${item.attachment.id}`}
-              alt={item.attachment.filename}
-              loading="lazy"
-            />
-          </a>
+          {#if item.attachment.contentType.startsWith('video/')}
+            <!-- Clips are stored as they arrive, with no caption track to offer. -->
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <video src={`/api/v1/attachments/${item.attachment.id}`} controls preload="metadata"></video>
+          {:else}
+            <a href={`/api/v1/attachments/${item.attachment.id}`} target="_blank" rel="noreferrer">
+              <img
+                src={`/api/v1/attachments/${item.attachment.id}`}
+                alt={item.attachment.filename}
+                loading="lazy"
+              />
+            </a>
+          {/if}
           <div class="media-meta">
             <span class="media-name" title={item.attachment.filename}>{item.attachment.filename}</span>
             <span class="muted">

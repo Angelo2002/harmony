@@ -45,8 +45,12 @@ export interface InstanceMeta {
    * built-in default. Clients fetch the icon at `GET /api/v1/icon`.
    */
   iconHash: string | null;
-  maxUploadBytes: number;
+  /** Largest accepted image upload, in bytes. */
+  maxImageBytes: number;
+  /** Largest accepted video upload, in bytes. */
+  maxVideoBytes: number;
   allowedImageTypes: readonly string[];
+  allowedVideoTypes: readonly string[];
   limits: {
     messageLength: number;
     attachmentsPerMessage: number;
@@ -73,6 +77,10 @@ export interface ServerSettingsResponse {
   embedsEnabled: boolean;
   /** Instance colours; everything else in the palette is derived from these. */
   theme: ThemeSettings;
+  /** Largest accepted image upload, in bytes. */
+  maxImageBytes: number;
+  /** Largest accepted video upload, in bytes. */
+  maxVideoBytes: number;
 }
 
 /** A user together with the roles assigned to them. */
@@ -174,6 +182,8 @@ export interface EmojiImportResponse {
 export interface RetentionSettings {
   /** Delete image attachments older than this many days. */
   imageRetentionDays: number | null;
+  /** Delete video attachments older than this many days. */
+  videoRetentionDays: number | null;
   /** Delete messages older than this many days. */
   messageRetentionDays: number | null;
   /** Delete audit log entries older than this many days. */

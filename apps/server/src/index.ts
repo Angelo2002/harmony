@@ -2,7 +2,12 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import websocket from '@fastify/websocket';
-import { GATEWAY_HEARTBEAT_MS } from '@harmony/shared';
+import {
+  DEFAULT_MAX_IMAGE_BYTES,
+  DEFAULT_MAX_VIDEO_BYTES,
+  GATEWAY_HEARTBEAT_MS,
+  MAX_UPLOAD_CEILING_BYTES,
+} from '@harmony/shared';
 import { loadConfig } from './config.ts';
 import { Database } from './db/index.ts';
 import { canSeeResource, channelAccessFor } from './access/service.ts';
@@ -57,10 +62,12 @@ const settingsService = createSettingsService(db.sqlite, {
   defaultChannelId: null,
   embedsEnabled: true,
   theme: { background: null, accent: null },
+  maxImageBytes: DEFAULT_MAX_IMAGE_BYTES,
+  maxVideoBytes: DEFAULT_MAX_VIDEO_BYTES,
 });
 const authService = createAuthService(db.sqlite, config, settingsService);
 const auditService = createAuditService(db.sqlite);
-const attachmentService = createAttachmentService(db.sqlite, config);
+const attachmentService = createAttachmentService(db.sqlite, config, settingsService);
 const emojiService = createEmojiService(db.sqlite, config);
 const iconService = createIconService(config, settingsService);
 const userService = createUserService(db.sqlite, config);
@@ -122,7 +129,7 @@ const channelImport = createChannelImportService({
 });
 
 await app.register(cookie);
-await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1 } });
+await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_CEILING_BYTES, files: 1 } });
 await app.register(websocket);
 
 registerErrorHandler(app);
@@ -141,7 +148,7 @@ registerMemberRoutes(app, { db, hub, moderation: moderationService, audit: audit
 registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub, bridge, settings: settingsService, importer: channelImport });
 registerMessageRoutes(app, { service: messageService });
-registerAttachmentRoutes(app, attachmentService);
+registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
 registerUserRoutes(app, { db, users: userService });

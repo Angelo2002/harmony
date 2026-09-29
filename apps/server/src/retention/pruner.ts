@@ -3,9 +3,10 @@ import { GatewayEvent, type PruneSummary, type RetentionUsage } from '@harmony/s
 import type { Config } from '../config.ts';
 import {
   countAttachments,
-  deleteAttachmentsOlderThan,
+  deleteImageAttachmentsOlderThan,
   deleteOldestAttachments,
   deleteUnattachedAttachmentsOlderThan,
+  deleteVideoAttachmentsOlderThan,
   listReferencedHashes,
 } from '../db/attachments.ts';
 import { countMessages, deleteMessagesOlderThan, deleteOldestMessages } from '../db/messages.ts';
@@ -83,7 +84,13 @@ export function createPruner(deps: PrunerDeps): Pruner {
     let freedBytes = 0;
 
     if (settings.imageRetentionDays !== null) {
-      deletedAttachments += deleteAttachmentsOlderThan(deps.sqlite, isoDaysAgo(settings.imageRetentionDays));
+      deletedAttachments += deleteImageAttachmentsOlderThan(deps.sqlite, isoDaysAgo(settings.imageRetentionDays));
+    }
+
+    // Videos have their own schedule: they are far heavier, so an admin may well
+    // want to keep images longer than clips.
+    if (settings.videoRetentionDays !== null) {
+      deletedAttachments += deleteVideoAttachmentsOlderThan(deps.sqlite, isoDaysAgo(settings.videoRetentionDays));
     }
 
     if (settings.messageRetentionDays !== null) {

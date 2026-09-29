@@ -180,9 +180,9 @@ type Attachment = {
   id: string;
   messageId: string | null;     // null until attached to a message
   filename: string;
-  contentType: string;
+  contentType: string;          // image/*, or video/mp4 for a clip
   size: number;                 // bytes
-  width: number | null;
+  width: number | null;         // null for a video, which carries no dimensions
   height: number | null;
   hash: string;                 // content hash; blob is immutable
   createdAt: string;
@@ -391,8 +391,10 @@ Public instance information a client needs before signing in.
   "requireInvite": true,
   "theme": { "background": null, "accent": null },
   "iconHash": null,
-  "maxUploadBytes": 10485760,
+  "maxImageBytes": 10485760,
+  "maxVideoBytes": 20971520,
   "allowedImageTypes": ["image/png", "image/jpeg", "image/gif", "image/webp"],
+  "allowedVideoTypes": ["video/mp4"],
   "limits": {
     "messageLength": 4000,
     "attachmentsPerMessage": 10,
@@ -651,28 +653,32 @@ Clears **everyone's** reactions for that emoji. Returns the updated `Message` an
 
 ### Attachments
 
-Uploads are two steps: upload the bytes, then attach the returned id to a message.
+Uploads are two steps: upload the bytes, then attach the returned id to a message. Images and
+MP4 videos are accepted, each with its own size limit.
 
 #### `POST /api/v1/attachments` — `AttachFiles`
 
-`multipart/form-data` with a single `file` field. The image type must be one of the instance's
-`allowedImageTypes`, and the size must be within `maxUploadBytes` (else `413` / `415`). Returns an
+`multipart/form-data` with a single `file` field. An image must be one of the instance's
+`allowedImageTypes` and within `maxImageBytes`; a video must be one of `allowedVideoTypes` (only
+MP4 for now) and within `maxVideoBytes`. A wrong type is a `415`, an oversized file a `413`. An MP4
+is sanity-checked by its header rather than decoded, and stores no dimensions. Returns an
 `Attachment` whose `messageId` is `null`.
 
 #### `GET /api/v1/attachments/:id` — `ViewChannels`
 
-Serves the image bytes with a long-lived immutable cache header. Uploads that are never attached
-to a message are eventually removed by [retention](#retention).
+Serves the bytes with a long-lived immutable cache header, and answers a single `Range` request
+with `206`, which is what lets a video player seek. Uploads that are never attached to a message
+are eventually removed by [retention](#retention).
 
 #### `DELETE /api/v1/attachments/:id` — `ManageServer`
 
-Deletes a stored attachment; the message stays, minus the image. Storage is content-addressed, so
+Deletes a stored attachment; the message stays, minus the file. Storage is content-addressed, so
 the bytes are only removed once no attachment, emoji or avatar still points at them. Returns `204`,
 or `404 attachment_not_found`.
 
 ### Media gallery
 
-The admin gallery lists every stored image in one place.
+The admin gallery lists every stored image and video in one place.
 
 #### `GET /api/v1/media` — `ManageServer`
 
@@ -985,17 +991,21 @@ Returns `204`.
   "requireInvite": true,
   "defaultChannelId": null,
   "embedsEnabled": true,
-  "theme": { "background": "#1e1b2e", "accent": "#eb459e" }
+  "theme": { "background": "#1e1b2e", "accent": "#eb459e" },
+  "maxImageBytes": 10485760,
+  "maxVideoBytes": 20971520
 }
 ```
 
 #### `PATCH /api/v1/settings` — `ManageServer`
 
 `{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null,
-"embedsEnabled"?: boolean, "theme"?: { "background"?: string | null, "accent"?: string | null } }`.
+"embedsEnabled"?: boolean, "maxImageBytes"?: number, "maxVideoBytes"?: number,
+"theme"?: { "background"?: string | null, "accent"?: string | null } }`.
 Returns the updated settings. `serverName` and `theme` changing also update `GET /api/v1/meta`.
 `defaultChannelId` must reference an existing channel, or `400 invalid_default_channel`; `null`
-clears the preference. `embedsEnabled` turns link previews on or off for the whole instance.
+clears the preference. `embedsEnabled` turns link previews on or off for the whole instance. The two
+upload limits are in bytes and may not exceed the server's hard ceiling of 100 MB.
 
 ### Instance icon
 
@@ -1041,12 +1051,13 @@ from this package or simply read the tokens a Harmony client already publishes.
 ### Retention
 
 Retention automatically prunes old content and can cap total storage. Any rule set to `null` is
-switched off. Image, message and audit-log age limits are independent: each is deleted once it is
-older than its own limit, and the log can be cleared outright with `DELETE /api/v1/audit`.
+switched off. Image, video, message and audit-log age limits are independent: each is deleted once
+it is older than its own limit, and the log can be cleared outright with `DELETE /api/v1/audit`.
 
 ```ts
 type RetentionSettings = {
   imageRetentionDays: number | null;
+  videoRetentionDays: number | null;
   messageRetentionDays: number | null;
   auditRetentionDays: number | null;
   storageLimitBytes: number | null;
@@ -1071,8 +1082,9 @@ Returns `{ settings, usage, lastRun }`, where `lastRun` is a `PruneSummary` or `
 
 #### `PATCH /api/v1/retention` — `ManageServer`
 
-Any subset of `imageRetentionDays`, `messageRetentionDays`, `auditRetentionDays`, `storageLimitBytes`,
-`storageTargetBytes`; `null` disables a rule. Returns the same shape as `GET`.
+Any subset of `imageRetentionDays`, `videoRetentionDays`, `messageRetentionDays`,
+`auditRetentionDays`, `storageLimitBytes`, `storageTargetBytes`; `null` disables a rule. Returns the
+same shape as `GET`.
 
 #### `POST /api/v1/retention/run` — `ManageServer`
 

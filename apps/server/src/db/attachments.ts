@@ -102,9 +102,19 @@ export function listReferencedHashes(sqlite: DatabaseSync): Set<string> {
   return hashes;
 }
 
-/** Deletes rows only; callers sweep the blobs afterwards. */
-export function deleteAttachmentsOlderThan(sqlite: DatabaseSync, before: string): number {
-  const result = sqlite.prepare('DELETE FROM attachments WHERE created_at < ?').run(before);
+/** Deletes image rows only; callers sweep the blobs afterwards. */
+export function deleteImageAttachmentsOlderThan(sqlite: DatabaseSync, before: string): number {
+  const result = sqlite
+    .prepare("DELETE FROM attachments WHERE created_at < ? AND content_type LIKE 'image/%'")
+    .run(before);
+  return Number(result.changes);
+}
+
+/** Deletes video rows only; callers sweep the blobs afterwards. */
+export function deleteVideoAttachmentsOlderThan(sqlite: DatabaseSync, before: string): number {
+  const result = sqlite
+    .prepare("DELETE FROM attachments WHERE created_at < ? AND content_type LIKE 'video/%'")
+    .run(before);
   return Number(result.changes);
 }
 

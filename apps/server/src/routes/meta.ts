@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { ALLOWED_IMAGE_TYPES, API_VERSION, LIMITS, type InstanceMeta } from '@harmony/shared';
+import { ALLOWED_IMAGE_TYPES, ALLOWED_VIDEO_TYPES, API_VERSION, LIMITS, type InstanceMeta } from '@harmony/shared';
 import type { Config } from '../config.ts';
 import type { SettingsService } from '../settings/service.ts';
 
@@ -13,8 +13,10 @@ export function registerMetaRoutes(app: FastifyInstance, deps: { config: Config;
       requireInvite: settings.requireInvite,
       theme: settings.theme,
       iconHash: deps.settings.getIconHash(),
-      maxUploadBytes: deps.config.maxUploadBytes,
+      maxImageBytes: settings.maxImageBytes,
+      maxVideoBytes: settings.maxVideoBytes,
       allowedImageTypes: ALLOWED_IMAGE_TYPES,
+      allowedVideoTypes: ALLOWED_VIDEO_TYPES,
       limits: {
         messageLength: LIMITS.messageLength,
         attachmentsPerMessage: LIMITS.attachmentsPerMessage,

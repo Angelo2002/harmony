@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { HEX_COLOR_PATTERN, type RetentionSettings, type ThemeSettings } from '@harmony/shared';
+import { HEX_COLOR_PATTERN, MAX_UPLOAD_CEILING_BYTES, DEFAULT_MAX_IMAGE_BYTES, DEFAULT_MAX_VIDEO_BYTES, type RetentionSettings, type ThemeSettings } from '@harmony/shared';
 import { readAllSettings, writeSetting } from '../db/settings.ts';
 
 export interface ServerSettings {
@@ -11,6 +11,10 @@ export interface ServerSettings {
   embedsEnabled: boolean;
   /** Instance colours; the rest of the palette is derived from these two. */
   theme: ThemeSettings;
+  /** Largest accepted image upload, in bytes. */
+  maxImageBytes: number;
+  /** Largest accepted video upload, in bytes. */
+  maxVideoBytes: number;
 }
 
 /** A settings patch. `theme` is partial so one colour can be changed on its own. */
@@ -20,6 +24,8 @@ export interface ServerSettingsUpdate {
   defaultChannelId?: string | null;
   embedsEnabled?: boolean;
   theme?: Partial<ThemeSettings>;
+  maxImageBytes?: number;
+  maxVideoBytes?: number;
 }
 
 export interface BridgeSettings {
@@ -60,6 +66,7 @@ const KEY_EMBEDS_ENABLED = 'embeds_enabled';
 const KEY_THEME_BACKGROUND = 'theme_background';
 const KEY_THEME_ACCENT = 'theme_accent';
 const KEY_IMAGE_DAYS = 'retention_image_days';
+const KEY_VIDEO_DAYS = 'retention_video_days';
 const KEY_MESSAGE_DAYS = 'retention_message_days';
 const KEY_AUDIT_DAYS = 'retention_audit_days';
 const KEY_STORAGE_LIMIT = 'storage_limit_bytes';
@@ -68,6 +75,8 @@ const KEY_DISCORD_TOKEN = 'discord_bot_token';
 const KEY_BRIDGE_ENABLED = 'bridge_enabled';
 const KEY_BRIDGE_PUBLIC_URL = 'bridge_public_base_url';
 const KEY_ICON_HASH = 'instance_icon_hash';
+const KEY_IMAGE_BYTES = 'upload_image_bytes';
+const KEY_VIDEO_BYTES = 'upload_video_bytes';
 
 function parseString(raw: string, fallback: string): string {
   try {
@@ -114,6 +123,18 @@ function parseHexOrNull(raw: string | undefined): string | null {
   return value !== null && HEX_COLOR_PATTERN.test(value) ? value : null;
 }
 
+/** A positive byte count, clamped to what the multipart layer can buffer. */
+function parseSize(raw: string | undefined, fallback: number): number {
+  if (raw == null) return fallback;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 1024) return fallback;
+    return Math.min(Math.floor(value), MAX_UPLOAD_CEILING_BYTES);
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * Instance settings live in the database so admins can change them at runtime.
  * Environment values only provide the initial defaults.
@@ -134,6 +155,8 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
         background: parseHexOrNull(stored.get(KEY_THEME_BACKGROUND)),
         accent: parseHexOrNull(stored.get(KEY_THEME_ACCENT)),
       },
+      maxImageBytes: parseSize(stored.get(KEY_IMAGE_BYTES), defaults.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES),
+      maxVideoBytes: parseSize(stored.get(KEY_VIDEO_BYTES), defaults.maxVideoBytes ?? DEFAULT_MAX_VIDEO_BYTES),
     };
   }
 
@@ -141,6 +164,7 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
     const stored = readAllSettings(sqlite);
     return {
       imageRetentionDays: parseNumberOrNull(stored.get(KEY_IMAGE_DAYS)),
+      videoRetentionDays: parseNumberOrNull(stored.get(KEY_VIDEO_DAYS)),
       messageRetentionDays: parseNumberOrNull(stored.get(KEY_MESSAGE_DAYS)),
       auditRetentionDays: parseNumberOrNull(stored.get(KEY_AUDIT_DAYS)),
       storageLimitBytes: parseNumberOrNull(stored.get(KEY_STORAGE_LIMIT)),
@@ -198,12 +222,21 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       if (patch.theme?.accent !== undefined) {
         writeSetting(sqlite, KEY_THEME_ACCENT, JSON.stringify(patch.theme.accent));
       }
+      if (patch.maxImageBytes !== undefined) {
+        writeSetting(sqlite, KEY_IMAGE_BYTES, JSON.stringify(patch.maxImageBytes));
+      }
+      if (patch.maxVideoBytes !== undefined) {
+        writeSetting(sqlite, KEY_VIDEO_BYTES, JSON.stringify(patch.maxVideoBytes));
+      }
       return get();
     },
 
     updateRetention(patch) {
       if (patch.imageRetentionDays !== undefined) {
         writeSetting(sqlite, KEY_IMAGE_DAYS, JSON.stringify(patch.imageRetentionDays));
+      }
+      if (patch.videoRetentionDays !== undefined) {
+        writeSetting(sqlite, KEY_VIDEO_DAYS, JSON.stringify(patch.videoRetentionDays));
       }
       if (patch.messageRetentionDays !== undefined) {
         writeSetting(sqlite, KEY_MESSAGE_DAYS, JSON.stringify(patch.messageRetentionDays));

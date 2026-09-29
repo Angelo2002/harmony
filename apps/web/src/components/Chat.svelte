@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { chat } from '../lib/chat.svelte';
-  import { dragHasFiles, imageFilesFrom } from '../lib/files';
+  import { dragHasFiles, mediaFilesFrom } from '../lib/files';
   import { channelGlyph } from '../lib/format';
   import { session } from '../lib/session.svelte';
   import { ui } from '../lib/ui.svelte';
@@ -54,7 +54,7 @@
     event.preventDefault();
     dragDepth = 0;
     // The composer owns uploading; it picks these up from the queue.
-    uploads.drop(imageFilesFrom(event.dataTransfer));
+    uploads.drop(mediaFilesFrom(event.dataTransfer));
   }
 </script>
 

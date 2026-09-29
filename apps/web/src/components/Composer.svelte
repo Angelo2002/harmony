@@ -1,16 +1,17 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { ALLOWED_IMAGE_TYPES, LIMITS, isTimedOut, type Attachment, type Emoji, type User } from '@harmony/shared';
+  import { ALLOWED_ATTACHMENT_TYPES, LIMITS, isTimedOut, type Attachment, type Emoji, type User } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
   import { avatarUrl, initial } from '../lib/avatar';
   import { chat } from '../lib/chat.svelte';
   import { emojis } from '../lib/emojis.svelte';
-  import { imageFilesFrom } from '../lib/files';
+  import { mediaFilesFrom } from '../lib/files';
   import { members } from '../lib/members.svelte';
+  import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
   import { uploads } from '../lib/upload-queue.svelte';
 
-  const acceptAttribute = ALLOWED_IMAGE_TYPES.join(',');
+  const acceptAttribute = ALLOWED_ATTACHMENT_TYPES.join(',');
   const maxAttachments = LIMITS.attachmentsPerMessage;
   /** How many matches any autocomplete offers at once. */
   const maxSuggestions = 8;
@@ -45,7 +46,16 @@
     insert: string;
   }
 
-  /** Uploads each image and queues it on the message being written. */
+  /** A client-side size check, so an oversized file is refused before uploading. */
+  function tooLarge(file: File): string | null {
+    const isVideo = file.type.startsWith('video/');
+    const limit = isVideo ? meta.data?.maxVideoBytes : meta.data?.maxImageBytes;
+    if (!limit || file.size <= limit) return null;
+    const kind = isVideo ? 'videos' : 'images';
+    return `${file.name} is too large — ${kind} are at most ${Math.round(limit / (1024 * 1024))} MB.`;
+  }
+
+  /** Uploads each file and queues it on the message being written. */
   async function uploadFiles(files: File[]): Promise<void> {
     if (files.length === 0) return;
     error = null;
@@ -53,8 +63,13 @@
     try {
       for (const file of files) {
         if (pending.length >= maxAttachments) {
-          error = `You can attach at most ${maxAttachments} images per message.`;
+          error = `You can attach at most ${maxAttachments} files per message.`;
           break;
+        }
+        const rejection = tooLarge(file);
+        if (rejection) {
+          error = rejection;
+          continue;
         }
         const form = new FormData();
         form.append('file', file);
@@ -78,7 +93,7 @@
   /** Pasted screenshots become attachments, the way Discord does it. */
   function onPaste(event: ClipboardEvent): void {
     if (timeoutUntil !== null) return;
-    const files = imageFilesFrom(event.clipboardData);
+    const files = mediaFilesFrom(event.clipboardData);
     if (files.length === 0) return;
     // Only swallow the paste when there are images to take from it.
     event.preventDefault();
@@ -343,7 +358,13 @@
     <div class="pending">
       {#each pending as attachment (attachment.id)}
         <div class="pending-item">
-          <img src={`/api/v1/attachments/${attachment.id}`} alt={attachment.filename} />
+          {#if attachment.contentType.startsWith('video/')}
+            <!-- A short silent preview; there is no caption track to attach. -->
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <video src={`/api/v1/attachments/${attachment.id}`} muted preload="metadata"></video>
+          {:else}
+            <img src={`/api/v1/attachments/${attachment.id}`} alt={attachment.filename} />
+          {/if}
           <button type="button" class="remove" title="Remove" onclick={() => removePending(attachment.id)}>×</button>
         </div>
       {/each}

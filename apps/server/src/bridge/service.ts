@@ -416,18 +416,30 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     author: UserRow,
     attachment: DiscordIncomingAttachment,
   ): Promise<string | null> {
-    if (!ALLOWED_IMAGE_TYPES.includes(attachment.contentType as ImageContentType)) return null;
-    if (attachment.size > deps.config.maxUploadBytes) return null;
+    const isVideo = attachment.contentType.startsWith('video/');
+    if (!isVideo && !ALLOWED_IMAGE_TYPES.includes(attachment.contentType as ImageContentType)) return null;
+
+    // Discord may hand us any video container; clips are stored as they are and
+    // it is left to the viewer's browser which formats it can play.
+    const limits = deps.settings.get();
+    const limit = isVideo ? limits.maxVideoBytes : limits.maxImageBytes;
+    if (attachment.size > limit) return null;
 
     try {
       const data = await active.download(attachment.url);
-      if (data.length > deps.config.maxUploadBytes) return null;
+      if (data.length > limit) return null;
 
-      let metadata: Metadata;
-      try {
-        metadata = await sharp(data).metadata();
-      } catch {
-        return null; // Not a real image.
+      let width: number | null = null;
+      let height: number | null = null;
+      if (!isVideo) {
+        let metadata: Metadata;
+        try {
+          metadata = await sharp(data).metadata();
+        } catch {
+          return null; // Not a real image.
+        }
+        width = metadata.width ?? null;
+        height = metadata.height ?? null;
       }
 
       const id = randomUUID();
@@ -437,8 +449,8 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
         filename: attachment.filename,
         contentType: attachment.contentType,
         size: data.length,
-        width: metadata.width ?? null,
-        height: metadata.height ?? null,
+        width,
+        height,
         hash: blobs.save(data),
         createdAt: new Date().toISOString(),
       });

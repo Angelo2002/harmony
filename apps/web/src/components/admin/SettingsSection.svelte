@@ -4,6 +4,7 @@
     ALLOWED_IMAGE_TYPES,
     DEFAULT_ACCENT,
     DEFAULT_BACKGROUND,
+    MAX_UPLOAD_CEILING_BYTES,
     type Channel,
     type ChannelListResponse,
     type InstanceIconResponse,
@@ -21,12 +22,27 @@
   let channels = $state<Channel[]>([]);
   let themeBackground = $state(DEFAULT_BACKGROUND);
   let themeAccent = $state(DEFAULT_ACCENT);
+  let maxImageMb = $state('');
+  let maxVideoMb = $state('');
   let busy = $state(false);
   let message = $state<string | null>(null);
   let error = $state<string | null>(null);
 
   const acceptAttribute = ALLOWED_IMAGE_TYPES.join(',');
   let iconInput = $state<HTMLInputElement | null>(null);
+
+  const MB = 1024 * 1024;
+  const ceilingMb = Math.round(MAX_UPLOAD_CEILING_BYTES / MB);
+
+  function toMb(bytes: number): string {
+    return String(Math.round((bytes / MB) * 10) / 10);
+  }
+
+  function toBytes(value: string): number | undefined {
+    const parsed = Number(value.trim());
+    if (!value.trim() || !Number.isFinite(parsed) || parsed <= 0) return undefined;
+    return Math.round(parsed * MB);
+  }
 
   onMount(async () => {
     try {
@@ -40,6 +56,8 @@
       defaultChannelId = settings.defaultChannelId ?? '';
       themeBackground = settings.theme.background ?? DEFAULT_BACKGROUND;
       themeAccent = settings.theme.accent ?? DEFAULT_ACCENT;
+      maxImageMb = toMb(settings.maxImageBytes);
+      maxVideoMb = toMb(settings.maxVideoBytes);
       channels = channelData.channels;
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
@@ -108,15 +126,22 @@
     error = null;
     message = null;
     try {
+      const body: Record<string, unknown> = {
+        serverName: serverName.trim(),
+        requireInvite,
+        embedsEnabled,
+        defaultChannelId: defaultChannelId || null,
+        theme: { background: themeBackground, accent: themeAccent },
+      };
+      // Blank leaves a size unchanged rather than clearing it.
+      const imageBytes = toBytes(maxImageMb);
+      const videoBytes = toBytes(maxVideoMb);
+      if (imageBytes !== undefined) body.maxImageBytes = imageBytes;
+      if (videoBytes !== undefined) body.maxVideoBytes = videoBytes;
+
       const updated = await api<ServerSettingsResponse>('/settings', {
         method: 'PATCH',
-        body: JSON.stringify({
-          serverName: serverName.trim(),
-          requireInvite,
-          embedsEnabled,
-          defaultChannelId: defaultChannelId || null,
-          theme: { background: themeBackground, accent: themeAccent },
-        }),
+        body: JSON.stringify(body),
       });
       serverName = updated.serverName;
       requireInvite = updated.requireInvite;
@@ -124,6 +149,8 @@
       defaultChannelId = updated.defaultChannelId ?? '';
       themeBackground = updated.theme.background ?? DEFAULT_BACKGROUND;
       themeAccent = updated.theme.accent ?? DEFAULT_ACCENT;
+      maxImageMb = toMb(updated.maxImageBytes);
+      maxVideoMb = toMb(updated.maxVideoBytes);
       // Remember the saved palette, and keep the public meta in step, so the
       // restore above falls back to what is actually stored.
       setSavedTheme(updated.theme);
@@ -169,6 +196,24 @@
       </select>
     </label>
     <p class="muted">The channel that opens automatically when someone enters the server.</p>
+
+    <fieldset>
+      <legend>Upload limits</legend>
+      <div class="inline">
+        <label>
+          Images (MB)
+          <input bind:value={maxImageMb} inputmode="decimal" />
+        </label>
+        <label>
+          Videos (MB)
+          <input bind:value={maxVideoMb} inputmode="decimal" />
+        </label>
+      </div>
+      <p class="muted">
+        The largest file a member may attach. Videos must be MP4. Leave a field as it is to keep the
+        current value; the hard ceiling is {ceilingMb} MB per upload.
+      </p>
+    </fieldset>
 
     <fieldset>
       <legend>Colours</legend>

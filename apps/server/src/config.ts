@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
 import { resolve } from 'node:path';
-import { DEFAULT_MAX_UPLOAD_BYTES, HARMONY_NAME } from '@harmony/shared';
+import { HARMONY_NAME } from '@harmony/shared';
 
 export interface Config {
   host: string;
@@ -13,8 +13,6 @@ export interface Config {
   dbFile: string;
   /** Directory holding content-addressed uploaded blobs. */
   uploadDir: string;
-  /** Largest accepted upload, in bytes. */
-  maxUploadBytes: number;
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   /** When true, registration demands a valid invite code (the first user is always exempt). */
   requireInvite: boolean;
@@ -32,6 +30,14 @@ export interface Config {
 // Load `.env` if present, without pulling in a dotenv dependency.
 const envPath = resolve(process.cwd(), '.env');
 if (existsSync(envPath)) loadEnvFile(envPath);
+
+// Upload limits are admin settings now. Warn rather than fail, so an old .env
+// does not stop the server from starting.
+if (process.env.HARMONY_MAX_UPLOAD_MB) {
+  console.warn(
+    '[harmony] HARMONY_MAX_UPLOAD_MB is no longer used; upload limits are set in the admin panel (Settings).',
+  );
+}
 
 function readNumber(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -59,9 +65,6 @@ export function loadConfig(): Config {
     dataDir,
     dbFile: resolve(dataDir, 'harmony.db'),
     uploadDir: resolve(dataDir, 'uploads'),
-    maxUploadBytes: Math.floor(
-      readNumber(process.env.HARMONY_MAX_UPLOAD_MB, DEFAULT_MAX_UPLOAD_BYTES / (1024 * 1024)) * 1024 * 1024,
-    ),
     logLevel: (process.env.HARMONY_LOG_LEVEL as Config['logLevel']) ?? 'info',
     requireInvite: readBoolean(process.env.HARMONY_REQUIRE_INVITE, false),
     sessionTtlDays: readNumber(process.env.HARMONY_SESSION_TTL_DAYS, 30),

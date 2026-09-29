@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LIMITS } from './constants.ts';
+import { LIMITS, MAX_UPLOAD_CEILING_BYTES } from './constants.ts';
 import { TIMEOUT_MAX_MINUTES } from './moderation.ts';
 import { HEX_COLOR_PATTERN } from './theme.ts';
 
@@ -149,6 +149,9 @@ export const updateRoleSchema = z.object({
 });
 export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
 
+/** A per-type upload limit in bytes: at least 1 KiB, at most the hard ceiling. */
+const uploadSize = z.number().int().min(1024).max(MAX_UPLOAD_CEILING_BYTES).optional();
+
 export const updateSettingsSchema = z.object({
   serverName: z.string().min(1).max(64).optional(),
   requireInvite: z.boolean().optional(),
@@ -164,6 +167,9 @@ export const updateSettingsSchema = z.object({
     })
     .partial()
     .optional(),
+  /** Upload size limits, in bytes; the ceiling is what the server can buffer. */
+  maxImageBytes: uploadSize,
+  maxVideoBytes: uploadSize,
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
@@ -188,6 +194,7 @@ const retentionNumber = z.number().int().min(0).nullable().optional();
 
 export const updateRetentionSchema = z.object({
   imageRetentionDays: retentionNumber,
+  videoRetentionDays: retentionNumber,
   messageRetentionDays: retentionNumber,
   auditRetentionDays: retentionNumber,
   storageLimitBytes: retentionNumber,

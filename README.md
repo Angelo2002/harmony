@@ -6,13 +6,14 @@ Selfhosted discord alternative, aimed to make migration painless
 
 Playable end to end: username/password auth with optional invites, channels and
 categories, realtime messaging with replies, emoji reactions, and `:emoji:` and
-`@mention` autocomplete, image attachments, custom emoji with role-coloured
-usernames, profile pictures and display names, moderation (timeouts, kicks and
-bans), configurable storage retention, a two-way Discord bridge (messages,
-images, replies, reactions, mentions, edits and deletes, with custom emoji
-matched by name), and an admin panel covering settings, roles, members, channels,
-emoji, media, retention, the bridge, invites and bans. The full HTTP and gateway API
-for custom clients and bots is documented in [`docs/API.md`](docs/API.md).
+`@mention` autocomplete, image and video attachments, custom emoji with
+role-coloured usernames, profile pictures and display names, moderation (timeouts,
+kicks and bans), configurable storage retention, a two-way Discord bridge
+(messages, images and videos, replies, reactions, mentions, edits and deletes,
+with custom emoji matched by name), and an admin panel covering settings, roles,
+members, channels, emoji, media, retention, the bridge, invites and bans. The full
+HTTP and gateway API for custom clients and bots is documented in
+[`docs/API.md`](docs/API.md).
 
 ## Tech stack
 
@@ -71,11 +72,11 @@ Harmony users are mirrored to Discord as webhook messages, so they carry the aut
 name; Discord always marks webhook messages with an "APP" tag. Discord users appear in Harmony
 as stand-in accounts created automatically the first time they post.
 
-Text, images, avatars, replies, reactions, edits and deletes are all mirrored in both directions.
-Images are transferred between the two systems, and anything that cannot be mirrored (a
-non-image, or a file above Discord's 8 MB upload limit) is preserved as a link instead of being
-dropped. Discord's 2000 character message limit means longer Harmony messages are truncated when
-mirrored out.
+Text, images, videos, avatars, replies, reactions, edits and deletes are all mirrored in both
+directions. Images and clips are transferred between the two systems, and anything that cannot be
+mirrored (an unsupported file type, or one above the instance's upload limit) is preserved as a
+link instead of being dropped. Discord's 2000 character message limit means longer Harmony messages
+are truncated when mirrored out.
 
 Custom emoji are matched by name: a Harmony `:YES:` is sent to Discord as its `<:YES:id>` tag,
 and a Discord `<:YES:id>` tag is turned back into `:YES:` on the way in, rendering the Harmony

@@ -7,6 +7,7 @@
   const GB = 1024 ** 3;
 
   let imageDays = $state('');
+  let videoDays = $state('');
   let messageDays = $state('');
   let auditDays = $state('');
   let limitGb = $state('');
@@ -23,6 +24,7 @@
 
   function apply(data: RetentionResponse): void {
     imageDays = data.settings.imageRetentionDays == null ? '' : String(data.settings.imageRetentionDays);
+    videoDays = data.settings.videoRetentionDays == null ? '' : String(data.settings.videoRetentionDays);
     messageDays = data.settings.messageRetentionDays == null ? '' : String(data.settings.messageRetentionDays);
     auditDays = data.settings.auditRetentionDays == null ? '' : String(data.settings.auditRetentionDays);
     limitGb = data.settings.storageLimitBytes == null ? '' : String(round2(data.settings.storageLimitBytes / GB));
@@ -62,6 +64,7 @@
           method: 'PATCH',
           body: JSON.stringify({
             imageRetentionDays: toDays(imageDays),
+            videoRetentionDays: toDays(videoDays),
             messageRetentionDays: toDays(messageDays),
             auditRetentionDays: toDays(auditDays),
             storageLimitBytes: toBytes(limitGb),
@@ -101,6 +104,11 @@
     <label>
       Delete images after (days)
       <input bind:value={imageDays} placeholder="off" inputmode="numeric" />
+    </label>
+
+    <label>
+      Delete videos after (days)
+      <input bind:value={videoDays} placeholder="off" inputmode="numeric" />
     </label>
 
     <label>

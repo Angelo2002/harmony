@@ -150,7 +150,6 @@ const config = {
   dataDir,
   dbFile: join(dataDir, 'harmony.db'),
   uploadDir: join(dataDir, 'uploads'),
-  maxUploadBytes: 10 * 1024 * 1024,
 };
 
 const db = new Database(config);
@@ -158,7 +157,7 @@ const settings = createSettingsService(db.sqlite, { serverName: 'Test', requireI
 const hub = new GatewayHub();
 const audit = createAuditService(db.sqlite);
 const messages = createMessageService(db.sqlite, hub, audit);
-const attachments = createAttachmentService(db.sqlite, config);
+const attachments = createAttachmentService(db.sqlite, config, settings);
 const users = createUserService(db.sqlite, config);
 const transport = createFakeTransport();
 
@@ -175,6 +174,15 @@ const bridge = createBridgeService({
 const png = await sharp({ create: { width: 10, height: 6, channels: 3, background: { r: 10, g: 200, b: 90 } } })
   .png()
   .toBuffer();
+
+/** A minimal well-formed MP4 header: a size word, then the required ftyp box. */
+const mp4 = Buffer.concat([
+  Buffer.from([0x00, 0x00, 0x00, 0x18]),
+  Buffer.from('ftypisom'),
+  Buffer.from([0x00, 0x00, 0x02, 0x00]),
+  Buffer.from('isomiso2'),
+  Buffer.alloc(64),
+]);
 
 try {
   // 1. Nothing happens until the bridge is configured and enabled.
@@ -282,6 +290,28 @@ try {
     .history(channelId, { limit: 50 }, userId)
     .messages.find((message) => message.content === 'a reply from discord');
   check('discord reply references the bridged message', replyIngested?.replyTo?.id === ingested?.id);
+
+  // 4c. A Discord video is imported as-is, so it does not become a link.
+  transport.state.downloadBytes = mp4;
+  transport.emit({
+    id: 'd1v',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    content: '',
+    attachments: [
+      { url: 'https://cdn.example/clip.mp4', filename: 'clip.mp4', contentType: 'video/mp4', size: mp4.length },
+    ],
+    fromBot: false,
+  });
+  await sleep(50);
+  const videoIngested = messages
+    .history(channelId, { limit: 50 }, userId)
+    .messages.find((message) => message.attachments.some((attachment) => attachment.filename === 'clip.mp4'));
+  check('a discord video is imported', videoIngested?.attachments[0]?.contentType === 'video/mp4');
+  check('an imported clip keeps no dimensions', videoIngested?.attachments[0]?.width === null);
 
   // 5. Unsupported attachments are preserved as links rather than dropped.
   transport.emit({

@@ -196,6 +196,31 @@
     if (grown > 0) element.scrollTop = previousTop + grown;
   }
 
+  let sizeObserver: ResizeObserver | null = null;
+
+  /** Re-pins the view to the newest message when it is already at the bottom. */
+  function onRowResize(): void {
+    const element = scroller;
+    if (!element || !atBottom) return;
+    element.scrollTo({ top: element.scrollHeight });
+  }
+
+  /**
+   * Keeps the view pinned to the newest message when a row grows for a reason
+   * other than a new message: a link preview arriving a moment late, an image
+   * finishing its load, or a reaction picker or edit form opening. Watching the
+   * message list alone cannot see any of those, because the list is unchanged.
+   */
+  function trackSize(element: HTMLElement): { destroy: () => void } {
+    sizeObserver ??= new ResizeObserver(onRowResize);
+    sizeObserver.observe(element);
+    return {
+      destroy(): void {
+        sizeObserver?.unobserve(element);
+      },
+    };
+  }
+
   // Follow the newest message, but never yank the view when older pages load.
   $effect(() => {
     const element = scroller;
@@ -312,6 +337,7 @@
         class:mentions-me={mentionsMe}
         class:selected={chat.replyTarget?.id === message.id}
         class:actions-open={actionsFor === message.id}
+        use:trackSize
         onclick={(event) => onMessageClick(event, message)}
       >
         {#if grouped}

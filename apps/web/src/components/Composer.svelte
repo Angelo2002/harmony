@@ -15,6 +15,24 @@
   /** How stale the member directory may be before a mention refreshes it. */
   const directoryMaxAgeMs = 30_000;
 
+  /**
+   * The image files a paste carries. A clipboard with no files is left alone, so
+   * ordinary text still pastes normally.
+   */
+  function imagesFromClipboard(data: DataTransfer | null): File[] {
+    if (!data) return [];
+    const files: File[] = [];
+    for (let index = 0; index < data.items.length; index++) {
+      const item = data.items[index];
+      if (!item || item.kind !== 'file') continue;
+      const file = item.getAsFile();
+      // An empty type happens on a few platforms; the server has the last word.
+      if (!file || (file.type !== '' && !file.type.startsWith('image/'))) continue;
+      files.push(file);
+    }
+    return files;
+  }
+
   let value = $state('');
   let busy = $state(false);
   let uploading = $state(false);
@@ -43,17 +61,17 @@
     insert: string;
   }
 
-  async function onFiles(event: Event): Promise<void> {
-    const input = event.currentTarget as HTMLInputElement;
-    const files = Array.from(input.files ?? []);
-    input.value = ''; // allow picking the same file again later
+  /** Uploads each image and queues it on the message being written. */
+  async function uploadFiles(files: File[]): Promise<void> {
     if (files.length === 0) return;
-
     error = null;
     uploading = true;
     try {
       for (const file of files) {
-        if (pending.length >= maxAttachments) break;
+        if (pending.length >= maxAttachments) {
+          error = `You can attach at most ${maxAttachments} images per message.`;
+          break;
+        }
         const form = new FormData();
         form.append('file', file);
         const attachment = await api<Attachment>('/attachments', { method: 'POST', body: form });
@@ -64,6 +82,23 @@
     } finally {
       uploading = false;
     }
+  }
+
+  async function onFiles(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = ''; // allow picking the same file again later
+    await uploadFiles(files);
+  }
+
+  /** Pasted screenshots become attachments, the way Discord does it. */
+  function onPaste(event: ClipboardEvent): void {
+    if (timeoutUntil !== null) return;
+    const files = imagesFromClipboard(event.clipboardData);
+    if (files.length === 0) return;
+    // Only swallow the paste when there are images to take from it.
+    event.preventDefault();
+    void uploadFiles(files);
   }
 
   function removePending(id: string): void {
@@ -291,7 +326,7 @@
   }
 </script>
 
-<div class="composer">
+<div class="composer" onpaste={onPaste}>
   {#if error}
     <p class="form-error">{error}</p>
   {/if}

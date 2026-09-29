@@ -6,8 +6,8 @@ const MAX_TITLE = 200;
 const MAX_DESCRIPTION = 400;
 const MAX_SITE_NAME = 100;
 
-/** Only the head matters; this bounds how much of a large page we scan. */
-const HEAD_LIMIT = 200_000;
+/** Bounds how much of a large page we scan; the caller caps the read too. */
+const HEAD_LIMIT = 1_000_000;
 
 const NAMED_ENTITIES: Record<string, string> = {
   amp: '&',
@@ -70,7 +70,7 @@ function titleTag(html: string): string | null {
 }
 
 /** Collapses whitespace and trims a value to a sane length. */
-function collapse(value: string | null, max: number): string | null {
+export function collapseText(value: string | null, max: number): string | null {
   if (!value) return null;
   const text = value.replace(/\s+/g, ' ').trim();
   if (text.length === 0) return null;
@@ -114,13 +114,16 @@ export function parseEmbedMetadata(html: string, url: string): LinkEmbed {
 
   return {
     url,
-    title: collapse(pick('og:title', 'twitter:title') ?? titleTag(head), MAX_TITLE),
-    description: collapse(pick('og:description', 'twitter:description', 'description'), MAX_DESCRIPTION),
-    siteName: collapse(pick('og:site_name', 'application-name') ?? hostnameOf(url), MAX_SITE_NAME),
+    title: collapseText(pick('og:title', 'twitter:title') ?? titleTag(head), MAX_TITLE),
+    description: collapseText(pick('og:description', 'twitter:description', 'description'), MAX_DESCRIPTION),
+    siteName: collapseText(pick('og:site_name', 'application-name') ?? hostnameOf(url), MAX_SITE_NAME),
     imageUrl: absoluteHttpUrl(
       pick('og:image:secure_url', 'og:image:url', 'og:image', 'twitter:image', 'twitter:image:src'),
       url,
     ),
+    // A page's own og:video is not trusted as a player; providers are recognised
+    // from the URL instead, so the embed origin is always ours to choose.
+    player: null,
   };
 }
 

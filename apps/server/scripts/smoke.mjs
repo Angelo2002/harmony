@@ -16,6 +16,8 @@ import WebSocket from 'ws';
 import sharp from 'sharp';
 import { listEmbeddableUrls, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
+import { tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
+import { parseMessageEmbed } from '../src/db/messages.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8791;
@@ -755,6 +757,30 @@ try {
     'a data: image is refused',
     parseEmbedMetadata('<meta property="og:image" content="data:image/gif;base64,R0lGOD">', 'https://example.com/')
       .imageUrl === null,
+  );
+
+  // Inline players are recognised from the link, never from og:video.
+  check('a watch link yields its video id', youtubeVideoId(new URL('https://www.youtube.com/watch?v=dQw4w9WgXcQ')) === 'dQw4w9WgXcQ');
+  check('a short link yields its video id', youtubeVideoId(new URL('https://youtu.be/dQw4w9WgXcQ')) === 'dQw4w9WgXcQ');
+  check('a shorts link yields its video id', youtubeVideoId(new URL('https://www.youtube.com/shorts/dQw4w9WgXcQ')) === 'dQw4w9WgXcQ');
+  check('a channel link is not a video', youtubeVideoId(new URL('https://www.youtube.com/@someone')) === null);
+  check(
+    'a lookalike host is not youtube',
+    youtubeVideoId(new URL('https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ')) === null,
+  );
+
+  check('a status link yields its tweet id', tweetStatusId(new URL('https://x.com/jack/status/20')) === '20');
+  check('an i/status link yields its tweet id', tweetStatusId(new URL('https://x.com/i/status/20')) === '20');
+  check('a profile link is not a tweet', tweetStatusId(new URL('https://x.com/jack')) === null);
+  check('a lookalike host is not x', tweetStatusId(new URL('https://x.com.evil.test/jack/status/20')) === null);
+
+  const storedPlayer = parseMessageEmbed(
+    JSON.stringify({ url: 'https://youtu.be/dQw4w9WgXcQ', player: { provider: 'youtube', id: 'dQw4w9WgXcQ' } }),
+  );
+  check('a stored player survives a round trip', storedPlayer?.player?.id === 'dQw4w9WgXcQ');
+  check(
+    'an unknown player provider is dropped',
+    parseMessageEmbed(JSON.stringify({ url: 'https://x.test', player: { provider: 'evil', id: 'x' } }))?.player === null,
   );
 
   check('the preview media endpoint needs a url (400)', (await req('/embeds/media', { token: ownerToken })).status === 400);

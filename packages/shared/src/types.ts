@@ -106,6 +106,18 @@ export interface LinkEmbed {
    * rather than from the remote host.
    */
   imageUrl: string | null;
+  /** An inline player to offer, when the link is one we can play ourselves. */
+  player: EmbedPlayer | null;
+}
+
+/**
+ * A playable embed. The id is all that crosses the wire: a client builds the
+ * player URL from a provider it knows, so the origin is never taken from the
+ * page we scraped.
+ */
+export interface EmbedPlayer {
+  provider: 'youtube';
+  id: string;
 }
 
 /** What an audit entry records. */

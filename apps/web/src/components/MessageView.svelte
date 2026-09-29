@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { Permission, hasPermission, type Message, type User } from '@harmony/shared';
+  import { Permission, hasPermission, type LinkEmbed, type Message, type User } from '@harmony/shared';
   import { ApiError } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
   import { avatarUrl, initial } from '../lib/avatar';
@@ -10,6 +10,7 @@
   import { profileCard } from '../lib/profile-card.svelte';
   import { session } from '../lib/session.svelte';
   import EmojiPicker from './EmojiPicker.svelte';
+  import EmbedVideo from './EmbedVideo.svelte';
 
   /** Opens the profile card for an author, when there is one to show. */
   function openCard(user: User | null | undefined, element: HTMLElement): void {
@@ -260,6 +261,14 @@
   {/each}
 {/snippet}
 
+{#snippet embedText(embed: LinkEmbed)}
+  {#if embed.siteName}<span class="embed-site">{embed.siteName}</span>{/if}
+  {#if embed.title}<span class="embed-title">{embed.title}</span>{/if}
+  {#if embed.description}
+    <span class="embed-description">{embed.description}</span>
+  {/if}
+{/snippet}
+
 <div class="messages" bind:this={scroller} onscroll={onScroll}>
   {#if actionError}
     <p class="form-error pad">{actionError}</p>
@@ -436,22 +445,31 @@
             {/if}
 
             {#if message.embed}
-              <a class="embed" href={message.embed.url} target="_blank" rel="noreferrer noopener">
-                {#if message.embed.imageUrl}
-                  <!-- Fetched through the server, not straight from the third party. -->
-                  <img
-                    class="embed-image"
-                    src={`/api/v1/embeds/media?url=${encodeURIComponent(message.embed.imageUrl)}`}
-                    alt=""
-                    loading="lazy"
+              {#if message.embed.player}
+                <div class="embed">
+                  <EmbedVideo
+                    player={message.embed.player}
+                    title={message.embed.title}
+                    imageUrl={message.embed.imageUrl}
                   />
-                {/if}
-                {#if message.embed.siteName}<span class="embed-site">{message.embed.siteName}</span>{/if}
-                {#if message.embed.title}<span class="embed-title">{message.embed.title}</span>{/if}
-                {#if message.embed.description}
-                  <span class="embed-description">{message.embed.description}</span>
-                {/if}
-              </a>
+                  <a class="embed-body" href={message.embed.url} target="_blank" rel="noreferrer noopener">
+                    {@render embedText(message.embed)}
+                  </a>
+                </div>
+              {:else}
+                <a class="embed" href={message.embed.url} target="_blank" rel="noreferrer noopener">
+                  {#if message.embed.imageUrl}
+                    <!-- Fetched through the server, not straight from the third party. -->
+                    <img
+                      class="embed-image"
+                      src={`/api/v1/embeds/media?url=${encodeURIComponent(message.embed.imageUrl)}`}
+                      alt=""
+                      loading="lazy"
+                    />
+                  {/if}
+                  {@render embedText(message.embed)}
+                </a>
+              {/if}
             {/if}
           {/if}
 

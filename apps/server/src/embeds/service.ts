@@ -5,11 +5,13 @@ import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
 import { resolvesToPublicHost } from './guard.ts';
 import { parseEmbedMetadata } from './metadata.ts';
+import { fetchTweetEmbed, fetchYouTubeEmbed, tweetStatusId, youtubeVideoId } from './providers.ts';
 
 /** Outbound fetch limits, kept tight because the target is user-supplied. */
 const FETCH_TIMEOUT_MS = 6000;
 const MAX_REDIRECTS = 3;
-const MAX_BYTES = 256 * 1024;
+/** Metadata lives in the head, so we read to the end of it and stop there. */
+const MAX_HTML_BYTES = 1024 * 1024;
 const USER_AGENT = 'Harmony/1.0 link-preview';
 /** Remember at most this many results before starting over. */
 const CACHE_LIMIT = 500;
@@ -111,6 +113,20 @@ async function fetchEmbed(
     return null;
   }
 
+  // Providers with a small JSON endpoint of their own are asked directly: it is
+  // quicker than their page and does not depend on their markup. Both fetch a
+  // fixed address, so the caller's URL cannot steer the request anywhere.
+  const videoId = youtubeVideoId(target);
+  if (videoId) {
+    const embed = await fetchYouTubeEmbed(videoId, userAgent);
+    if (embed) return embed;
+  }
+  const statusId = tweetStatusId(target);
+  if (statusId) {
+    const embed = await fetchTweetEmbed(statusId, userAgent);
+    if (embed) return embed;
+  }
+
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     if (target.protocol !== 'http:' && target.protocol !== 'https:') return null;
     if (!(await resolvesToPublicHost(target.hostname))) return null;
@@ -151,11 +167,12 @@ async function fetchEmbed(
           description: null,
           siteName: target.hostname.replace(/^www\./, ''),
           imageUrl: target.toString(),
+          player: null,
         };
       }
       if (!/text\/html|application\/xhtml/i.test(contentType)) return null;
 
-      return parseEmbedMetadata(await readCapped(response), target.toString());
+      return parseEmbedMetadata(await readHead(response), target.toString());
     } catch {
       return null;
     } finally {
@@ -165,13 +182,18 @@ async function fetchEmbed(
   return null;
 }
 
-/** Reads a response body up to a byte cap, then stops early. */
-async function readCapped(response: Response): Promise<string> {
+/**
+ * Reads a page only as far as the end of its head. Social metadata always sits
+ * there, but on a heavy page it can be hundreds of kilobytes in — YouTube puts
+ * its own past 700 KB — so a flat byte cap would miss it entirely.
+ */
+async function readHead(response: Response): Promise<string> {
   const body = response.body;
   if (!body) return '';
 
   const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  let text = '';
   let total = 0;
   try {
     for (;;) {
@@ -179,21 +201,16 @@ async function readCapped(response: Response): Promise<string> {
       if (done) break;
       if (!value) continue;
       total += value.byteLength;
-      if (total > MAX_BYTES) {
+      text += decoder.decode(value, { stream: true });
+      if (text.includes('</head>') || total >= MAX_HTML_BYTES) {
         await reader.cancel();
         break;
       }
-      chunks.push(value);
     }
+    text += decoder.decode();
   } catch {
     // A truncated or aborted body is still worth parsing.
   }
 
-  const merged = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder('utf-8', { fatal: false }).decode(merged);
+  return text;
 }

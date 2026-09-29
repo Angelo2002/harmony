@@ -221,6 +221,13 @@ type LinkEmbed = {
   description: string | null;
   siteName: string | null;      // og:site_name, or the host name
   imageUrl: string | null;      // og:image / twitter:image, or the link itself for a direct image
+  player: EmbedPlayer | null;   // an inline player a client may offer, or null
+};
+
+// Only providers a client knows how to build an embed URL for.
+type EmbedPlayer = {
+  provider: 'youtube';
+  id: string;                   // the video id, never a ready-made embed URL
 };
 
 type Role = {
@@ -628,6 +635,19 @@ unfurled. The fetch is guarded: `http` and `https` only, the host must resolve t
 and redirects are limited and re-checked at each hop. Editing a message drops its old preview and
 resolves the new text, and a message the Discord bridge imports resolves a preview as if it had been
 typed here. Turn previews off instance-wide with `embedsEnabled` in the server settings.
+
+Two providers are recognised from the link itself and asked for a small JSON summary instead of a
+page, because their pages are heavy, script-driven or both:
+
+- **YouTube** (`watch?v=`, `youtu.be`, `/shorts/`, `/embed/`) resolves through YouTube's oEmbed
+  endpoint and carries an `EmbedPlayer`. A client should show the thumbnail with a play control and
+  only build the player iframe when it is pressed, so nothing is requested from YouTube otherwise.
+- **X/Twitter** status links (`x.com`, `twitter.com`, including `/i/status/`) resolve through X's
+  embed endpoint, which gives the author and handle, the text without its trailing media link, and
+  the media image. A tweet with no media carries no image rather than its avatar.
+
+Everything else is scraped for OpenGraph metadata. Only the head is read: social tags always live
+there, and on a heavy page they can be hundreds of kilobytes in.
 
 The unfurler names itself `Harmony/1.0 link-preview`. Sites protected by a managed bot challenge —
 Cloudflare, and so Klipy, among others — refuse that name and the preview never appears; the server

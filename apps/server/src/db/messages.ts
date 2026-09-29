@@ -1,5 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { LinkEmbed } from '@harmony/shared';
+import type { EmbedPlayer, LinkEmbed } from '@harmony/shared';
+
+/** YouTube video ids are 11 URL-safe characters; anything else is not offered. */
+function parsePlayer(value: unknown): EmbedPlayer | null {
+  if (!value || typeof value !== 'object') return null;
+  const player = value as { provider?: unknown; id?: unknown };
+  if (player.provider !== 'youtube') return null;
+  if (typeof player.id !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(player.id)) return null;
+  return { provider: 'youtube', id: player.id };
+}
 
 export interface MessageRow {
   id: string;
@@ -26,6 +35,7 @@ export function parseMessageEmbed(raw: string | null): LinkEmbed | null {
       description: typeof value.description === 'string' ? value.description : null,
       siteName: typeof value.siteName === 'string' ? value.siteName : null,
       imageUrl: typeof value.imageUrl === 'string' ? value.imageUrl : null,
+      player: parsePlayer(value.player),
     };
   } catch {
     return null;

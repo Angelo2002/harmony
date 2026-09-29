@@ -43,11 +43,9 @@
 
     const result: Group[] = [];
 
-    // Members holding no hoisted role come first, under a plain "Online".
-    const ungrouped = online.filter((entry) => hoistedRole(entry, byId) === null).sort(byName);
-    if (ungrouped.length > 0) result.push({ key: 'online', label: 'Online', color: null, members: ungrouped });
-
-    // Then one section per hoisted role, highest position first.
+    // Hoisted roles come first, highest position first, each with its own
+    // section. Members holding no hoisted role fall into a plain "Online" group
+    // underneath them, then everyone who is offline.
     const hoisted = roster.roles
       .filter((role) => role.hoist && !role.isDefault)
       .sort((a, b) => b.position - a.position);
@@ -56,6 +54,9 @@
       if (group.length > 0) result.push({ key: role.id, label: role.name, color: role.color, members: group });
     }
 
+    const ungrouped = online.filter((entry) => hoistedRole(entry, byId) === null).sort(byName);
+    if (ungrouped.length > 0) result.push({ key: 'online', label: 'Online', color: null, members: ungrouped });
+
     if (offline.length > 0) {
       result.push({ key: 'offline', label: 'Offline', color: null, members: offline.sort(byName) });
     }
@@ -63,23 +64,23 @@
   });
 </script>
 
-<aside class="members" aria-label="Members">
+<aside class="roster" aria-label="Members">
   {#if groups.length === 0}
-    <p class="muted member-empty">No members yet.</p>
+    <p class="muted roster-empty">No members yet.</p>
   {:else}
     {#each groups as group (group.key)}
-      <div class="member-group">
-        <span class="member-group-name" style={cssColor(group.color)}>
+      <div class="roster-group">
+        <span class="roster-group-name" style={cssColor(group.color)}>
           {group.label} — {group.members.length}
         </span>
         {#each group.members as entry (entry.user.id)}
-          <div class="member" class:offline={!entry.online}>
+          <div class="roster-member" class:offline={!entry.online}>
             {#if avatarUrl(entry.user)}
               <img class="avatar small" src={avatarUrl(entry.user)} alt="" loading="lazy" />
             {:else}
               <span class="avatar small fallback">{initial(entry.user)}</span>
             {/if}
-            <span class="member-name" style={cssColor(entry.user.roleColor)}>{nameOf(entry)}</span>
+            <span class="roster-name" style={cssColor(entry.user.roleColor)}>{nameOf(entry)}</span>
           </div>
         {/each}
       </div>

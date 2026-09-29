@@ -325,8 +325,12 @@ button.link:hover {
 }
 
 /* ---- Member list ---- */
-
-.members {
+/*
+ * Deliberately prefixed with `roster-` rather than reusing `member`: the admin
+ * Members section already styles `.member` and `.member-group`, and those rules
+ * sit later in this file, so they would win and stack the avatar over the name.
+ */
+.roster {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -337,17 +341,23 @@ button.link:hover {
   background: var(--h-bg-elevated);
 }
 
-.member-empty {
+.roster-empty {
   padding: 0 0.5rem;
 }
 
-.member-group + .member-group {
+.roster-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.roster-group + .roster-group {
   margin-top: 0.9rem;
 }
 
-.member-group-name {
+.roster-group-name {
   display: block;
-  padding: 0 0.5rem 0.3rem;
+  padding: 0 0.5rem 0.35rem;
   color: var(--h-text-muted);
   font-size: 0.7rem;
   font-weight: 700;
@@ -355,23 +365,23 @@ button.link:hover {
   text-transform: uppercase;
 }
 
-.member {
+.roster-member {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.25rem 0.5rem;
+  padding: 0.3rem 0.5rem;
   border-radius: 4px;
 }
 
-.member:hover {
+.roster-member:hover {
   background: rgb(255 255 255 / 4%);
 }
 
-.member.offline {
+.roster-member.offline {
   opacity: 0.45;
 }
 
-.member-name {
+.roster-name {
   overflow: hidden;
   color: var(--h-text);
   font-size: 0.9rem;
@@ -382,7 +392,7 @@ button.link:hover {
 
 /* The sidebar needs room; below this it would crowd the chat. */
 @media (max-width: 900px) {
-  .members {
+  .roster {
     display: none;
   }
 }

@@ -65,6 +65,7 @@ const settingsService = createSettingsService(db.sqlite, {
   theme: { background: null, accent: null },
   maxImageBytes: DEFAULT_MAX_IMAGE_BYTES,
   maxVideoBytes: DEFAULT_MAX_VIDEO_BYTES,
+  previewUserAgent: null,
 });
 const authService = createAuthService(db.sqlite, config, settingsService);
 const auditService = createAuditService(db.sqlite);
@@ -153,7 +154,7 @@ registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub, bridge, settings: settingsService, importer: channelImport });
 registerMessageRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
-registerEmbedRoutes(app);
+registerEmbedRoutes(app, { settings: settingsService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
 registerUserRoutes(app, { db, users: userService });

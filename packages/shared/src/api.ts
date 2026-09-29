@@ -81,6 +81,12 @@ export interface ServerSettingsResponse {
   maxImageBytes: number;
   /** Largest accepted video upload, in bytes. */
   maxVideoBytes: number;
+  /**
+   * User agent used when unfurling a link, or null to identify as Harmony.
+   * Some sites refuse unknown clients, so naming one they allow is the only way
+   * to preview them.
+   */
+  previewUserAgent: string | null;
 }
 
 /** A user together with the roles assigned to them. */

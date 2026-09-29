@@ -4,7 +4,6 @@ import { resolvesToPublicHost } from './guard.ts';
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_REDIRECTS = 3;
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
-const USER_AGENT = 'Harmony/1.0 link-preview';
 
 export interface EmbedMedia {
   data: Buffer;
@@ -18,7 +17,7 @@ export interface EmbedMedia {
  * checked with the same guard the metadata fetch uses, the response must be an
  * image, and its size is capped.
  */
-export async function fetchEmbedMedia(url: string): Promise<EmbedMedia | null> {
+export async function fetchEmbedMedia(url: string, userAgent: string): Promise<EmbedMedia | null> {
   let target: URL;
   try {
     target = new URL(url);
@@ -36,7 +35,7 @@ export async function fetchEmbedMedia(url: string): Promise<EmbedMedia | null> {
       const response = await fetch(target, {
         redirect: 'manual',
         signal: controller.signal,
-        headers: { 'user-agent': USER_AGENT, accept: 'image/*' },
+        headers: { 'user-agent': userAgent, accept: 'image/*' },
       });
 
       if (response.status >= 300 && response.status < 400) {

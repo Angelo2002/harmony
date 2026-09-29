@@ -43,6 +43,15 @@ export interface EmbedServiceDeps {
 export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
   const cache = new Map<string, LinkEmbed | null>();
   const inFlight = new Map<string, Promise<LinkEmbed | null>>();
+  const log = deps.log ?? ((): void => {});
+
+  /**
+   * Cache and in-flight keys include the user agent, so changing it takes effect
+   * at once instead of being shadowed by an earlier refusal.
+   */
+  function cacheKey(userAgent: string, url: string): string {
+    return `${userAgent}\n${url}`;
+  }
 
   function broadcast(messageId: string): void {
     const message = deps.renderMessage(messageId);
@@ -52,22 +61,23 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
     deps.hub.dispatch(GatewayEvent.MessageUpdate, message, { channelId: message.channelId });
   }
 
-  async function lookup(url: string): Promise<LinkEmbed | null> {
-    if (cache.has(url)) return cache.get(url) ?? null;
+  async function lookup(url: string, userAgent: string): Promise<LinkEmbed | null> {
+    const key = cacheKey(userAgent, url);
+    if (cache.has(key)) return cache.get(key) ?? null;
 
-    const pending = inFlight.get(url);
+    const pending = inFlight.get(key);
     if (pending) return pending;
 
-    const job = fetchEmbed(url)
+    const job = fetchEmbed(url, userAgent, log)
       .catch(() => null)
       .then((embed) => {
         if (cache.size >= CACHE_LIMIT) cache.clear();
-        cache.set(url, embed);
+        cache.set(key, embed);
         return embed;
       })
-      .finally(() => inFlight.delete(url));
+      .finally(() => inFlight.delete(key));
 
-    inFlight.set(url, job);
+    inFlight.set(key, job);
     return job;
   }
 
@@ -77,7 +87,8 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
       const url = listEmbeddableUrls(content)[0];
       if (!url) return;
 
-      void lookup(url)
+      const userAgent = deps.settings.get().previewUserAgent ?? USER_AGENT;
+      void lookup(url, userAgent)
         .then((embed) => {
           // A message deleted while we were fetching simply changes nothing.
           if (!setMessageEmbed(deps.sqlite, messageId, embed ? JSON.stringify(embed) : null)) return;
@@ -88,7 +99,11 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
   };
 }
 
-async function fetchEmbed(url: string): Promise<LinkEmbed | null> {
+async function fetchEmbed(
+  url: string,
+  userAgent: string,
+  log: (message: string, detail?: unknown) => void,
+): Promise<LinkEmbed | null> {
   let target: URL;
   try {
     target = new URL(url);
@@ -106,7 +121,7 @@ async function fetchEmbed(url: string): Promise<LinkEmbed | null> {
       const response = await fetch(target, {
         redirect: 'manual',
         signal: controller.signal,
-        headers: { 'user-agent': USER_AGENT, accept: 'text/html,application/xhtml+xml,image/*;q=0.8' },
+        headers: { 'user-agent': userAgent, accept: 'text/html,application/xhtml+xml,image/*;q=0.8' },
       });
 
       if (response.status >= 300 && response.status < 400) {
@@ -115,7 +130,16 @@ async function fetchEmbed(url: string): Promise<LinkEmbed | null> {
         target = new URL(location, target);
         continue;
       }
-      if (!response.ok) return null;
+      if (!response.ok) {
+        // A 403 carrying cf-mitigated is a bot challenge: the page exists, but
+        // the site refuses to serve it to this user agent.
+        log('link preview refused', {
+          url: target.toString(),
+          status: response.status,
+          challenged: response.headers.get('cf-mitigated') === 'challenge',
+        });
+        return null;
+      }
 
       const contentType = response.headers.get('content-type') ?? '';
       // A link that points straight at an image is its own preview.

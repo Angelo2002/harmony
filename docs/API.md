@@ -629,6 +629,11 @@ and redirects are limited and re-checked at each hop. Editing a message drops it
 resolves the new text, and a message the Discord bridge imports resolves a preview as if it had been
 typed here. Turn previews off instance-wide with `embedsEnabled` in the server settings.
 
+The unfurler names itself `Harmony/1.0 link-preview`. Sites protected by a managed bot challenge —
+Cloudflare, and so Klipy, among others — refuse that name and the preview never appears; the server
+logs `link preview refused` when that happens. Setting `previewUserAgent` to a name such sites allow
+is the only way to preview them.
+
 #### `GET /api/v1/embeds/media` — `ViewChannels`
 
 Serves a preview image, given the embed's `imageUrl` as a `url` query parameter. A client should
@@ -1007,7 +1012,8 @@ Returns `204`.
   "embedsEnabled": true,
   "theme": { "background": "#1e1b2e", "accent": "#eb459e" },
   "maxImageBytes": 10485760,
-  "maxVideoBytes": 20971520
+  "maxVideoBytes": 20971520,
+  "previewUserAgent": null
 }
 ```
 
@@ -1015,11 +1021,13 @@ Returns `204`.
 
 `{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null,
 "embedsEnabled"?: boolean, "maxImageBytes"?: number, "maxVideoBytes"?: number,
+"previewUserAgent"?: string | null,
 "theme"?: { "background"?: string | null, "accent"?: string | null } }`.
 Returns the updated settings. `serverName` and `theme` changing also update `GET /api/v1/meta`.
 `defaultChannelId` must reference an existing channel, or `400 invalid_default_channel`; `null`
 clears the preference. `embedsEnabled` turns link previews on or off for the whole instance. The two
-upload limits are in bytes and may not exceed the server's hard ceiling of 100 MB.
+upload limits are in bytes and may not exceed the server's hard ceiling of 100 MB. `previewUserAgent`
+sets the client name used when unfurling a link; an empty string or `null` means Harmony's own.
 
 ### Instance icon
 

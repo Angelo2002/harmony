@@ -170,6 +170,8 @@ export const updateSettingsSchema = z.object({
   /** Upload size limits, in bytes; the ceiling is what the server can buffer. */
   maxImageBytes: uploadSize,
   maxVideoBytes: uploadSize,
+  /** An empty string clears it, falling back to Harmony's own user agent. */
+  previewUserAgent: z.string().trim().max(200).nullable().optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 

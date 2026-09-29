@@ -504,6 +504,19 @@ try {
     body: { maxImageBytes: 10 * 1024 * 1024, maxVideoBytes: 20 * 1024 * 1024 },
   });
 
+  check('the preview user agent starts unset', settings.json?.previewUserAgent === null);
+  const uaSaved = await req('/settings', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { previewUserAgent: 'Harmony-test/1.0' },
+  });
+  check('the preview user agent can be set', uaSaved.json?.previewUserAgent === 'Harmony-test/1.0');
+  check(
+    'an empty preview user agent clears it',
+    (await req('/settings', { method: 'PATCH', token: ownerToken, body: { previewUserAgent: '' } })).json
+      ?.previewUserAgent === null,
+  );
+
   const embedsOff = await req('/settings', { method: 'PATCH', token: ownerToken, body: { embedsEnabled: false } });
   check('link previews can be turned off', embedsOff.json?.embedsEnabled === false);
   await req('/settings', { method: 'PATCH', token: ownerToken, body: { embedsEnabled: true } });

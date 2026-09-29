@@ -24,6 +24,7 @@
   let themeAccent = $state(DEFAULT_ACCENT);
   let maxImageMb = $state('');
   let maxVideoMb = $state('');
+  let previewUserAgent = $state('');
   let busy = $state(false);
   let message = $state<string | null>(null);
   let error = $state<string | null>(null);
@@ -58,6 +59,7 @@
       themeAccent = settings.theme.accent ?? DEFAULT_ACCENT;
       maxImageMb = toMb(settings.maxImageBytes);
       maxVideoMb = toMb(settings.maxVideoBytes);
+      previewUserAgent = settings.previewUserAgent ?? '';
       channels = channelData.channels;
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
@@ -132,6 +134,7 @@
         embedsEnabled,
         defaultChannelId: defaultChannelId || null,
         theme: { background: themeBackground, accent: themeAccent },
+        previewUserAgent: previewUserAgent.trim(),
       };
       // Blank leaves a size unchanged rather than clearing it.
       const imageBytes = toBytes(maxImageMb);
@@ -151,6 +154,7 @@
       themeAccent = updated.theme.accent ?? DEFAULT_ACCENT;
       maxImageMb = toMb(updated.maxImageBytes);
       maxVideoMb = toMb(updated.maxVideoBytes);
+      previewUserAgent = updated.previewUserAgent ?? '';
       // Remember the saved palette, and keep the public meta in step, so the
       // restore above falls back to what is actually stored.
       setSavedTheme(updated.theme);
@@ -184,6 +188,16 @@
     <p class="muted">
       When on, the server fetches the first link in a message to show a small preview. This makes an
       outbound request to the linked site from your server.
+    </p>
+
+    <label>
+      Link preview user agent <span class="muted">(optional)</span>
+      <input bind:value={previewUserAgent} placeholder="Harmony/1.0 link-preview" maxlength="200" />
+    </label>
+    <p class="muted">
+      Some sites will not serve a preview to a client they do not recognise — many Cloudflare-backed
+      ones, such as Klipy — so their links stay as plain text. Naming a user agent the site allows
+      makes them preview. Leave blank to identify honestly as Harmony.
     </p>
 
     <label>

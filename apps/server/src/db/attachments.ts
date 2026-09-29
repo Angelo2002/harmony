@@ -73,10 +73,14 @@ export function countAttachments(sqlite: DatabaseSync): number {
   return row.count;
 }
 
-/** Every blob hash still referenced by an attachment or an emoji. */
+/** Every blob hash still referenced by an attachment, an emoji or an avatar. */
 export function listReferencedHashes(sqlite: DatabaseSync): Set<string> {
   const rows = sqlite
-    .prepare('SELECT hash FROM attachments UNION SELECT hash FROM emojis')
+    .prepare(
+      `SELECT hash FROM attachments
+       UNION SELECT hash FROM emojis
+       UNION SELECT avatar_hash FROM users WHERE avatar_hash IS NOT NULL`,
+    )
     .all() as unknown as Array<{ hash: string }>;
   return new Set(rows.map((row) => row.hash));
 }

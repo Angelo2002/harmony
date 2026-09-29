@@ -16,6 +16,7 @@ export const LIMITS = {
   username: { min: 2, max: 32 },
   password: { min: 8, max: 200 },
   channelName: { min: 1, max: 64 },
+  displayName: { max: 32 },
   messageLength: 4_000,
   attachmentsPerMessage: 10,
 } as const;
@@ -29,3 +30,9 @@ export const DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 /** Maximum size of a custom emoji image, in bytes (256 KiB). */
 export const DEFAULT_MAX_EMOJI_BYTES = 256 * 1024;
+
+/** Maximum size of an uploaded profile picture, in bytes (2 MiB). */
+export const DEFAULT_MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+
+/** Profile pictures are normalised to this square size. */
+export const AVATAR_SIZE = 256;

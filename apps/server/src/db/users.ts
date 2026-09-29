@@ -53,6 +53,27 @@ export function findUserByDiscordId(sqlite: DatabaseSync, discordId: string): Us
   return (sqlite.prepare('SELECT * FROM users WHERE discord_id = ?').get(discordId) as UserRow | undefined) ?? null;
 }
 
+export function updateUserProfile(
+  sqlite: DatabaseSync,
+  id: string,
+  patch: { displayName?: string | null; avatarHash?: string | null },
+): void {
+  const sets: string[] = [];
+  const values: Array<string | null> = [];
+  if (patch.displayName !== undefined) {
+    sets.push('display_name = ?');
+    values.push(patch.displayName);
+  }
+  if (patch.avatarHash !== undefined) {
+    sets.push('avatar_hash = ?');
+    values.push(patch.avatarHash);
+  }
+  if (sets.length === 0) return;
+
+  values.push(id);
+  sqlite.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+}
+
 /**
  * Creates a stand-in account for someone who only exists on the Discord side of
  * a bridge. It has no usable password, so it can never be logged into.

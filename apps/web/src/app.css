@@ -343,15 +343,34 @@ button.link:hover {
 }
 
 .avatar {
-  display: grid;
   flex-shrink: 0;
-  place-items: center;
   width: 40px;
   height: 40px;
   border-radius: 50%;
+}
+
+.avatar.fallback {
+  display: grid;
+  place-items: center;
   background: var(--h-accent);
   color: #fff;
   font-weight: 700;
+}
+
+img.avatar {
+  object-fit: cover;
+}
+
+.avatar.small {
+  width: 28px;
+  height: 28px;
+  font-size: 0.8rem;
+}
+
+.avatar.large {
+  width: 96px;
+  height: 96px;
+  font-size: 2rem;
 }
 
 .body {
@@ -883,4 +902,40 @@ button.danger {
 .emoji-card button {
   padding: 0.3rem 0.55rem;
   font-size: 0.8rem;
+}
+
+/* ---- Profile ---- */
+
+.user-button {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.15rem 0.25rem;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.user-button:hover {
+  background: rgb(255 255 255 / 6%);
+  filter: none;
+}
+
+.profile-panel {
+  width: min(520px, 96vw);
+  height: auto;
+  max-height: 94vh;
+}
+
+.profile-avatar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
 }

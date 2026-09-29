@@ -642,6 +642,102 @@ try {
     (await req(`/channels/${colourChannel.id}/messages`, { token: ownerToken })).json?.messages?.length === 0,
   );
 
+  // --- Profile: display name and picture ---
+  const renamed = await req('/users/@me', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { displayName: 'Alice the Great' },
+  });
+  check('display name is saved', renamed.status === 200 && renamed.json?.user?.displayName === 'Alice the Great');
+  check(
+    'display name is returned by /auth/me',
+    (await req('/auth/me', { token: ownerToken })).json?.user?.displayName === 'Alice the Great',
+  );
+
+  const named = await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'named hello' },
+  });
+  check('messages carry the display name', named.json?.author?.displayName === 'Alice the Great');
+
+  const avatarPng = await sharp({ create: { width: 64, height: 40, channels: 3, background: { r: 200, g: 40, b: 90 } } })
+    .png()
+    .toBuffer();
+  const avatarForm = new FormData();
+  avatarForm.append('file', new Blob([avatarPng], { type: 'image/png' }), 'me.png');
+  const avatarRes = await fetch(`${BASE}/users/@me/avatar`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${ownerToken}` },
+    body: avatarForm,
+  });
+  const avatarUser = await avatarRes.json();
+  const avatarHash = avatarUser?.user?.avatarHash;
+  check(
+    'avatar uploads',
+    avatarRes.status === 200 && typeof avatarHash === 'string',
+    `status ${avatarRes.status}`,
+  );
+
+  const avatarServed = await fetch(`${BASE}/users/${avatarUser.user.id}/avatar`, {
+    headers: { authorization: `Bearer ${ownerToken}` },
+  });
+  const avatarBytes = Buffer.from(await avatarServed.arrayBuffer());
+  check(
+    'avatar is served as webp',
+    avatarServed.status === 200 && avatarServed.headers.get('content-type') === 'image/webp' && avatarBytes.length > 0,
+  );
+  check(
+    'avatars require auth (401)',
+    (await fetch(`${BASE}/users/${avatarUser.user.id}/avatar`)).status === 401,
+  );
+
+  const notAnAvatar = new FormData();
+  notAnAvatar.append('file', new Blob([Buffer.from('hello')], { type: 'text/plain' }), 'n.txt');
+  check(
+    'non-image avatar rejected (415)',
+    (
+      await fetch(`${BASE}/users/@me/avatar`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${ownerToken}` },
+        body: notAnAvatar,
+      })
+    ).status === 415,
+  );
+
+  // An avatar is a referenced blob, so pruning must not sweep it away.
+  const avatarBlobPath = join(dataDir, 'uploads', avatarHash.slice(0, 2), avatarHash);
+  check('avatar blob exists before pruning', existsSync(avatarBlobPath));
+  await req('/retention/run', { method: 'POST', token: ownerToken });
+  check('avatar blob survives pruning', existsSync(avatarBlobPath));
+  check(
+    'avatar is still served after pruning',
+    (
+      await fetch(`${BASE}/users/${avatarUser.user.id}/avatar`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })
+    ).status === 200,
+  );
+
+  check(
+    'avatar can be removed',
+    (await req('/users/@me/avatar', { method: 'DELETE', token: ownerToken })).json?.user?.avatarHash === null,
+  );
+  check(
+    'removed avatar 404s',
+    (
+      await fetch(`${BASE}/users/${avatarUser.user.id}/avatar`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })
+    ).status === 404,
+  );
+
+  check(
+    'display name can be cleared',
+    (await req('/users/@me', { method: 'PATCH', token: ownerToken, body: { displayName: null } })).json?.user
+      ?.displayName === null,
+  );
+
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);
   check('session is dead after logout (401)', (await req('/auth/me', { cookie: login.cookie })).status === 401);
 } catch (error) {

@@ -6,10 +6,10 @@ Selfhosted discord alternative, aimed to make migration painless
 
 Playable end to end: username/password auth with optional invites, channels and
 categories, realtime messaging, image attachments, custom emoji with
-role-coloured usernames, configurable storage retention, a two-way Discord
-bridge (messages, images, edits and deletes), and an admin panel covering
-settings, roles, members, channels, emoji, retention, the bridge and invites.
-Still to come: the public API docs.
+role-coloured usernames, profile pictures and display names, configurable
+storage retention, a two-way Discord bridge (messages, images, edits and
+deletes), and an admin panel covering settings, roles, members, channels, emoji,
+retention, the bridge and invites. Still to come: the public API docs.
 
 ## Tech stack
 
@@ -63,6 +63,9 @@ Text, images, edits and deletes are all mirrored in both directions. Images are 
 between the two systems, and anything that cannot be mirrored (a non-image, or a file above
 Discord's 8 MB upload limit) is preserved as a link instead of being dropped. Discord's 2000
 character message limit means longer Harmony messages are truncated when mirrored out.
+
+Display names are mirrored to Discord automatically (they are used as the webhook username).
+Profile pictures are not mirrored yet.
 
 ## Project layout
 

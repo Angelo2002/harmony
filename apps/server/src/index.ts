@@ -10,6 +10,7 @@ import { registerAuth } from './auth/plugin.ts';
 import { createSettingsService } from './settings/service.ts';
 import { createAttachmentService } from './attachments/service.ts';
 import { createEmojiService } from './emojis/service.ts';
+import { createUserService } from './users/service.ts';
 import { createMessageService } from './messages/service.ts';
 import { GatewayHub } from './realtime/hub.ts';
 import { createPruner } from './retention/pruner.ts';
@@ -27,6 +28,7 @@ import { registerChannelRoutes } from './routes/channels.ts';
 import { registerMessageRoutes } from './routes/messages.ts';
 import { registerAttachmentRoutes } from './routes/attachments.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
+import { registerUserRoutes } from './routes/users.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
 import { registerBridgeRoutes } from './routes/bridge.ts';
 import { registerGateway } from './gateway/index.ts';
@@ -41,6 +43,7 @@ const settingsService = createSettingsService(db.sqlite, {
 const authService = createAuthService(db.sqlite, config, settingsService);
 const attachmentService = createAttachmentService(db.sqlite, config);
 const emojiService = createEmojiService(db.sqlite, config);
+const userService = createUserService(db.sqlite, config);
 const messageService = createMessageService(db.sqlite, hub);
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
@@ -87,6 +90,7 @@ registerChannelRoutes(app, { db, hub });
 registerMessageRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, attachmentService);
 registerEmojiRoutes(app, { service: emojiService, hub });
+registerUserRoutes(app, { db, users: userService });
 registerGateway(app, {
   heartbeatIntervalMs: GATEWAY_HEARTBEAT_MS,
   cookieName: config.cookieName,

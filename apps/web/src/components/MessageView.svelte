@@ -1,5 +1,6 @@
 <script lang="ts">
   import { chat } from '../lib/chat.svelte';
+  import { avatarUrl, initial } from '../lib/avatar';
   import { tokenizeEmoji } from '../lib/emoji-text';
   import { emojis } from '../lib/emojis.svelte';
 
@@ -27,8 +28,13 @@
           ? null
           : `#${message.author.roleColor.toString(16).padStart(6, '0')}`}
       {@const segments = tokenizeEmoji(message.content, emojis.lookup)}
+      {@const picture = avatarUrl(message.author)}
       <article class="message">
-        <div class="avatar">{(message.author?.username ?? '?').charAt(0).toUpperCase()}</div>
+        {#if picture}
+          <img class="avatar" src={picture} alt="" loading="lazy" />
+        {:else}
+          <div class="avatar fallback">{initial(message.author)}</div>
+        {/if}
         <div class="body">
           <div class="meta">
             <span class="author" style={authorColor ? `color: ${authorColor}` : ''}>

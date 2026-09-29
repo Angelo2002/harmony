@@ -1,5 +1,6 @@
 class UiState {
   adminOpen = $state(false);
+  profileOpen = $state(false);
 
   openAdmin(): void {
     this.adminOpen = true;
@@ -7,6 +8,14 @@ class UiState {
 
   closeAdmin(): void {
     this.adminOpen = false;
+  }
+
+  openProfile(): void {
+    this.profileOpen = true;
+  }
+
+  closeProfile(): void {
+    this.profileOpen = false;
   }
 }
 

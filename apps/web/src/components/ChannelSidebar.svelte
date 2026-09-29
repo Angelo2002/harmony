@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Permission, hasPermission } from '@harmony/shared';
   import { api } from '../lib/api';
+  import { avatarUrl, initial } from '../lib/avatar';
   import { chat } from '../lib/chat.svelte';
   import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
@@ -16,6 +17,7 @@
     const color = session.user?.roleColor;
     return color == null ? null : `#${color.toString(16).padStart(6, '0')}`;
   });
+  const myPicture = $derived(avatarUrl(session.user));
 
   async function logout(): Promise<void> {
     await api('/auth/logout', { method: 'POST' });
@@ -57,7 +59,17 @@
   </nav>
 
   <footer class="user-bar">
-    <span class="username" style={myColor ? `color: ${myColor}` : ''}>{session.user?.username}</span>
+    <button class="user-button" type="button" title="Edit your profile" onclick={() => ui.openProfile()}>
+      {#if myPicture}
+        <img class="avatar small" src={myPicture} alt="" />
+      {:else}
+        <span class="avatar small fallback">{initial(session.user)}</span>
+      {/if}
+      <span class="username" style={myColor ? `color: ${myColor}` : ''}>
+        {session.user?.displayName ?? session.user?.username}
+      </span>
+    </button>
+
     <div class="user-actions">
       {#if canAdmin}
         <button class="link" type="button" onclick={() => ui.openAdmin()}>Admin</button>

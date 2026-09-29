@@ -8,6 +8,7 @@
   import AdminPanel from './components/admin/AdminPanel.svelte';
   import AuthPanel from './components/AuthPanel.svelte';
   import Chat from './components/Chat.svelte';
+  import ProfilePanel from './components/ProfilePanel.svelte';
 
   let loading = $state(true);
 
@@ -31,6 +32,9 @@
   <Chat />
   {#if ui.adminOpen}
     <AdminPanel />
+  {/if}
+  {#if ui.profileOpen}
+    <ProfilePanel />
   {/if}
 {:else}
   <AuthPanel />

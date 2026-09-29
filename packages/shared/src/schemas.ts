@@ -147,3 +147,9 @@ export const bridgeTestSchema = z.object({
   channelId: z.string().min(1),
 });
 export type BridgeTestInput = z.infer<typeof bridgeTestSchema>;
+
+export const updateProfileSchema = z.object({
+  /** `null` (or an empty string) clears it and falls back to the username. */
+  displayName: z.string().trim().max(LIMITS.displayName.max).nullable(),
+});
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

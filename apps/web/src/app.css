@@ -722,6 +722,8 @@ button.avatar.fallback {
   padding: 0.1rem 0.5rem;
   margin: 0 -0.5rem;
   border-radius: 4px;
+  /* None of the browser's own long-press menu or callout, on touch. */
+  -webkit-touch-callout: none;
 }
 
 /*
@@ -735,6 +737,11 @@ button.avatar.fallback {
 
 .message:hover {
   background: var(--h-hover);
+}
+
+/* A message whose action menu is open stays highlighted. */
+.message.actions-open {
+  background: var(--h-active);
 }
 
 .avatar {
@@ -1011,13 +1018,20 @@ img.avatar {
 }
 
 /*
- * Reveal the actions on hover, and for keyboard focus only. Using
- * :focus-visible rather than :focus-within means clicking "Reply" with the
- * mouse does not leave the menu stuck open once the pointer moves away, while
- * a keyboard user who tabs to the buttons still gets it.
+ * On a device with a real pointer the actions appear on hover; for keyboard
+ * users they appear whenever a control inside has focus. Touch devices get
+ * neither, because a tap leaves a sticky :hover behind, so there the menu is
+ * opened by a long press (the `open` class) and dismissed by tapping away.
  */
-.message:hover .message-actions,
-.message:has(:focus-visible) .message-actions {
+@media (hover: hover) and (pointer: fine) {
+  .message:hover .message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.message:has(:focus-visible) .message-actions,
+.message-actions.open {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1244,12 +1258,19 @@ button.ghost {
   gap: 0.5rem;
 }
 
+/* Keep the round buttons round instead of squeezing them into ovals. */
+.composer form button {
+  flex-shrink: 0;
+}
+
 .file-input {
   display: none;
 }
 
 .text-input {
   flex: 1;
+  /* Without this the input's content sets a floor and squeezes its siblings. */
+  min-width: 0;
   padding: 0.7rem 0.9rem;
   border: none;
   border-radius: var(--h-radius);

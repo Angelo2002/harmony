@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { Permission, hasPermission, type Message, type User } from '@harmony/shared';
   import { ApiError } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
@@ -31,6 +31,15 @@
   /** The message whose delete is awaiting confirmation. */
   let confirmingDeleteId = $state<string | null>(null);
   let actionError = $state<string | null>(null);
+  /** The message whose action menu is open on touch, or null. */
+  let actionsFor = $state<string | null>(null);
+  /** How long a finger must rest on a message before its menu opens. */
+  const longPressMs = 450;
+  let pressTimer: ReturnType<typeof setTimeout> | null = null;
+  let pressOrigin = { x: 0, y: 0 };
+  let pressId: string | null = null;
+  /** The kind of pointer last seen, so a touch long press can hide the browser menu. */
+  let lastPointerType = 'mouse';
 
   const myId = $derived(session.user?.id);
   const permissions = $derived(BigInt(session.permissions || '0'));
@@ -132,6 +141,62 @@
     atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 60;
     if (element.scrollTop < 80) void loadOlder();
   }
+
+  function cancelLongPress(): void {
+    if (pressTimer !== null) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+    pressId = null;
+  }
+
+  /** A mouse reveals the menu on hover; a finger needs a long press instead. */
+  function onMessagePointerDown(event: PointerEvent, message: Message): void {
+    lastPointerType = event.pointerType;
+    if (event.pointerType === 'mouse') return;
+    cancelLongPress();
+    pressOrigin = { x: event.clientX, y: event.clientY };
+    pressId = message.id;
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      if (pressId !== message.id) return;
+      // A long press over a name/avatar would otherwise open its profile card
+      // at the same moment as the menu.
+      (document.activeElement as HTMLElement | null)?.blur();
+      profileCard.hide();
+      actionsFor = message.id;
+    }, longPressMs);
+  }
+
+  /** Scrolling or dragging the list must not count as a press. */
+  function onMessagePointerMove(event: PointerEvent): void {
+    if (pressTimer === null) return;
+    const dx = event.clientX - pressOrigin.x;
+    const dy = event.clientY - pressOrigin.y;
+    if (dx * dx + dy * dy > 100) cancelLongPress();
+  }
+
+  /** Suppresses the browser's own long-press menu, which would fight ours. */
+  function onMessageContextMenu(event: MouseEvent): void {
+    if (lastPointerType !== 'mouse') event.preventDefault();
+  }
+
+  onMount(() => {
+    // Tapping anywhere except the menu itself dismisses it.
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Element | null;
+      if (target?.closest('.message-actions')) return;
+      actionsFor = null;
+    };
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => window.removeEventListener('pointerdown', onPointerDown, true);
+  });
+
+  // A channel change leaves any open menu pointing at the wrong list.
+  $effect(() => {
+    void chat.activeChannelId;
+    actionsFor = null;
+  });
 
   /** Loads an older page while holding the messages already on screen in place. */
   async function loadOlder(): Promise<void> {
@@ -248,6 +313,13 @@
         class:grouped
         class:mentions-me={mentionsMe}
         class:selected={chat.replyTarget?.id === message.id}
+        class:actions-open={actionsFor === message.id}
+        onpointerdown={(event) => onMessagePointerDown(event, message)}
+        onpointermove={onMessagePointerMove}
+        onpointerup={cancelLongPress}
+        onpointercancel={cancelLongPress}
+        onpointerleave={cancelLongPress}
+        oncontextmenu={onMessageContextMenu}
       >
         {#if grouped}
           <div class="avatar-spacer" aria-hidden="true"><span class="gutter-time">{formatTime(message.createdAt)}</span></div>
@@ -384,21 +456,45 @@
           {/if}
         </div>
 
-        <div class="message-actions">
-          <button type="button" title="Reply" onclick={() => (chat.replyTarget = message)}>Reply</button>
+        <div class="message-actions" class:open={actionsFor === message.id}>
+          <button
+            type="button"
+            title="Reply"
+            onclick={() => {
+              chat.replyTarget = message;
+              actionsFor = null;
+            }}>Reply</button
+          >
           <button
             type="button"
             title="Add reaction"
-            onclick={() => (pickerFor = pickerFor === message.id ? null : message.id)}
+            onclick={() => {
+              pickerFor = pickerFor === message.id ? null : message.id;
+              actionsFor = null;
+            }}
           >
             React
           </button>
           {#if canEdit(message)}
-            <button type="button" title="Edit" onclick={() => startEdit(message)}>Edit</button>
+            <button
+              type="button"
+              title="Edit"
+              onclick={() => {
+                startEdit(message);
+                actionsFor = null;
+              }}>Edit</button
+            >
           {/if}
           {#if canDelete(message)}
             {#if confirmingDeleteId === message.id}
-              <button type="button" class="danger" onclick={() => remove(message)}>Confirm</button>
+              <button
+                type="button"
+                class="danger"
+                onclick={() => {
+                  void remove(message);
+                  actionsFor = null;
+                }}>Confirm</button
+              >
               <button type="button" onclick={() => (confirmingDeleteId = null)}>Cancel</button>
             {:else}
               <button type="button" title="Delete" onclick={() => (confirmingDeleteId = message.id)}>Delete</button>

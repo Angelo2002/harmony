@@ -28,6 +28,7 @@ export function toUser(row: UserRow, roleColor: number | null): User {
     createdAt: row.created_at,
     timedOutUntil: row.timed_out_until,
     showTyping: row.show_typing === 1,
+    discordId: row.discord_id,
   };
 }
 

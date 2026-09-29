@@ -187,6 +187,7 @@ try {
     position: 0,
     createdAt: new Date().toISOString(),
     discordChannelId: '111',
+    requiredRoleId: null,
   });
 
   const auth = { user: { id: userId }, permissions: 0n, sessionId: 's', token: 't' };
@@ -603,6 +604,7 @@ try {
     position: 1,
     createdAt: new Date().toISOString(),
     discordChannelId: null,
+    requiredRoleId: null,
   });
 
   let testError = '';

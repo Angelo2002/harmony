@@ -23,6 +23,11 @@ export interface User {
    * broadcast their own typing nor see anyone else's.
    */
   showTyping: boolean;
+  /**
+   * The Discord account this stand-in represents, or null for a real member.
+   * Only ever set on accounts the bridge created for the other side of a link.
+   */
+  discordId: string | null;
 }
 
 /** A ban, with the user it applies to and who issued it. */

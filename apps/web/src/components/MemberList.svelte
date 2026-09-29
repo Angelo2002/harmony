@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { MemberRosterEntry, Role } from '@harmony/shared';
   import { avatarUrl, initial } from '../lib/avatar';
+  import { profileCard } from '../lib/profile-card.svelte';
   import { roster } from '../lib/roster.svelte';
 
   interface Group {
@@ -74,14 +75,23 @@
           {group.label} — {group.members.length}
         </span>
         {#each group.members as entry (entry.user.id)}
-          <div class="roster-member" class:offline={!entry.online}>
+          <button
+            type="button"
+            class="roster-member profile-trigger"
+            class:offline={!entry.online}
+            onmouseenter={(event) => profileCard.show(entry.user, event.currentTarget)}
+            onmouseleave={() => profileCard.scheduleHide()}
+            onfocus={(event) => profileCard.show(entry.user, event.currentTarget)}
+            onblur={() => profileCard.scheduleHide()}
+            onclick={(event) => profileCard.show(entry.user, event.currentTarget, true)}
+          >
             {#if avatarUrl(entry.user)}
               <img class="avatar small" src={avatarUrl(entry.user)} alt="" loading="lazy" />
             {:else}
               <span class="avatar small fallback">{initial(entry.user)}</span>
             {/if}
             <span class="roster-name" style={cssColor(entry.user.roleColor)}>{nameOf(entry)}</span>
-          </div>
+          </button>
         {/each}
       </div>
     {/each}

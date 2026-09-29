@@ -413,6 +413,150 @@ button.link:hover {
   }
 }
 
+/* ---- Profile card ---- */
+
+.profile-card {
+  position: fixed;
+  z-index: 20;
+  width: 280px;
+  overflow: hidden;
+  border-radius: var(--h-radius);
+  background: var(--h-bg-deep);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+}
+
+.profile-card-banner {
+  height: 56px;
+}
+
+.profile-card-body {
+  padding: 0 1rem 1rem;
+}
+
+.profile-card-avatar-wrap {
+  margin-top: -40px;
+  margin-bottom: 0.5rem;
+}
+
+.profile-card-avatar-wrap .avatar {
+  width: 80px;
+  height: 80px;
+  border: 4px solid var(--h-bg-deep);
+  font-size: 1.75rem;
+}
+
+.profile-card-names {
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-card-names strong {
+  color: var(--h-text);
+  font-size: 1.05rem;
+}
+
+.profile-card-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--h-bg-elevated);
+}
+
+.profile-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.profile-field-label {
+  color: var(--h-text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.profile-field-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-card-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--h-bg-elevated);
+}
+
+.profile-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--h-bg-elevated);
+  font-size: 0.8rem;
+}
+
+.role-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/*
+ * Names, avatars and member rows open the profile card. The ones that are
+ * buttons have to undo the global button styling so they still read as text.
+ */
+button.author,
+button.roster-member,
+button.mention {
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.author {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font-weight: 600;
+}
+
+button.roster-member {
+  width: 100%;
+  background: none;
+  color: inherit;
+  font-weight: 500;
+  text-align: left;
+}
+
+button.mention {
+  margin: 0;
+  font-weight: 500;
+}
+
+/* A fallback avatar is a real button in the message list, so drop the chrome. */
+button.avatar.fallback {
+  padding: 0;
+  border: none;
+  font: inherit;
+  font-weight: 700;
+}
+
 .chat-header {
   flex-shrink: 0;
   padding: 0.9rem 1rem;

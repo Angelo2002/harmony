@@ -152,6 +152,7 @@ type User = {
   createdAt: string;
   timedOutUntil: string | null; // end of an active timeout, else null
   showTyping: boolean;          // typing indicators on/off for this user
+  discordId: string | null;     // set only on Discord stand-in accounts
 };
 
 type Category = {

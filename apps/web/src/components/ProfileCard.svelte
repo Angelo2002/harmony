@@ -1,0 +1,132 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { avatarUrl, initial } from '../lib/avatar';
+  import { profileCard } from '../lib/profile-card.svelte';
+  import { roster } from '../lib/roster.svelte';
+
+  let card = $state<HTMLDivElement | null>(null);
+  let left = $state(0);
+  let top = $state(0);
+
+  const user = $derived(profileCard.user);
+  const roleIds = $derived(
+    user ? (roster.members.find((entry) => entry.user.id === user.id)?.roleIds ?? []) : [],
+  );
+  const roles = $derived(
+    roster.roles.filter((role) => roleIds.includes(role.id)).sort((a, b) => b.position - a.position),
+  );
+  const banner = $derived(
+    user?.roleColor == null ? 'var(--h-accent)' : `#${user.roleColor.toString(16).padStart(6, '0')}`,
+  );
+
+  function colorHex(value: number | null): string {
+    return value == null ? 'var(--h-text-muted)' : `#${value.toString(16).padStart(6, '0')}`;
+  }
+
+  // Placed after render so the card can measure itself and stay on screen.
+  $effect(() => {
+    const anchor = profileCard.rect;
+    const element = card;
+    if (!anchor || !element) return;
+
+    const margin = 8;
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
+
+    let x = anchor.left;
+    if (x + width > window.innerWidth - margin) x = window.innerWidth - margin - width;
+    if (x < margin) x = margin;
+
+    let y = anchor.bottom + 6;
+    if (y + height > window.innerHeight - margin) y = anchor.top - 6 - height;
+    if (y < margin) y = margin;
+
+    left = x;
+    top = y;
+  });
+
+  onMount(() => {
+    // Any click outside the card, or its trigger, dismisses it.
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Element | null;
+      if (target?.closest('.profile-card') || target?.closest('.profile-trigger')) return;
+      profileCard.hide();
+    };
+    const onKeydown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') profileCard.hide();
+    };
+    // Moving on would leave the card pointing at nothing.
+    const onMove = (): void => profileCard.hide();
+
+    window.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('keydown', onKeydown);
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('keydown', onKeydown);
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+  });
+</script>
+
+{#if user && profileCard.rect}
+  <div
+    class="profile-card"
+    bind:this={card}
+    style={`left: ${left}px; top: ${top}px`}
+    role="dialog"
+    tabindex="-1"
+    aria-label={`${user.displayName ?? user.username} profile`}
+    onmouseenter={() => profileCard.cancelHide()}
+    onmouseleave={() => profileCard.scheduleHide()}
+  >
+    <div class="profile-card-banner" style={`background: ${banner}`}></div>
+
+    <div class="profile-card-body">
+      <div class="profile-card-avatar-wrap">
+        {#if avatarUrl(user)}
+          <img class="avatar large" src={avatarUrl(user)} alt="" />
+        {:else}
+          <span class="avatar large fallback">{initial(user)}</span>
+        {/if}
+      </div>
+
+      <div class="profile-card-names">
+        <strong>{user.displayName ?? user.username}</strong>
+        <span class="muted">@{user.username}</span>
+      </div>
+
+      <div class="profile-card-fields">
+        <div class="profile-field">
+          <span class="profile-field-label">Member since</span>
+          <span>{new Date(user.createdAt).toLocaleDateString()}</span>
+        </div>
+        {#if user.discordId}
+          <div class="profile-field">
+            <span class="profile-field-label">Discord</span>
+            <code class="profile-field-value">{user.discordId}</code>
+          </div>
+        {/if}
+      </div>
+
+      <div class="profile-card-roles">
+        <span class="profile-field-label">Roles</span>
+        {#if roles.length === 0}
+          <span class="muted">No roles</span>
+        {:else}
+          <div class="profile-roles">
+            {#each roles as role (role.id)}
+              <span class="role-chip">
+                <span class="role-dot" style={`background: ${colorHex(role.color)}`}></span>
+                {role.name}
+              </span>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}

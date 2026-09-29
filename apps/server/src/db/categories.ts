@@ -29,11 +29,11 @@ export function nextCategoryPosition(sqlite: DatabaseSync): number {
 
 export function insertCategory(
   sqlite: DatabaseSync,
-  input: { id: string; name: string; position: number; requiredRoleId: string | null },
+  input: { id: string; name: string; position: number; requiredRoleId?: string | null },
 ): void {
   sqlite
     .prepare('INSERT INTO categories (id, name, position, required_role_id) VALUES (?, ?, ?, ?)')
-    .run(input.id, input.name, input.position, input.requiredRoleId);
+    .run(input.id, input.name, input.position, input.requiredRoleId ?? null);
 }
 
 export function updateCategory(

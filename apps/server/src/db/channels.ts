@@ -70,7 +70,8 @@ export function insertChannel(
     position: number;
     createdAt: string;
     discordChannelId: string | null;
-    requiredRoleId: string | null;
+    /** Optional so a caller that does not care about locking can omit it. */
+    requiredRoleId?: string | null;
   },
 ): void {
   sqlite
@@ -87,7 +88,7 @@ export function insertChannel(
       input.position,
       input.createdAt,
       input.discordChannelId,
-      input.requiredRoleId,
+      input.requiredRoleId ?? null,
     );
 }
 

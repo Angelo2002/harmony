@@ -1,14 +1,20 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { Permission, hasPermission, type Message } from '@harmony/shared';
+  import { Permission, hasPermission, type Message, type User } from '@harmony/shared';
   import { ApiError } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
   import { avatarUrl, initial } from '../lib/avatar';
   import { parseMessage, type InlineSegment } from '../lib/message-text';
   import { emojis } from '../lib/emojis.svelte';
   import { members } from '../lib/members.svelte';
+  import { profileCard } from '../lib/profile-card.svelte';
   import { session } from '../lib/session.svelte';
   import EmojiPicker from './EmojiPicker.svelte';
+
+  /** Opens the profile card for an author, when there is one to show. */
+  function openCard(user: User | null | undefined, element: HTMLElement): void {
+    if (user) profileCard.show(user, element);
+  }
 
   let scroller = $state<HTMLDivElement | null>(null);
   /** Whether the view is still pinned to the newest message. */
@@ -185,9 +191,17 @@
           title={`:${segment.emoji.name}:`}
         />
       {:else if segment.type === 'mention'}
-        <span class="mention" title={`@${segment.user.username}`}>
+        <button
+          type="button"
+          class="mention profile-trigger"
+          title={`@${segment.user.username}`}
+          onmouseenter={(event) => openCard(segment.user, event.currentTarget)}
+          onmouseleave={() => profileCard.scheduleHide()}
+          onfocus={(event) => openCard(segment.user, event.currentTarget)}
+          onblur={() => profileCard.scheduleHide()}
+        >
           @{segment.user.displayName ?? segment.user.username}
-        </span>
+        </button>
       {:else if segment.type === 'link'}
         <a class="link" href={segment.href} target="_blank" rel="noreferrer noopener">{segment.value}</a>
       {:else if segment.type === 'code'}
@@ -238,9 +252,27 @@
         {#if grouped}
           <div class="avatar-spacer" aria-hidden="true"><span class="gutter-time">{formatTime(message.createdAt)}</span></div>
         {:else if picture}
-          <img class="avatar" src={picture} alt="" loading="lazy" />
+          <img
+            class="avatar profile-trigger"
+            src={picture}
+            alt=""
+            loading="lazy"
+            onmouseenter={(event) => openCard(message.author, event.currentTarget)}
+            onmouseleave={() => profileCard.scheduleHide()}
+          />
         {:else}
-          <div class="avatar fallback">{initial(message.author)}</div>
+          <button
+            type="button"
+            class="avatar fallback profile-trigger"
+            aria-label={authorName(message)}
+            onmouseenter={(event) => openCard(message.author, event.currentTarget)}
+            onmouseleave={() => profileCard.scheduleHide()}
+            onfocus={(event) => openCard(message.author, event.currentTarget)}
+            onblur={() => profileCard.scheduleHide()}
+            onclick={(event) => openCard(message.author, event.currentTarget)}
+          >
+            {initial(message.author)}
+          </button>
         {/if}
         <div class="body">
           {#if message.replyTo}
@@ -254,9 +286,17 @@
 
           {#if !grouped}
             <div class="meta">
-              <span class="author" style={authorColor ? `color: ${authorColor}` : ''}>
+              <button
+                type="button"
+                class="author profile-trigger"
+                style={authorColor ? `color: ${authorColor}` : ''}
+                onmouseenter={(event) => openCard(message.author, event.currentTarget)}
+                onmouseleave={() => profileCard.scheduleHide()}
+                onfocus={(event) => openCard(message.author, event.currentTarget)}
+                onblur={() => profileCard.scheduleHide()}
+              >
                 {authorName(message)}
-              </span>
+              </button>
               <time>{formatTime(message.createdAt)}</time>
               {#if message.editedAt}<span class="edited">(edited)</span>{/if}
             </div>

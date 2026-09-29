@@ -142,6 +142,7 @@ try {
   const me = await req('/auth/me', { cookie: owner.cookie });
   check('cookie authenticates /auth/me', me.status === 200 && me.json?.user?.username === 'alice');
   check('bearer token authenticates /auth/me', (await req('/auth/me', { token: ownerToken })).status === 200);
+  check('a real member carries no Discord id', me.json?.user?.discordId === null);
   check('owner has Administrator', (BigInt(me.json?.permissions ?? '0') & (1n << 14n)) !== 0n);
 
   const dup = await req('/auth/register', { method: 'POST', body: { username: 'alice', password: 'another one' } });

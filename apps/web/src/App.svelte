@@ -8,6 +8,7 @@
   import AdminPanel from './components/admin/AdminPanel.svelte';
   import AuthPanel from './components/AuthPanel.svelte';
   import Chat from './components/Chat.svelte';
+  import ProfileCard from './components/ProfileCard.svelte';
   import ProfilePanel from './components/ProfilePanel.svelte';
 
   let loading = $state(true);
@@ -36,6 +37,7 @@
   {#if ui.profileOpen}
     <ProfilePanel />
   {/if}
+  <ProfileCard />
 {:else}
   <AuthPanel />
 {/if}

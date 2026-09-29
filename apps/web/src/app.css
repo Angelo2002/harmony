@@ -1079,6 +1079,24 @@ button.danger {
   gap: 0.4rem;
 }
 
+.member-group {
+  margin-top: 1.25rem;
+}
+
+.member-group > summary {
+  cursor: pointer;
+  color: var(--h-text);
+  font-weight: 600;
+}
+
+.member-group > summary .muted {
+  font-weight: 400;
+}
+
+.member-group > p {
+  margin: 0.5rem 0;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

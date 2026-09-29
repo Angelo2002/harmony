@@ -9,6 +9,11 @@
   let error = $state<string | null>(null);
   let busy = $state(false);
 
+  // The bridge creates a stand-in account for every Discord user it sees, which
+  // would drown out real members, so they are kept in their own collapsible group.
+  const humanMembers = $derived(members.filter((member) => !member.user.isBot));
+  const bridgeMembers = $derived(members.filter((member) => member.user.isBot));
+
   async function load(): Promise<void> {
     const [memberData, roleData] = await Promise.all([
       api<MemberListResponse>('/members'),
@@ -63,45 +68,65 @@
   <h3>Members</h3>
   {#if error}<p class="form-error">{error}</p>{/if}
 
-  <ul class="rows">
-    {#each members as member (member.user.id)}
-      <li class="member">
-        <div class="member-head">
-          <strong>{member.user.username}</strong>
-          {#if member.user.isOwner}<span class="badge">owner</span>{/if}
-        </div>
+  {#snippet memberRow(member: MemberSummary)}
+    <li class="member">
+      <div class="member-head">
+        <strong>{member.user.displayName ?? member.user.username}</strong>
+        {#if member.user.displayName}<span class="muted">@{member.user.username}</span>{/if}
+        {#if member.user.isOwner}<span class="badge">owner</span>{/if}
+      </div>
 
-        <div class="member-roles">
-          {#each member.roleIds as roleId (roleId)}
-            {@const role = roleById(roleId)}
-            {#if role}
-              <span class="chip">
-                <span class="swatch" style={`background: ${roleColor(role.color)}`}></span>{role.name}
-                <button
-                  type="button"
-                  class="chip-remove"
-                  title="Remove role"
-                  onclick={() => unassign(member.user.id, roleId)}>×</button
-                >
-              </span>
-            {/if}
+      <div class="member-roles">
+        {#each member.roleIds as roleId (roleId)}
+          {@const role = roleById(roleId)}
+          {#if role}
+            <span class="chip">
+              <span class="swatch" style={`background: ${roleColor(role.color)}`}></span>{role.name}
+              <button
+                type="button"
+                class="chip-remove"
+                title="Remove role"
+                onclick={() => unassign(member.user.id, roleId)}>×</button
+              >
+            </span>
+          {/if}
+        {/each}
+
+        <select
+          disabled={busy || assignable(member).length === 0}
+          onchange={(event) => {
+            const element = event.currentTarget as HTMLSelectElement;
+            void assign(member.user.id, element.value);
+            element.value = '';
+          }}
+        >
+          <option value="">Add role…</option>
+          {#each assignable(member) as role (role.id)}
+            <option value={role.id}>{role.name}</option>
           {/each}
+        </select>
+      </div>
+    </li>
+  {/snippet}
 
-          <select
-            disabled={busy || assignable(member).length === 0}
-            onchange={(event) => {
-              const element = event.currentTarget as HTMLSelectElement;
-              void assign(member.user.id, element.value);
-              element.value = '';
-            }}
-          >
-            <option value="">Add role…</option>
-            {#each assignable(member) as role (role.id)}
-              <option value={role.id}>{role.name}</option>
-            {/each}
-          </select>
-        </div>
-      </li>
+  <ul class="rows">
+    {#each humanMembers as member (member.user.id)}
+      {@render memberRow(member)}
     {/each}
   </ul>
+
+  {#if bridgeMembers.length > 0}
+    <details class="member-group">
+      <summary>Discord accounts <span class="muted">({bridgeMembers.length})</span></summary>
+      <p class="muted">
+        Stand-in accounts the bridge creates for people on Discord. They are listed here only so
+        their roles and colours can be managed.
+      </p>
+      <ul class="rows">
+        {#each bridgeMembers as member (member.user.id)}
+          {@render memberRow(member)}
+        {/each}
+      </ul>
+    </details>
+  {/if}
 </section>

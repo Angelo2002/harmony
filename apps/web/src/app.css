@@ -596,6 +596,60 @@ button.ghost {
   margin-top: 0.35rem;
 }
 
+/* ---- Emoji autocomplete ---- */
+
+.autocomplete {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-height: 220px;
+  margin: 0;
+  padding: 0.25rem;
+  overflow-y: auto;
+  list-style: none;
+  border-radius: var(--h-radius);
+  background: var(--h-bg-elevated);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+}
+
+.autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--h-text);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.autocomplete-item:hover {
+  filter: none;
+}
+
+.autocomplete-item.active {
+  background: var(--h-accent);
+  color: #fff;
+}
+
+.autocomplete-item img {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.autocomplete-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer {
   display: flex;
   flex-direction: column;

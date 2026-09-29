@@ -1,8 +1,9 @@
-// End-to-end smoke test for the auth layer.
+// End-to-end smoke test for the auth, channel and messaging layers.
 //
 // Boots a throwaway server (temp data dir, invite-gated) and exercises the real
 // HTTP + WebSocket surface: registration, invites, permissions, login/logout,
-// cookies, bearer tokens and gateway IDENTIFY.
+// cookies, bearer tokens, gateway IDENTIFY, channel listing, message history
+// and realtime fan-out.
 //
 // Run with: npm run smoke --workspace @harmony/server
 import { spawn } from 'node:child_process';
@@ -59,6 +60,31 @@ async function req(path, { method = 'GET', body, cookie, token } = {}) {
   };
 }
 
+/** Opens a gateway connection, identifies, and returns the events it receives. */
+function openGateway(auth = {}) {
+  return new Promise((resolveGateway, reject) => {
+    const options = auth.cookie ? { headers: { cookie: auth.cookie } } : {};
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/gateway`, options);
+    const events = [];
+    const timer = setTimeout(() => reject(new Error('gateway ready timeout')), 5000);
+
+    ws.on('message', (raw) => {
+      const frame = JSON.parse(raw.toString());
+      if (frame.op === 10) {
+        ws.send(JSON.stringify({ op: 2, d: auth.token ? { token: auth.token } : {} }));
+        return;
+      }
+      if (frame.t === 'READY') {
+        clearTimeout(timer);
+        resolveGateway({ ws, events, ready: frame.d });
+        return;
+      }
+      if (frame.t) events.push(frame);
+    });
+    ws.on('error', reject);
+  });
+}
+
 function gatewayIdentify(token) {
   return new Promise((resolveIdentify, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}/gateway`);
@@ -100,7 +126,7 @@ async function waitForServer() {
 try {
   await waitForServer();
 
-  // The first account bootstraps the instance and becomes owner.
+  // --- Auth ---
   const owner = await req('/auth/register', {
     method: 'POST',
     body: { username: 'alice', password: 'correct horse' },
@@ -109,17 +135,17 @@ try {
   check('first user is owner', owner.json?.user?.isOwner === true);
   check('register sets a session cookie', owner.cookie?.startsWith('harmony_session=') === true);
 
+  const ownerToken = owner.json?.token;
   const me = await req('/auth/me', { cookie: owner.cookie });
   check('cookie authenticates /auth/me', me.status === 200 && me.json?.user?.username === 'alice');
-  check('bearer token authenticates /auth/me', (await req('/auth/me', { token: owner.json?.token })).status === 200);
+  check('bearer token authenticates /auth/me', (await req('/auth/me', { token: ownerToken })).status === 200);
   check('owner has Administrator', (BigInt(me.json?.permissions ?? '0') & (1n << 14n)) !== 0n);
 
   const dup = await req('/auth/register', { method: 'POST', body: { username: 'alice', password: 'another one' } });
   check('duplicate username rejected (409)', dup.status === 409, `status ${dup.status}`);
 
-  const created = await req('/invites', { method: 'POST', token: owner.json?.token, body: {} });
-  check('owner creates an invite', created.status === 200 && typeof created.json?.code === 'string');
-  const inviteCode = created.json?.code;
+  const invite = await req('/invites', { method: 'POST', token: ownerToken, body: {} });
+  check('owner creates an invite', invite.status === 200 && typeof invite.json?.code === 'string');
 
   const noInvite = await req('/auth/register', { method: 'POST', body: { username: 'bob', password: 'hunter2hunter2' } });
   check('registration without invite rejected (403)', noInvite.status === 403, `status ${noInvite.status}`);
@@ -132,14 +158,15 @@ try {
 
   const bob = await req('/auth/register', {
     method: 'POST',
-    body: { username: 'bob', password: 'hunter2hunter2', inviteCode },
+    body: { username: 'bob', password: 'hunter2hunter2', inviteCode: invite.json?.code },
   });
   check('registration with valid invite succeeds', bob.status === 200, `status ${bob.status}`);
   check('second user is not owner', bob.json?.user?.isOwner === false);
 
-  const bobMe = await req('/auth/me', { token: bob.json?.token });
+  const bobToken = bob.json?.token;
+  const bobMe = await req('/auth/me', { token: bobToken });
   check('member lacks Administrator', (BigInt(bobMe.json?.permissions ?? '0') & (1n << 14n)) === 0n);
-  check('member cannot list invites (403)', (await req('/invites', { token: bob.json?.token })).status === 403);
+  check('member cannot list invites (403)', (await req('/invites', { token: bobToken })).status === 403);
 
   const wrongPassword = await req('/auth/login', { method: 'POST', body: { username: 'alice', password: 'wrong' } });
   check('wrong password rejected (401)', wrongPassword.status === 401, `status ${wrongPassword.status}`);
@@ -152,6 +179,64 @@ try {
 
   const gatewayBad = await gatewayIdentify('not-a-real-token');
   check('gateway IDENTIFY with bad token closes 4004', gatewayBad.closeCode === 4004, `code ${gatewayBad.closeCode}`);
+
+  // --- Channels, categories and messages ---
+  const channelList = await req('/channels', { token: ownerToken });
+  const general = channelList.json?.channels?.find((channel) => channel.name === 'general');
+  check('channel list loads', channelList.status === 200, `status ${channelList.status}`);
+  check(
+    'seeded category "Text Channels" exists',
+    channelList.json?.categories?.some((category) => category.name === 'Text Channels') === true,
+  );
+  check('seeded channel "general" exists', Boolean(general));
+
+  if (general) {
+    const emptyHistory = await req(`/channels/${general.id}/messages`, { token: ownerToken });
+    check('message history starts empty', emptyHistory.json?.messages?.length === 0);
+
+    const cookieGateway = await openGateway({ cookie: owner.cookie });
+    check('gateway identifies via session cookie', cookieGateway.ready?.user?.username === 'alice');
+    cookieGateway.ws.close();
+
+    const posted = await req(`/channels/${general.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'hello world' },
+    });
+    check('message is created', posted.status === 200 && posted.json?.content === 'hello world');
+    const messageId = posted.json?.id;
+
+    const history = await req(`/channels/${general.id}/messages`, { token: ownerToken });
+    check('message appears in history', history.json?.messages?.some((m) => m.id === messageId) === true);
+
+    const fanout = await openGateway({ token: ownerToken });
+    await req(`/channels/${general.id}/messages`, { method: 'POST', token: ownerToken, body: { content: 'broadcast me' } });
+    await sleep(250);
+    check(
+      'gateway broadcasts MESSAGE_CREATE',
+      fanout.events.some((event) => event.t === 'MESSAGE_CREATE' && event.d?.content === 'broadcast me'),
+    );
+    fanout.ws.close();
+
+    const edited = await req(`/messages/${messageId}`, {
+      method: 'PATCH',
+      token: ownerToken,
+      body: { content: 'edited' },
+    });
+    check('author can edit their message', edited.json?.content === 'edited' && edited.json?.editedAt != null);
+    check(
+      "member cannot edit another user's message (403)",
+      (await req(`/messages/${messageId}`, { method: 'PATCH', token: bobToken, body: { content: 'nope' } })).status === 403,
+    );
+    check(
+      'member cannot create channels (403)',
+      (await req('/channels', { method: 'POST', token: bobToken, body: { name: 'secret' } })).status === 403,
+    );
+
+    check('author can delete their message', (await req(`/messages/${messageId}`, { method: 'DELETE', token: ownerToken })).status === 204);
+    const afterDelete = await req(`/channels/${general.id}/messages`, { token: ownerToken });
+    check('deleted message is gone from history', afterDelete.json?.messages?.some((m) => m.id === messageId) === false);
+  }
 
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);
   check('session is dead after logout (401)', (await req('/auth/me', { cookie: login.cookie })).status === 401);

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { EVERYONE_PERMISSIONS, permissionsToString } from '@harmony/shared';
 
@@ -130,6 +131,25 @@ export const migrations: Migration[] = [
         `INSERT INTO roles (id, name, position, permissions, is_default, created_at)
          VALUES ('everyone', '@everyone', 0, ?, 1, ?)`,
       ).run(permissionsToString(EVERYONE_PERMISSIONS), new Date().toISOString());
+    },
+  },
+  {
+    version: 2,
+    name: 'default_category_and_channel',
+    up(db) {
+      // Seed Discord's familiar starting point, but only on a fresh instance.
+      const existing = db.prepare('SELECT COUNT(*) AS count FROM channels').get() as { count: number };
+      if (existing.count > 0) return;
+
+      const categoryId = randomUUID();
+      db.prepare('INSERT INTO categories (id, name, position) VALUES (?, ?, 0)').run(
+        categoryId,
+        'Text Channels',
+      );
+      db.prepare(
+        `INSERT INTO channels (id, name, type, category_id, position, created_at)
+         VALUES (?, 'general', 'text', ?, 0, ?)`,
+      ).run(randomUUID(), categoryId, new Date().toISOString());
     },
   },
 ];

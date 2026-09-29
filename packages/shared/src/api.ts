@@ -1,4 +1,4 @@
-import type { User } from './types.ts';
+import type { Category, Channel, Message, User } from './types.ts';
 
 /** Response for a successful register or login. */
 export interface AuthResponse {
@@ -17,4 +17,15 @@ export interface MeResponse {
 /** Consistent error body returned by every API endpoint. */
 export interface ApiErrorBody {
   error: { code: string; message: string };
+}
+
+/** Response for `GET /api/v1/channels`. */
+export interface ChannelListResponse {
+  categories: Category[];
+  channels: Channel[];
+}
+
+/** Response for `GET /api/v1/channels/:id/messages`. */
+export interface MessageListResponse {
+  messages: Message[];
 }

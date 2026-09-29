@@ -35,8 +35,14 @@ function readBoolean(value: string | undefined, fallback: boolean): boolean {
   return /^(1|true|yes|on)$/i.test(value);
 }
 
+// Default to a `data/` directory at the repository root, so the database is
+// the same no matter which directory the server is started from.
+const defaultDataDir = resolve(import.meta.dirname, '..', '..', '..', 'data');
+
 export function loadConfig(): Config {
-  const dataDir = resolve(process.cwd(), process.env.HARMONY_DATA_DIR ?? 'data');
+  const dataDir = process.env.HARMONY_DATA_DIR
+    ? resolve(process.cwd(), process.env.HARMONY_DATA_DIR)
+    : defaultDataDir;
   return {
     host: process.env.HARMONY_HOST ?? '127.0.0.1',
     port: readNumber(process.env.HARMONY_PORT, 8787),

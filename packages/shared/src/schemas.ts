@@ -32,7 +32,7 @@ export const createChannelSchema = z.object({
 export type CreateChannelInput = z.infer<typeof createChannelSchema>;
 
 export const createMessageSchema = z.object({
-  content: z.string().max(LIMITS.messageLength),
+  content: z.string().min(1).max(LIMITS.messageLength),
   attachmentIds: z.array(z.string()).max(LIMITS.attachmentsPerMessage).optional(),
 });
 export type CreateMessageInput = z.infer<typeof createMessageSchema>;
@@ -44,3 +44,34 @@ export const createInviteSchema = z.object({
   expiresInHours: z.number().positive().nullable().optional(),
 });
 export type CreateInviteInput = z.infer<typeof createInviteSchema>;
+
+export const createCategorySchema = z.object({
+  name: z.string().min(1).max(LIMITS.channelName.max),
+});
+export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
+
+export const updateCategorySchema = z.object({
+  name: z.string().min(1).max(LIMITS.channelName.max).optional(),
+  position: z.number().int().optional(),
+});
+export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
+
+export const updateChannelSchema = z.object({
+  name: z.string().min(1).max(LIMITS.channelName.max).optional(),
+  topic: z.string().max(1024).nullable().optional(),
+  categoryId: z.string().nullable().optional(),
+  position: z.number().int().optional(),
+});
+export type UpdateChannelInput = z.infer<typeof updateChannelSchema>;
+
+export const editMessageSchema = z.object({
+  content: z.string().min(1).max(LIMITS.messageLength),
+});
+export type EditMessageInput = z.infer<typeof editMessageSchema>;
+
+export const messageHistoryQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  /** Return messages strictly older than this ISO timestamp. */
+  before: z.string().optional(),
+});
+export type MessageHistoryQuery = z.infer<typeof messageHistoryQuerySchema>;

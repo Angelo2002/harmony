@@ -18,7 +18,11 @@ export const GatewayEvent = {
   MessageDelete: 'MESSAGE_DELETE',
   TypingStart: 'TYPING_START',
   ChannelCreate: 'CHANNEL_CREATE',
+  ChannelUpdate: 'CHANNEL_UPDATE',
   ChannelDelete: 'CHANNEL_DELETE',
+  CategoryCreate: 'CATEGORY_CREATE',
+  CategoryUpdate: 'CATEGORY_UPDATE',
+  CategoryDelete: 'CATEGORY_DELETE',
 } as const;
 export type GatewayEventName = (typeof GatewayEvent)[keyof typeof GatewayEvent];
 

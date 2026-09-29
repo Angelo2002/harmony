@@ -4,7 +4,7 @@
   import { api } from './lib/api';
   import { session } from './lib/session.svelte';
   import AuthPanel from './components/AuthPanel.svelte';
-  import Dashboard from './components/Dashboard.svelte';
+  import Chat from './components/Chat.svelte';
 
   let loading = $state(true);
 
@@ -24,7 +24,7 @@
 {#if loading}
   <main><p class="muted">Loading…</p></main>
 {:else if session.user}
-  <Dashboard />
+  <Chat />
 {:else}
   <AuthPanel />
 {/if}

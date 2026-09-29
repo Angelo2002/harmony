@@ -6,15 +6,21 @@ import { loadConfig } from './config.ts';
 import { Database } from './db/index.ts';
 import { createAuthService } from './auth/service.ts';
 import { registerAuth } from './auth/plugin.ts';
+import { createMessageService } from './messages/service.ts';
+import { GatewayHub } from './realtime/hub.ts';
 import { registerErrorHandler } from './http/errors.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
 import { registerInviteRoutes } from './routes/invites.ts';
+import { registerChannelRoutes } from './routes/channels.ts';
+import { registerMessageRoutes } from './routes/messages.ts';
 import { registerGateway } from './gateway/index.ts';
 
 const config = loadConfig();
 const db = new Database(config);
+const hub = new GatewayHub();
 const authService = createAuthService(db.sqlite, config);
+const messageService = createMessageService(db.sqlite, hub);
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
 
@@ -27,7 +33,14 @@ registerAuth(app, { cookieName: config.cookieName, resolveToken: authService.res
 registerHealthRoutes(app, db);
 registerAuthRoutes(app, { service: authService, config });
 registerInviteRoutes(app, db);
-registerGateway(app, { heartbeatIntervalMs: GATEWAY_HEARTBEAT_MS, resolveToken: authService.resolveToken });
+registerChannelRoutes(app, { db, hub });
+registerMessageRoutes(app, { service: messageService });
+registerGateway(app, {
+  heartbeatIntervalMs: GATEWAY_HEARTBEAT_MS,
+  cookieName: config.cookieName,
+  resolveToken: authService.resolveToken,
+  hub,
+});
 
 app.addHook('onClose', async () => {
   db.close();

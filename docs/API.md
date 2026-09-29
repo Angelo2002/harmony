@@ -351,7 +351,17 @@ Returns the new `Channel` and fires `CHANNEL_CREATE`.
 #### `PATCH /api/v1/channels/:id` — `ManageChannels`
 
 Any of `name`, `topic`, `categoryId`, `position`, `discordChannelId`. Returns the updated
-`Channel` and fires `CHANNEL_UPDATE`.
+`Channel` and fires `CHANNEL_UPDATE`. Changing `categoryId` appends the channel to the end of the
+target category, unless `position` is given explicitly.
+
+#### `POST /api/v1/channels/:id/move` — `ManageChannels`
+
+```json
+{ "direction": "up" }
+```
+
+`direction` is `up` or `down`. Swaps the channel with its neighbour inside its own category, so it
+is a no-op at either end. Returns the moved `Channel` and fires `CHANNEL_UPDATE`.
 
 #### `DELETE /api/v1/channels/:id` — `ManageChannels`
 
@@ -369,6 +379,15 @@ Returns the new `Category`, fires `CATEGORY_CREATE`.
 #### `PATCH /api/v1/categories/:id` — `ManageChannels`
 
 `{ "name"?: string, "position"?: number }`. Returns the `Category`, fires `CATEGORY_UPDATE`.
+
+#### `POST /api/v1/categories/:id/move` — `ManageChannels`
+
+```json
+{ "direction": "up" }
+```
+
+`direction` is `up` or `down`. Swaps the category with its neighbour in the sidebar order, so it is
+a no-op at either end. Returns the moved `Category` and fires `CATEGORY_UPDATE`.
 
 #### `DELETE /api/v1/categories/:id` — `ManageChannels`
 

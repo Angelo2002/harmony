@@ -50,3 +50,22 @@ export function updateCategory(sqlite: DatabaseSync, id: string, patch: { name?:
 export function deleteCategory(sqlite: DatabaseSync, id: string): void {
   sqlite.prepare('DELETE FROM categories WHERE id = ?').run(id);
 }
+
+/** Swaps a category's position with its neighbour in the display order. */
+export function moveCategory(sqlite: DatabaseSync, id: string, direction: 'up' | 'down'): void {
+  const ordered = listCategories(sqlite);
+  const index = ordered.findIndex((category) => category.id === id);
+  const current = ordered[index];
+  const neighbor = ordered[direction === 'up' ? index - 1 : index + 1];
+  if (!current || !neighbor) return;
+
+  sqlite.exec('BEGIN');
+  try {
+    sqlite.prepare('UPDATE categories SET position = ? WHERE id = ?').run(neighbor.position, current.id);
+    sqlite.prepare('UPDATE categories SET position = ? WHERE id = ?').run(current.position, neighbor.id);
+    sqlite.exec('COMMIT');
+  } catch (error) {
+    sqlite.exec('ROLLBACK');
+    throw error;
+  }
+}

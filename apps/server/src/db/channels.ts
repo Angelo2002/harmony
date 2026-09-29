@@ -31,6 +31,13 @@ export function listChannels(sqlite: DatabaseSync): ChannelRow[] {
   return sqlite.prepare('SELECT * FROM channels ORDER BY position, name').all() as unknown as ChannelRow[];
 }
 
+/** One category's channels in display order. `null` means "no category". */
+export function listChannelsInCategory(sqlite: DatabaseSync, categoryId: string | null): ChannelRow[] {
+  return sqlite
+    .prepare('SELECT * FROM channels WHERE category_id IS ? ORDER BY position, name')
+    .all(categoryId) as unknown as ChannelRow[];
+}
+
 export function findChannel(sqlite: DatabaseSync, id: string): ChannelRow | null {
   return (sqlite.prepare('SELECT * FROM channels WHERE id = ?').get(id) as ChannelRow | undefined) ?? null;
 }
@@ -142,4 +149,30 @@ export function countChannelsInCategory(sqlite: DatabaseSync, categoryId: string
     count: number;
   };
   return row.count;
+}
+
+/**
+ * Swaps a channel's position with its neighbour in the same category. Channels
+ * only reorder inside their own category, so moving across categories is done
+ * with `PATCH /channels/:id` instead.
+ */
+export function moveChannel(sqlite: DatabaseSync, id: string, direction: 'up' | 'down'): void {
+  const row = findChannel(sqlite, id);
+  if (!row) return;
+
+  const ordered = listChannelsInCategory(sqlite, row.category_id);
+  const index = ordered.findIndex((channel) => channel.id === id);
+  const current = ordered[index];
+  const neighbor = ordered[direction === 'up' ? index - 1 : index + 1];
+  if (!current || !neighbor) return;
+
+  sqlite.exec('BEGIN');
+  try {
+    sqlite.prepare('UPDATE channels SET position = ? WHERE id = ?').run(neighbor.position, current.id);
+    sqlite.prepare('UPDATE channels SET position = ? WHERE id = ?').run(current.position, neighbor.id);
+    sqlite.exec('COMMIT');
+  } catch (error) {
+    sqlite.exec('ROLLBACK');
+    throw error;
+  }
 }

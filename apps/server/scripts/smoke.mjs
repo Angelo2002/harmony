@@ -485,6 +485,92 @@ try {
   });
   check('an empty category can be deleted', emptiedCategory.status === 204, `status ${emptiedCategory.status}`);
 
+  // --- Reordering and recategorising channels ---
+  async function channelNamesIn(categoryId) {
+    const res = await req('/channels', { token: ownerToken });
+    return res.json.channels.filter((channel) => channel.categoryId === categoryId).map((channel) => channel.name);
+  }
+
+  const textCategory = (await req('/channels', { token: ownerToken })).json.categories.find(
+    (category) => category.name === 'Text Channels',
+  );
+  const alpha = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'alpha', categoryId: textCategory.id },
+  });
+  const bravo = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'bravo', categoryId: textCategory.id },
+  });
+
+  const appended = await channelNamesIn(textCategory.id);
+  check(
+    'new channels append to the end of their category',
+    appended.at(-2) === 'alpha' && appended.at(-1) === 'bravo',
+    appended.join(', '),
+  );
+
+  await req(`/channels/${bravo.json.id}/move`, { method: 'POST', token: ownerToken, body: { direction: 'up' } });
+  check(
+    'moving a channel up swaps it with its neighbour',
+    JSON.stringify((await channelNamesIn(textCategory.id)).slice(-2)) === JSON.stringify(['bravo', 'alpha']),
+  );
+
+  // The channel at the top of the category cannot move any higher.
+  const topChannel = (await req('/channels', { token: ownerToken })).json.channels.filter(
+    (channel) => channel.categoryId === textCategory.id,
+  )[0];
+  const noopBefore = await channelNamesIn(textCategory.id);
+  await req(`/channels/${topChannel.id}/move`, { method: 'POST', token: ownerToken, body: { direction: 'up' } });
+  check(
+    'moving the first channel up does nothing',
+    JSON.stringify(await channelNamesIn(textCategory.id)) === JSON.stringify(noopBefore),
+  );
+
+  // Recategorising moves the channel, and it lands at the end of its new home.
+  const miscCategory = await req('/categories', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Misc' },
+  });
+  await req(`/channels/${alpha.json.id}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { categoryId: miscCategory.json.id },
+  });
+  check(
+    'recategorising moves the channel into the target category',
+    JSON.stringify(await channelNamesIn(miscCategory.json.id)) === JSON.stringify(['alpha']),
+  );
+  check(
+    'recategorising removes the channel from its old category',
+    !(await channelNamesIn(textCategory.id)).includes('alpha'),
+  );
+
+  // Category reordering swaps with the neighbour, and is a no-op at the top.
+  const catsBefore = (await req('/channels', { token: ownerToken })).json.categories.map((topic) => topic.name);
+  await req(`/categories/${miscCategory.json.id}/move`, { method: 'POST', token: ownerToken, body: { direction: 'up' } });
+  const catsAfter = (await req('/channels', { token: ownerToken })).json.categories.map((topic) => topic.name);
+  check(
+    'moving a category up reorders the sidebar',
+    catsAfter.indexOf('Misc') === catsBefore.indexOf('Misc') - 1,
+    catsAfter.join(', '),
+  );
+
+  const topCategory = (await req('/channels', { token: ownerToken })).json.categories[0];
+  await req(`/categories/${topCategory.id}/move`, { method: 'POST', token: ownerToken, body: { direction: 'up' } });
+  check(
+    'moving the first category up does nothing',
+    (await req('/channels', { token: ownerToken })).json.categories[0]?.id === topCategory.id,
+  );
+
+  // Clean up so later tests see the original channel tree.
+  await req(`/channels/${alpha.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/channels/${bravo.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/categories/${miscCategory.json.id}`, { method: 'DELETE', token: ownerToken });
+
   const patched = await req('/settings', {
     method: 'PATCH',
     token: ownerToken,

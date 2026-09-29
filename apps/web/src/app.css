@@ -971,6 +971,21 @@ select {
   font-size: 0.85rem;
 }
 
+/*
+ * A channel row packs a reorder pair, a name, two selects and two buttons, so
+ * it may wrap on a narrow panel. The arrows keep the compact square shape of
+ * the role reorder buttons rather than the roomier row-button padding.
+ */
+.channel-row {
+  flex-wrap: wrap;
+}
+
+.channel-row button.move {
+  padding: 0;
+  width: 26px;
+  height: 26px;
+}
+
 .row-main {
   display: flex;
   align-items: center;

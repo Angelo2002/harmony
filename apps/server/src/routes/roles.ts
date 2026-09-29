@@ -5,7 +5,7 @@ import {
   Permission,
   createRoleSchema,
   hasPermission,
-  moveRoleSchema,
+  moveSchema,
   permissionsFromString,
   permissionsToString,
   updateRoleSchema,
@@ -119,7 +119,7 @@ export function registerRoleRoutes(app: FastifyInstance, deps: RoleRouteDeps): v
       throw new HttpError(403, 'immutable_role', 'The @everyone role cannot be reordered.');
     }
 
-    const input = parseBody(moveRoleSchema, request.body);
+    const input = parseBody(moveSchema, request.body);
     moveRole(db.sqlite, id, input.direction);
 
     const body: RoleListResponse = { roles: listRoles(db.sqlite).map(toRole) };

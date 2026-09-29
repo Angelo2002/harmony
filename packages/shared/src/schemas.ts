@@ -144,10 +144,11 @@ export const updateSettingsSchema = z.object({
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
-export const moveRoleSchema = z.object({
+/** A one-step reorder, shared by roles, channels and categories. */
+export const moveSchema = z.object({
   direction: z.enum(['up', 'down']),
 });
-export type MoveRoleInput = z.infer<typeof moveRoleSchema>;
+export type MoveInput = z.infer<typeof moveSchema>;
 
 /** Emoji shortcodes are written as `:name:` and use Discord's name rules. */
 export const emojiNameSchema = z

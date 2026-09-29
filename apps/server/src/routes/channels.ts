@@ -5,6 +5,7 @@ import {
   Permission,
   createCategorySchema,
   createChannelSchema,
+  moveSchema,
   updateCategorySchema,
   updateChannelSchema,
   type ChannelListResponse,
@@ -16,6 +17,7 @@ import {
   findCategory,
   insertCategory,
   listCategories,
+  moveCategory,
   nextCategoryPosition,
   toCategory,
   updateCategory,
@@ -28,6 +30,7 @@ import {
   findChannelByDiscordId,
   insertChannel,
   listChannels,
+  moveChannel,
   nextChannelPosition,
   toChannel,
   updateChannel,
@@ -119,23 +122,45 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
   app.patch('/api/v1/channels/:id', async (request) => {
     requirePermission(request, Permission.ManageChannels);
     const { id } = request.params as { id: string };
-    requireChannelRow(id);
+    const row = requireChannelRow(id);
 
     const input = parseBody(updateChannelSchema, request.body);
     if (input.categoryId) requireCategoryRow(input.categoryId);
     if (input.discordChannelId) assertDiscordChannelFree(input.discordChannelId, id);
 
+    // Moving a channel to another category appends it to the end of that one,
+    // unless a position was given. Otherwise it would keep a position from its
+    // old category that can collide with the target's ordering.
+    let position = input.position;
+    if (input.categoryId !== undefined && input.categoryId !== row.category_id) {
+      position = nextChannelPosition(db.sqlite, input.categoryId);
+    }
+
     updateChannel(db.sqlite, id, {
       name: input.name,
       topic: input.topic,
       categoryId: input.categoryId,
-      position: input.position,
+      position,
       discordChannelId: input.discordChannelId,
     });
 
     const channel = toChannel(requireChannelRow(id));
     hub.dispatch(GatewayEvent.ChannelUpdate, channel);
     if (input.discordChannelId) backfill(channel.id);
+    return channel;
+  });
+
+  /** Moves a channel one step up or down inside its own category. */
+  app.post('/api/v1/channels/:id/move', async (request) => {
+    requirePermission(request, Permission.ManageChannels);
+    const { id } = request.params as { id: string };
+    requireChannelRow(id);
+
+    const input = parseBody(moveSchema, request.body);
+    moveChannel(db.sqlite, id, input.direction);
+
+    const channel = toChannel(requireChannelRow(id));
+    hub.dispatch(GatewayEvent.ChannelUpdate, channel);
     return channel;
   });
 
@@ -170,6 +195,20 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
 
     const input = parseBody(updateCategorySchema, request.body);
     updateCategory(db.sqlite, id, { name: input.name, position: input.position });
+
+    const category = toCategory(requireCategoryRow(id));
+    hub.dispatch(GatewayEvent.CategoryUpdate, category);
+    return category;
+  });
+
+  /** Moves a category one step up or down in the sidebar. */
+  app.post('/api/v1/categories/:id/move', async (request) => {
+    requirePermission(request, Permission.ManageChannels);
+    const { id } = request.params as { id: string };
+    requireCategoryRow(id);
+
+    const input = parseBody(moveSchema, request.body);
+    moveCategory(db.sqlite, id, input.direction);
 
     const category = toCategory(requireCategoryRow(id));
     hub.dispatch(GatewayEvent.CategoryUpdate, category);

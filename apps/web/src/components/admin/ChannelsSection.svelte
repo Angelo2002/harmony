@@ -94,6 +94,24 @@
     });
   }
 
+  /** Recategorising sends the channel to the end of its new category. */
+  function setCategory(channel: Channel, categoryId: string): void {
+    void run(async () => {
+      await api(`/channels/${channel.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ categoryId: categoryId || null }),
+      });
+    });
+  }
+
+  function moveChannel(channel: Channel, direction: 'up' | 'down'): void {
+    void run(() => api(`/channels/${channel.id}/move`, { method: 'POST', body: JSON.stringify({ direction }) }));
+  }
+
+  function moveCategory(category: Category, direction: 'up' | 'down'): void {
+    void run(() => api(`/categories/${category.id}/move`, { method: 'POST', body: JSON.stringify({ direction }) }));
+  }
+
   function saveRename(): void {
     if (!editing) return;
     const { kind, id, name } = editing;
@@ -104,6 +122,19 @@
     });
   }
 </script>
+
+{#snippet moveButtons(index: number, count: number, onMove: (direction: 'up' | 'down') => void)}
+  <button type="button" class="move" title="Move up" disabled={busy || index === 0} onclick={() => onMove('up')}
+    >↑</button
+  >
+  <button
+    type="button"
+    class="move"
+    title="Move down"
+    disabled={busy || index === count - 1}
+    onclick={() => onMove('down')}>↓</button
+  >
+{/snippet}
 
 {#snippet discordSelect(channel: Channel)}
   <select
@@ -121,14 +152,25 @@
   </select>
 {/snippet}
 
-{#snippet channelRow(channel: Channel)}
-  <div class="row">
+{#snippet channelRow(channel: Channel, index: number, count: number)}
+  <div class="row channel-row">
     {#if editing?.kind === 'channel' && editing.id === channel.id}
       <input bind:value={editing.name} />
       <button type="button" onclick={saveRename} disabled={busy}>Save</button>
       <button type="button" onclick={() => (editing = null)}>Cancel</button>
     {:else}
+      {@render moveButtons(index, count, (direction) => moveChannel(channel, direction))}
       <span class="grow"># {channel.name}</span>
+      <select
+        title="Category"
+        value={channel.categoryId ?? ''}
+        onchange={(event) => setCategory(channel, event.currentTarget.value)}
+      >
+        <option value="">No category</option>
+        {#each categories as category (category.id)}
+          <option value={category.id}>{category.name}</option>
+        {/each}
+      </select>
       {@render discordSelect(channel)}
       <button
         type="button"
@@ -141,6 +183,12 @@
       >
     {/if}
   </div>
+{/snippet}
+
+{#snippet channelRows(list: Channel[])}
+  {#each list as channel, index (channel.id)}
+    {@render channelRow(channel, index, list.length)}
+  {/each}
 {/snippet}
 
 <section>
@@ -175,8 +223,8 @@
     <p class="muted">Connect the Discord bridge to link channels for syncing.</p>
   {/if}
 
-  {#each categories as category (category.id)}
-    {@const isEmpty = channelsIn(category.id).length === 0}
+  {#each categories as category, index (category.id)}
+    {@const list = channelsIn(category.id)}
     <div class="group">
       <div class="group-head">
         {#if editing?.kind === 'category' && editing.id === category.id}
@@ -184,6 +232,7 @@
           <button type="button" onclick={saveRename} disabled={busy}>Save</button>
           <button type="button" onclick={() => (editing = null)}>Cancel</button>
         {:else}
+          {@render moveButtons(index, categories.length, (direction) => moveCategory(category, direction))}
           <strong class="grow">{category.name}</strong>
           <button
             type="button"
@@ -192,20 +241,16 @@
           <button
             type="button"
             class="danger"
-            disabled={busy || !isEmpty}
-            title={isEmpty ? 'Delete this category' : 'Move or delete its channels first'}
+            disabled={busy || list.length > 0}
+            title={list.length === 0 ? 'Delete this category' : 'Move or delete its channels first'}
             onclick={() => run(() => api(`/categories/${category.id}`, { method: 'DELETE' }))}>Delete</button
           >
         {/if}
       </div>
 
-      {#each channelsIn(category.id) as channel (channel.id)}
-        {@render channelRow(channel)}
-      {/each}
+      {@render channelRows(list)}
     </div>
   {/each}
 
-  {#each channelsIn(null) as channel (channel.id)}
-    {@render channelRow(channel)}
-  {/each}
+  {@render channelRows(channelsIn(null))}
 </section>

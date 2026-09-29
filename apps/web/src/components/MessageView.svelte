@@ -229,7 +229,12 @@
           block.segments.some((segment) => segment.type === 'mention' && segment.user.id === myId),
       )}
       {@const picture = avatarUrl(message.author)}
-      <article class="message" class:grouped class:mentions-me={mentionsMe}>
+      <article
+        class="message"
+        class:grouped
+        class:mentions-me={mentionsMe}
+        class:selected={chat.replyTarget?.id === message.id}
+      >
         {#if grouped}
           <div class="avatar-spacer" aria-hidden="true"><span class="gutter-time">{formatTime(message.createdAt)}</span></div>
         {:else if picture}

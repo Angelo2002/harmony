@@ -229,4 +229,12 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 8,
+    name: 'user_typing_preference',
+    up(db) {
+      /* 1 means typing indicators are on, which is the default for everyone. */
+      db.exec(`ALTER TABLE users ADD COLUMN show_typing INTEGER NOT NULL DEFAULT 1`);
+    },
+  },
 ];

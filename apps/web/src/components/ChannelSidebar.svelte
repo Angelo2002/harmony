@@ -3,6 +3,7 @@
   import { api } from '../lib/api';
   import { avatarUrl, initial } from '../lib/avatar';
   import { chat } from '../lib/chat.svelte';
+  import { channelGlyph } from '../lib/format';
   import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
   import { ui } from '../lib/ui.svelte';
@@ -40,7 +41,7 @@
             type="button"
             onclick={() => chat.selectChannel(channel.id)}
           >
-            <span class="hash">#</span>{channel.name}
+            <span class="hash">{channelGlyph(channel)}</span>{channel.name}
           </button>
         {/each}
       </div>
@@ -53,7 +54,7 @@
         type="button"
         onclick={() => chat.selectChannel(channel.id)}
       >
-        <span class="hash">#</span>{channel.name}
+        <span class="hash">{channelGlyph(channel)}</span>{channel.name}
       </button>
     {/each}
   </nav>

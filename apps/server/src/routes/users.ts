@@ -25,7 +25,7 @@ export function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): v
   app.patch('/api/v1/users/@me', async (request) => {
     const auth = requireAuth(request);
     const input = parseBody(updateProfileSchema, request.body);
-    return present(deps.users.updateDisplayName(auth.user.id, input.displayName));
+    return present(deps.users.updateProfile(auth.user.id, input));
   });
 
   app.put('/api/v1/users/@me/avatar', async (request) => {

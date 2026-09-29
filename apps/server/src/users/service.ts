@@ -12,7 +12,7 @@ import { HttpError } from '../http/errors.ts';
 import { createBlobStore } from '../storage/blobs.ts';
 
 export interface UserService {
-  updateDisplayName(userId: string, displayName: string | null): UserRow;
+  updateProfile(userId: string, patch: { displayName?: string | null; showTyping?: boolean }): UserRow;
   updateAvatar(userId: string, file: { contentType: string; data: Buffer }): Promise<UserRow>;
   /**
    * Stores a normalised avatar from raw bytes. Used by the bridge, where the
@@ -54,11 +54,16 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
   return {
     avatarPath: blobs.pathFor,
 
-    updateDisplayName(userId, displayName) {
+    updateProfile(userId, patch) {
       const row = require(userId);
-      // Empty means "go back to the username".
-      const cleaned = displayName && displayName.trim().length > 0 ? displayName.trim() : null;
-      updateUserProfile(sqlite, row.id, { displayName: cleaned });
+      const clean: { displayName?: string | null; showTyping?: boolean } = {};
+      if (patch.displayName !== undefined) {
+        // Empty means "go back to the username".
+        clean.displayName =
+          patch.displayName && patch.displayName.trim().length > 0 ? patch.displayName.trim() : null;
+      }
+      if (patch.showTyping !== undefined) clean.showTyping = patch.showTyping;
+      updateUserProfile(sqlite, row.id, clean);
       return require(userId);
     },
 

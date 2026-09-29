@@ -571,6 +571,35 @@ try {
   await req(`/channels/${bravo.json.id}`, { method: 'DELETE', token: ownerToken });
   await req(`/categories/${miscCategory.json.id}`, { method: 'DELETE', token: ownerToken });
 
+  // --- Typing indicators ---
+  check('typing indicators default to on', owner.json?.user?.showTyping === true);
+  const typingPing = await req(`/channels/${general.id}/typing`, { method: 'POST', token: ownerToken });
+  check('the typing endpoint accepts a ping', typingPing.status === 204, `status ${typingPing.status}`);
+
+  const typingWatcher = await openGateway({ token: bobToken });
+  await req(`/channels/${general.id}/typing`, { method: 'POST', token: ownerToken });
+  await sleep(250);
+  const typingEvent = typingWatcher.events.find((frame) => frame.t === 'TYPING_START');
+  check(
+    'typing is broadcast with the user and channel',
+    typingEvent?.d?.channelId === general.id && typingEvent?.d?.user?.id === owner.json?.user?.id,
+  );
+
+  const typingOff = await req('/users/@me', { method: 'PATCH', token: ownerToken, body: { showTyping: false } });
+  check('typing can be turned off', typingOff.json?.user?.showTyping === false);
+
+  typingWatcher.events.length = 0;
+  await req(`/channels/${general.id}/typing`, { method: 'POST', token: ownerToken });
+  await sleep(250);
+  check(
+    'a user with typing off broadcasts nothing',
+    typingWatcher.events.every((frame) => frame.t !== 'TYPING_START'),
+  );
+
+  const typingBackOn = await req('/users/@me', { method: 'PATCH', token: ownerToken, body: { showTyping: true } });
+  check('typing can be turned back on', typingBackOn.json?.user?.showTyping === true);
+  typingWatcher.ws.close();
+
   const patched = await req('/settings', {
     method: 'PATCH',
     token: ownerToken,

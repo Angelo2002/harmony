@@ -7,6 +7,8 @@ import type {
   Reaction,
   ReactionsClearPayload,
   ReactionUpdatePayload,
+  TypingStartPayload,
+  User,
 } from '@harmony/shared';
 import { api } from './api';
 import { emojis } from './emojis.svelte';
@@ -16,6 +18,11 @@ import { GatewayClient, type GatewayFrame } from './gateway';
 
 /** How many messages one history page holds, for both directions. */
 const historyPageSize = 50;
+
+/** How long a typing indicator stays up without a refresh from its author. */
+const typingTtlMs = 8000;
+/** How often expired typing indicators are cleared away. */
+const typingSweepMs = 2000;
 
 /** Merges a single reaction event into a message's reaction list. */
 function applyReactionDelta(
@@ -60,9 +67,12 @@ class ChatStore {
   loadingOlder = $state(false);
   /** The message the composer is currently replying to, if any. */
   replyTarget = $state<Message | null>(null);
+  /** People typing in the open channel, each with when their notice expires. */
+  typingUsers = $state<Array<{ user: User; expiresAt: number }>>([]);
 
   #gateway = new GatewayClient(GatewayClient.defaultUrl());
   #started = false;
+  #typingTimer: ReturnType<typeof setInterval> | null = null;
 
   get activeChannel(): Channel | null {
     return this.channels.find((channel) => channel.id === this.activeChannelId) ?? null;
@@ -92,6 +102,7 @@ class ChatStore {
     this.replyTarget = null;
     this.hasMore = false;
     this.loadingOlder = false;
+    this.#clearTyping();
   }
 
   async loadChannels(): Promise<void> {
@@ -115,6 +126,7 @@ class ChatStore {
     this.hasMore = false;
     this.loadingOlder = false;
     this.replyTarget = null;
+    this.#clearTyping();
     if (channelId) await this.loadHistory(channelId);
   }
 
@@ -190,6 +202,46 @@ class ChatStore {
     await api(`/messages/${messageId}`, { method: 'DELETE' });
   }
 
+  /** Tells the server we are typing in the open channel. Best effort. */
+  async sendTyping(): Promise<void> {
+    const channelId = this.activeChannelId;
+    if (!channelId) return;
+    try {
+      await api(`/channels/${channelId}/typing`, { method: 'POST' });
+    } catch {
+      // A typing ping is never important enough to surface an error.
+    }
+  }
+
+  /** Adds or refreshes one person's typing indicator. */
+  #noteTyping(user: User): void {
+    const expiresAt = Date.now() + typingTtlMs;
+    const others = this.typingUsers.filter((entry) => entry.user.id !== user.id);
+    this.typingUsers = [...others, { user, expiresAt }];
+    this.#startTypingSweep();
+  }
+
+  #clearTyping(): void {
+    this.typingUsers = [];
+    this.#stopTypingSweep();
+  }
+
+  #startTypingSweep(): void {
+    if (this.#typingTimer) return;
+    this.#typingTimer = setInterval(() => {
+      const now = Date.now();
+      const live = this.typingUsers.filter((entry) => entry.expiresAt > now);
+      if (live.length !== this.typingUsers.length) this.typingUsers = live;
+      if (live.length === 0) this.#stopTypingSweep();
+    }, typingSweepMs);
+  }
+
+  #stopTypingSweep(): void {
+    if (!this.#typingTimer) return;
+    clearInterval(this.#typingTimer);
+    this.#typingTimer = null;
+  }
+
   async #refreshSession(): Promise<void> {
     try {
       const me = await api<MeResponse>('/auth/me');
@@ -259,6 +311,15 @@ class ChatStore {
         if (payload.channelId === this.activeChannelId) {
           this.messages = this.messages.filter((message) => message.id !== payload.id);
         }
+        break;
+      }
+      case 'TYPING_START': {
+        const payload = frame.d as TypingStartPayload;
+        if (payload.channelId !== this.activeChannelId) break;
+        // Never echo our own typing, and respect a viewer who turned them off.
+        if (payload.user.id === session.user?.id) break;
+        if (!session.user?.showTyping) break;
+        this.#noteTyping(payload.user);
         break;
       }
       case 'CHANNEL_CREATE':

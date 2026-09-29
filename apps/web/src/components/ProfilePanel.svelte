@@ -8,6 +8,7 @@
   const acceptAttribute = ALLOWED_IMAGE_TYPES.join(',');
 
   let displayName = $state(session.user?.displayName ?? '');
+  let showTyping = $state(session.user?.showTyping ?? true);
   let fileInput = $state<HTMLInputElement | null>(null);
   let error = $state<string | null>(null);
   let message = $state<string | null>(null);
@@ -19,6 +20,7 @@
     session.user = data.user;
     session.permissions = data.permissions;
     displayName = data.user.displayName ?? '';
+    showTyping = data.user.showTyping;
   }
 
   function fail(cause: unknown): void {
@@ -34,7 +36,7 @@
       apply(
         await api<MeResponse>('/users/@me', {
           method: 'PATCH',
-          body: JSON.stringify({ displayName: displayName.trim() || null }),
+          body: JSON.stringify({ displayName: displayName.trim() || null, showTyping }),
         }),
       );
       message = 'Profile saved.';
@@ -114,6 +116,12 @@
           <input bind:value={displayName} maxlength={LIMITS.displayName.max} placeholder={session.user?.username} />
         </label>
         <p class="muted">Leave this blank to show your username, {session.user?.username}.</p>
+
+        <label class="checkbox">
+          <input type="checkbox" bind:checked={showTyping} />
+          Typing indicators
+        </label>
+        <p class="muted">See when other people are typing, and let them see when you are.</p>
 
         {#if error}<p class="form-error">{error}</p>{/if}
         {#if message}<p class="ok-text">{message}</p>{/if}

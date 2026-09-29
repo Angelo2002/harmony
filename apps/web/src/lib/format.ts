@@ -8,6 +8,14 @@ export function roleColor(color: number | null): string {
   return color == null ? 'var(--h-text-muted)' : `#${color.toString(16).padStart(6, '0')}`;
 }
 
+/**
+ * The glyph shown before a channel name: a link for channels bridged to Discord,
+ * a hash for everything else.
+ */
+export function channelGlyph(channel: { discordChannelId: string | null }): string {
+  return channel.discordChannelId ? '🔗' : '#';
+}
+
 /** Human-readable byte size, e.g. `1.5 GB`. */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

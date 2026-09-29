@@ -151,6 +151,7 @@ type User = {
   isOwner: boolean;
   createdAt: string;
   timedOutUntil: string | null; // end of an active timeout, else null
+  showTyping: boolean;          // typing indicators on/off for this user
 };
 
 type Category = { id: string; name: string; position: number };
@@ -368,6 +369,12 @@ is a no-op at either end. Returns the moved `Channel` and fires `CHANNEL_UPDATE`
 Returns `204`. Fires `CHANNEL_DELETE` with `{ "id": "..." }`. If the deleted channel was the
 configured `defaultChannelId`, that preference is cleared.
 
+#### `POST /api/v1/channels/:id/typing` — `SendMessages`
+
+Announces that you are typing in a channel. Returns `204` and fires `TYPING_START`. It is best
+effort: the server throttles it per user, a timed-out member is refused, and a member with
+`showTyping` off broadcasts nothing. Call it at most every few seconds while typing.
+
 #### `POST /api/v1/categories` — `ManageChannels`
 
 ```json
@@ -547,10 +554,12 @@ Returns `204` and fires `EMOJI_DELETE` with `{ "id": "..." }`.
 #### `PATCH /api/v1/users/@me` — auth
 
 ```json
-{ "displayName": "Alice the Great" }
+{ "displayName": "Alice the Great", "showTyping": true }
 ```
 
-`displayName` may be up to 32 characters; `null` or `""` clears it. Returns `MeResponse`.
+`displayName` and `showTyping` are both optional, but at least one is required. `displayName` may be
+up to 32 characters; `null` or `""` clears it. `showTyping` turns typing indicators off entirely for
+the user: they neither send nor see them. Returns `MeResponse`.
 
 #### `PUT /api/v1/users/@me/avatar` — auth
 
@@ -866,6 +875,7 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | `MESSAGE_REACTION_ADD` | `ReactionUpdatePayload` |
 | `MESSAGE_REACTION_REMOVE` | `ReactionUpdatePayload` |
 | `MESSAGE_REACTIONS_CLEAR` | `ReactionsClearPayload` |
+| `TYPING_START` | `TypingStartPayload` |
 | `CHANNEL_CREATE` / `CHANNEL_UPDATE` | `Channel` |
 | `CHANNEL_DELETE` | `{ id }` |
 | `CATEGORY_CREATE` / `CATEGORY_UPDATE` | `Category` |
@@ -902,8 +912,19 @@ type ReactionsClearPayload = {
 };
 ```
 
-`TYPING_START` is defined in the protocol but is **not emitted yet** — reserved for a future
-release.
+`TYPING_START` is sent when someone announces they are typing, via `POST /channels/:id/typing`. It
+is not a promise the message will be sent, and a client should expire a notice after roughly eight
+seconds without a refresh:
+
+```ts
+type TypingStartPayload = {
+  channelId: string;
+  user: User;
+};
+```
+
+The server broadcasts one payload to everyone; a client hides its own typing and the whole feature
+when `user.showTyping` is false.
 
 ### Close codes
 

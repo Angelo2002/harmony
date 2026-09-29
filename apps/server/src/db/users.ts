@@ -13,6 +13,7 @@ export interface UserRow {
   created_at: string;
   discord_id: string | null;
   timed_out_until: string | null;
+  show_typing: number;
 }
 
 export function toUser(row: UserRow, roleColor: number | null): User {
@@ -26,6 +27,7 @@ export function toUser(row: UserRow, roleColor: number | null): User {
     isOwner: row.is_owner === 1,
     createdAt: row.created_at,
     timedOutUntil: row.timed_out_until,
+    showTyping: row.show_typing === 1,
   };
 }
 
@@ -65,10 +67,10 @@ export function findUserByDiscordId(sqlite: DatabaseSync, discordId: string): Us
 export function updateUserProfile(
   sqlite: DatabaseSync,
   id: string,
-  patch: { displayName?: string | null; avatarHash?: string | null },
+  patch: { displayName?: string | null; avatarHash?: string | null; showTyping?: boolean },
 ): void {
   const sets: string[] = [];
-  const values: Array<string | null> = [];
+  const values: Array<string | number | null> = [];
   if (patch.displayName !== undefined) {
     sets.push('display_name = ?');
     values.push(patch.displayName);
@@ -76,6 +78,10 @@ export function updateUserProfile(
   if (patch.avatarHash !== undefined) {
     sets.push('avatar_hash = ?');
     values.push(patch.avatarHash);
+  }
+  if (patch.showTyping !== undefined) {
+    sets.push('show_typing = ?');
+    values.push(patch.showTyping ? 1 : 0);
   }
   if (sets.length === 0) return;
 

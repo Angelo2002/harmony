@@ -18,6 +18,11 @@ export interface User {
   createdAt: IsoTimestamp;
   /** End of an active moderation timeout, or null when not timed out. */
   timedOutUntil: IsoTimestamp | null;
+  /**
+   * Whether typing indicators are on for this user. When false they neither
+   * broadcast their own typing nor see anyone else's.
+   */
+  showTyping: boolean;
 }
 
 /** A ban, with the user it applies to and who issued it. */

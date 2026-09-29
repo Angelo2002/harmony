@@ -9,7 +9,9 @@ import {
   updateCategorySchema,
   updateChannelSchema,
   type ChannelListResponse,
+  type TypingStartPayload,
 } from '@harmony/shared';
+import { assertNotTimedOut } from '../auth/guards.ts';
 import { requirePermission } from '../auth/plugin.ts';
 import type { BridgeService } from '../bridge/service.ts';
 import {
@@ -38,6 +40,7 @@ import {
 } from '../db/channels.ts';
 import type { Database } from '../db/index.ts';
 import { HttpError } from '../http/errors.ts';
+import { createRateLimiter } from '../http/rate-limit.ts';
 import { parseBody } from '../http/validation.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
@@ -51,6 +54,9 @@ export interface ChannelRouteDeps {
 
 export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDeps): void {
   const { db, hub, settings } = deps;
+
+  // A typing ping is cheap to send but fans out to every client, so blunt spam.
+  const typingLimiter = createRateLimiter({ limit: 8, windowMs: 10_000 });
 
   /**
    * Best effort: pull the Discord channel's recent history once it is linked, so
@@ -162,6 +168,24 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     const channel = toChannel(requireChannelRow(id));
     hub.dispatch(GatewayEvent.ChannelUpdate, channel);
     return channel;
+  });
+
+  /**
+   * Announces that the caller is typing in a channel. Best effort: the client
+   * throttles these, and a member who turned typing indicators off is silent.
+   */
+  app.post('/api/v1/channels/:id/typing', async (request, reply) => {
+    const auth = requirePermission(request, Permission.SendMessages);
+    const { id } = request.params as { id: string };
+    requireChannelRow(id);
+    assertNotTimedOut(auth);
+    typingLimiter.check(auth.user.id);
+
+    if (auth.user.showTyping) {
+      const payload: TypingStartPayload = { channelId: id, user: auth.user };
+      hub.dispatch(GatewayEvent.TypingStart, payload);
+    }
+    return reply.status(204).send();
   });
 
   app.delete('/api/v1/channels/:id', async (request, reply) => {

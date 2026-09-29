@@ -87,6 +87,32 @@
       : null,
   );
 
+  /** At most one typing ping per burst window while the box has text. */
+  const typingThrottleMs = 5000;
+  let lastTypingAt = 0;
+
+  /**
+   * Announces typing to the server, throttled so a fast typist does not trip the
+   * limiter. Clearing the box resets the throttle so the next burst is immediate.
+   */
+  function maybeSendTyping(text: string): void {
+    if (!session.user?.showTyping || timeoutUntil !== null || !chat.activeChannelId) return;
+    if (text.trim().length === 0) {
+      lastTypingAt = 0;
+      return;
+    }
+    const now = Date.now();
+    if (now - lastTypingAt < typingThrottleMs) return;
+    lastTypingAt = now;
+    void chat.sendTyping();
+  }
+
+  function onInput(): void {
+    updateAutocomplete();
+    // Read the element rather than `value`, so we never depend on binding order.
+    maybeSendTyping(textInput?.value ?? '');
+  }
+
   /**
    * Finds the `:name` or `@name` fragment ending at the caret, delimited by the
    * start of the line or whitespace, the way Discord triggers autocomplete.
@@ -354,7 +380,7 @@
       aria-label="Message"
       aria-autocomplete="list"
       disabled={timeoutUntil !== null}
-      oninput={updateAutocomplete}
+      oninput={onInput}
       onkeydown={onKeydown}
       onclick={updateAutocomplete}
       onkeyup={updateAutocomplete}

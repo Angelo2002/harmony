@@ -204,10 +204,16 @@ export const bridgeImportSchema = z.object({
 });
 export type BridgeImportInput = z.infer<typeof bridgeImportSchema>;
 
-export const updateProfileSchema = z.object({
-  /** `null` (or an empty string) clears it and falls back to the username. */
-  displayName: z.string().trim().max(LIMITS.displayName.max).nullable(),
-});
+export const updateProfileSchema = z
+  .object({
+    /** `null` (or an empty string) clears it and falls back to the username. */
+    displayName: z.string().trim().max(LIMITS.displayName.max).nullable().optional(),
+    /** When false the user neither sends nor sees typing indicators. */
+    showTyping: z.boolean().optional(),
+  })
+  .refine((value) => value.displayName !== undefined || value.showTyping !== undefined, {
+    message: 'Nothing to update.',
+  });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
 /** How long a moderation timeout lasts. */

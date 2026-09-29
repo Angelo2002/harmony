@@ -221,11 +221,53 @@ export interface BridgeResponse {
 export interface DiscordChannelOption {
   id: string;
   name: string;
+  /** The Discord category this channel sits in, or null at the top level. */
+  categoryId: string | null;
+}
+
+export interface DiscordCategoryOption {
+  id: string;
+  name: string;
 }
 
 export interface DiscordChannelListResponse {
   guildName: string | null;
+  /** Discord categories in display order, for the channel import. */
+  categories: DiscordCategoryOption[];
   channels: DiscordChannelOption[];
+}
+
+/** One Discord channel offered to the channel import. */
+export interface DiscordChannelImportOption {
+  id: string;
+  name: string;
+  /** True when a Harmony channel already syncs with it. */
+  bridged: boolean;
+}
+
+/** The Discord channels that share a category, as the import preview groups them. */
+export interface DiscordChannelImportGroup {
+  /** The Discord category's name, or null for uncategorised channels. */
+  categoryName: string | null;
+  channels: DiscordChannelImportOption[];
+}
+
+export interface DiscordChannelImportPreview {
+  /** The guild the bot is connected to, or null when the bridge is not running. */
+  guildName: string | null;
+  groups: DiscordChannelImportGroup[];
+}
+
+/** How a Discord channel import went. */
+export interface ChannelImportResponse {
+  /** Channels created and bridged. */
+  imported: number;
+  /** Discord channels already bridged in Harmony. */
+  skipped: number;
+  /** Channels whose name does not fit Harmony's rules. */
+  failed: number;
+  /** New Harmony categories made to hold the imports. */
+  categoriesCreated: number;
 }
 
 /** How many Discord messages a history import pulled in. */

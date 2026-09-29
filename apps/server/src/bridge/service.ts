@@ -685,7 +685,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     },
 
     async listDiscordChannels() {
-      if (!transport) return { guildName: null, channels: [] };
+      if (!transport) return { guildName: null, categories: [], channels: [] };
       return transport.listTextChannels();
     },
 

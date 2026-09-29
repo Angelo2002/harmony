@@ -7,7 +7,7 @@ import {
   type Message as DiscordMessage,
   type TextChannel,
 } from 'discord.js';
-import type { BridgeStatus, DiscordChannelOption } from '@harmony/shared';
+import type { BridgeStatus, DiscordCategoryOption, DiscordChannelOption } from '@harmony/shared';
 import type {
   BridgeLogger,
   DiscordEmoji,
@@ -230,17 +230,32 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
 
     async listTextChannels() {
       const guild = firstGuild();
-      if (!guild) return { guildName: null, channels: [] };
+      if (!guild) return { guildName: null, categories: [], channels: [] };
 
       const fetched = await guild.channels.fetch();
-      const channels: DiscordChannelOption[] = [];
+      const categories: Array<DiscordCategoryOption & { position: number }> = [];
+      const channels: Array<DiscordChannelOption & { position: number }> = [];
       for (const channel of fetched.values()) {
-        if (channel && channel.type === ChannelType.GuildText) {
-          channels.push({ id: channel.id, name: channel.name });
+        if (!channel) continue;
+        if (channel.type === ChannelType.GuildCategory) {
+          categories.push({ id: channel.id, name: channel.name, position: channel.rawPosition });
+        } else if (channel.type === ChannelType.GuildText) {
+          channels.push({
+            id: channel.id,
+            name: channel.name,
+            categoryId: channel.parentId ?? null,
+            position: channel.rawPosition,
+          });
         }
       }
-      channels.sort((a, b) => a.name.localeCompare(b.name));
-      return { guildName: guild.name, channels };
+      // Keep Discord's own order, so an import reproduces the sidebar as it was.
+      categories.sort((a, b) => a.position - b.position);
+      channels.sort((a, b) => a.position - b.position);
+      return {
+        guildName: guild.name,
+        categories: categories.map(({ position: _position, ...option }) => option),
+        channels: channels.map(({ position: _position, ...option }) => option),
+      };
     },
 
     onMessage(handler) {

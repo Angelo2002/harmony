@@ -19,6 +19,7 @@ import { GatewayHub } from './realtime/hub.ts';
 import { createPruner } from './retention/pruner.ts';
 import { createBridgeService } from './bridge/service.ts';
 import { createDiscordTransport } from './bridge/discordjs.ts';
+import { createChannelImportService } from './channels/import.ts';
 import { createEmbedService } from './embeds/service.ts';
 import { createModerationService } from './moderation/service.ts';
 import { createMediaService } from './media/service.ts';
@@ -109,6 +110,14 @@ const emojiImport = createEmojiImportService({
   log: (message, detail) => app.log.info(detail ?? {}, message),
 });
 
+// Recreates the linked guild's channels, bridging each one, from the channels panel.
+const channelImport = createChannelImportService({
+  sqlite: db.sqlite,
+  bridge,
+  hub,
+  log: (message, detail) => app.log.info(detail ?? {}, message),
+});
+
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1 } });
 await app.register(websocket);
@@ -126,7 +135,7 @@ registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
 registerMemberRoutes(app, { db, hub, moderation: moderationService, audit: auditService });
 registerInviteRoutes(app, db);
-registerChannelRoutes(app, { db, hub, bridge, settings: settingsService });
+registerChannelRoutes(app, { db, hub, bridge, settings: settingsService, importer: channelImport });
 registerMessageRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, attachmentService);
 registerMediaRoutes(app, { service: mediaService, audit: auditService });

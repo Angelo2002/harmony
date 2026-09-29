@@ -3,7 +3,9 @@
   import type {
     Category,
     Channel,
+    ChannelImportResponse,
     ChannelListResponse,
+    DiscordChannelImportPreview,
     DiscordChannelListResponse,
     DiscordChannelOption,
     Role,
@@ -20,8 +22,19 @@
   let newChannelDiscord = $state('');
   let newCategoryName = $state('');
   let editing = $state<{ kind: 'channel' | 'category'; id: string; name: string } | null>(null);
+  let importPreview = $state<DiscordChannelImportPreview | null>(null);
+  let importMessage = $state<string | null>(null);
+  let importOk = $state(false);
   let error = $state<string | null>(null);
   let busy = $state(false);
+
+  /** How many Discord channels are not bridged yet. */
+  const newCount = $derived(
+    importPreview?.groups.reduce(
+      (total, group) => total + group.channels.filter((channel) => !channel.bridged).length,
+      0,
+    ) ?? 0,
+  );
 
   async function load(): Promise<void> {
     const data = await api<ChannelListResponse>('/channels');
@@ -140,6 +153,51 @@
       editing = null;
     });
   }
+
+  function describeImport(result: ChannelImportResponse): { text: string; ok: boolean } {
+    if (result.imported === 0 && result.failed === 0) {
+      return {
+        text: result.skipped > 0 ? 'Every Discord channel is already bridged.' : 'There was nothing to import.',
+        ok: true,
+      };
+    }
+    const parts = [`imported ${result.imported}`];
+    if (result.categoriesCreated > 0) parts.push(`${result.categoriesCreated} categories created`);
+    if (result.skipped > 0) parts.push(`${result.skipped} already bridged`);
+    if (result.failed > 0) parts.push(`${result.failed} nothing could be done with`);
+    return { text: `Channel import finished: ${parts.join(', ')}.`, ok: result.failed === 0 };
+  }
+
+  /** Lists the linked server's channels before importing, so the admin sees the count. */
+  async function checkDiscordChannels(): Promise<void> {
+    busy = true;
+    error = null;
+    importMessage = null;
+    try {
+      importPreview = await api<DiscordChannelImportPreview>('/channels/discord');
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function importChannels(): Promise<void> {
+    busy = true;
+    error = null;
+    try {
+      const result = await api<ChannelImportResponse>('/channels/import', { method: 'POST' });
+      const described = describeImport(result);
+      importOk = described.ok;
+      importMessage = described.text;
+      importPreview = null;
+      await load();
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 {#snippet moveButtons(index: number, count: number, onMove: (direction: 'up' | 'down') => void)}
@@ -251,6 +309,49 @@
   {#if discordChannels.length === 0}
     <p class="muted">Connect the Discord bridge to link channels for syncing.</p>
   {/if}
+
+  <div class="panel">
+    <h2>Import from Discord</h2>
+    <p class="muted">
+      Recreate the linked Discord server's channels here, in the same categories, and bridge each one
+      so messages sync. Channels already bridged are skipped, so it is safe to run more than once.
+    </p>
+
+    <div class="editor-actions">
+      <button type="button" onclick={checkDiscordChannels} disabled={busy}>Check Discord channels</button>
+      {#if newCount > 0}
+        <button type="button" onclick={importChannels} disabled={busy}>Import {newCount} channels</button>
+        <button type="button" onclick={() => (importPreview = null)} disabled={busy}>Cancel</button>
+      {/if}
+    </div>
+
+    {#if importPreview}
+      {#if importPreview.guildName === null}
+        <p class="muted">The Discord bridge is not connected. Set a bot token in the Bridge panel first.</p>
+      {:else if importPreview.groups.length === 0}
+        <p class="muted">No text channels found in <strong>{importPreview.guildName}</strong>.</p>
+      {:else}
+        <p class="muted">
+          {importPreview.groups.reduce((total, group) => total + group.channels.length, 0)} channels in
+          <strong>{importPreview.guildName}</strong>{#if newCount > 0}, {newCount} new{:else}, all already bridged{/if}.
+        </p>
+        {#each importPreview.groups as group (group.categoryName ?? '')}
+          <div class="group">
+            <div class="group-head"><strong class="grow">{group.categoryName ?? 'No category'}</strong></div>
+            <ul class="chips">
+              {#each group.channels as channel (channel.id)}
+                <li class:imported={channel.bridged}>#{channel.name}{#if channel.bridged} ✓{/if}</li>
+              {/each}
+            </ul>
+          </div>
+        {/each}
+      {/if}
+    {/if}
+
+    {#if importMessage}
+      <p class={importOk ? 'ok-text' : 'form-error'}>{importMessage}</p>
+    {/if}
+  </div>
 
   {#each categories as category, index (category.id)}
     {@const list = channelsIn(category.id)}

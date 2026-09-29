@@ -1,4 +1,4 @@
-import type { BridgeStatus, DiscordChannelOption } from '@harmony/shared';
+import type { BridgeStatus, DiscordChannelListResponse } from '@harmony/shared';
 
 export interface DiscordIncomingAttachment {
   url: string;
@@ -132,7 +132,7 @@ export interface DiscordTransport {
   start(): Promise<void>;
   stop(): Promise<void>;
   status(): BridgeStatus;
-  listTextChannels(): Promise<{ guildName: string | null; channels: DiscordChannelOption[] }>;
+  listTextChannels(): Promise<DiscordChannelListResponse>;
   onMessage(handler: (message: DiscordIncomingMessage) => void): void;
   onMessageEdited(handler: (message: DiscordIncomingEdit) => void): void;
   onMessageDeleted(handler: (message: DiscordIncomingDelete) => void): void;

@@ -9,6 +9,8 @@ import {
   updateCategorySchema,
   updateChannelSchema,
   type ChannelListResponse,
+  type ChannelImportResponse,
+  type DiscordChannelImportPreview,
   type TypingStartPayload,
 } from '@harmony/shared';
 import { assertNotTimedOut } from '../auth/guards.ts';
@@ -20,6 +22,7 @@ import {
   visibleChannels,
 } from '../access/service.ts';
 import type { BridgeService } from '../bridge/service.ts';
+import type { ChannelImportService } from '../channels/import.ts';
 import {
   deleteCategory,
   findCategory,
@@ -55,6 +58,7 @@ export interface ChannelRouteDeps {
   hub: GatewayHub;
   bridge: BridgeService;
   settings: SettingsService;
+  importer: ChannelImportService;
 }
 
 export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDeps): void {
@@ -109,6 +113,23 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
       // Freshly read every time, so a client picks up an admin's change on reload.
       defaultChannelId: settings.get().defaultChannelId,
     };
+    return body;
+  });
+
+  /** The linked Discord server's channel list, for the import picker. */
+  app.get('/api/v1/channels/discord', async (request) => {
+    requirePermission(request, Permission.ManageChannels);
+    const body: DiscordChannelImportPreview = await deps.importer.discordChannels();
+    return body;
+  });
+
+  /**
+   * Creates a Harmony channel for every Discord channel not yet bridged, recreating
+   * its category too. Safe to run again: already-bridged channels are skipped.
+   */
+  app.post('/api/v1/channels/import', async (request) => {
+    requirePermission(request, Permission.ManageChannels);
+    const body: ChannelImportResponse = await deps.importer.importMissing();
     return body;
   });
 

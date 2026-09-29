@@ -1088,6 +1088,27 @@ try {
     (await req('/emojis/import', { method: 'POST', token: bobToken })).status === 403,
   );
 
+  // --- Discord channel import, with no bridge configured ---
+  const discordChannelPreview = await req('/channels/discord', { token: ownerToken });
+  check(
+    'the discord channel preview reports no guild without a bridge',
+    discordChannelPreview.status === 200 &&
+      discordChannelPreview.json?.guildName === null &&
+      discordChannelPreview.json?.groups?.length === 0,
+  );
+  check(
+    'member cannot preview discord channels (403)',
+    (await req('/channels/discord', { token: bobToken })).status === 403,
+  );
+  check(
+    'importing channels with no bridge connected reports 503',
+    (await req('/channels/import', { method: 'POST', token: ownerToken })).status === 503,
+  );
+  check(
+    'member cannot import discord channels (403)',
+    (await req('/channels/import', { method: 'POST', token: bobToken })).status === 403,
+  );
+
   // --- Retention and pruning ---
   const retention = await req('/retention', { token: ownerToken });
   check(

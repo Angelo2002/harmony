@@ -10,7 +10,8 @@ import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import sharp from 'sharp';
 import { Database } from '../src/db/index.ts';
-import { insertChannel } from '../src/db/channels.ts';
+import { insertChannel, listChannels } from '../src/db/channels.ts';
+import { listCategories } from '../src/db/categories.ts';
 import { findUserById, findUserByDiscordId, insertUser } from '../src/db/users.ts';
 import { findBridgeMessageByHarmonyId } from '../src/db/bridge.ts';
 import { insertEmoji } from '../src/db/emojis.ts';
@@ -23,6 +24,7 @@ import { createMessageService } from '../src/messages/service.ts';
 import { createAuditService } from '../src/audit/service.ts';
 import { createUserService } from '../src/users/service.ts';
 import { createBridgeService } from '../src/bridge/service.ts';
+import { createChannelImportService } from '../src/channels/import.ts';
 
 const logger = { info() {}, debug() {} };
 
@@ -65,7 +67,15 @@ function createFakeTransport() {
       return { ready: state.ready, botTag: 'fake#0001', guildName: 'Test Guild', error: null };
     },
     async listTextChannels() {
-      return { guildName: 'Test Guild', channels: [{ id: '111', name: 'general' }] };
+      return {
+        guildName: 'Test Guild',
+        categories: [{ id: 'cat1', name: 'General' }],
+        channels: [
+          { id: '111', name: 'general', categoryId: 'cat1' },
+          { id: '222', name: 'random', categoryId: 'cat1' },
+          { id: '333', name: 'offtopic', categoryId: null },
+        ],
+      };
     },
     onMessage(handler) {
       state.created.push(handler);
@@ -177,7 +187,8 @@ try {
   await bridge.applySettings();
   check('transport starts once enabled', transport.state.started === true);
   check('bot identity is exposed', bridge.status().status.botTag === 'fake#0001');
-  check('discord channels are listable', (await bridge.listDiscordChannels()).channels.length === 1);
+  check('discord channels are listable', (await bridge.listDiscordChannels()).channels.length === 3);
+  check('discord categories are listable', (await bridge.listDiscordChannels()).categories.length === 1);
 
   const userId = randomUUID();
   insertUser(db.sqlite, { id: userId, username: 'alice', passwordHash: 'scrypt$x$y$z', isOwner: true });
@@ -668,7 +679,48 @@ try {
       transport.state.downloads.at(-1) === 'https://cdn.discordapp.com/emojis/740.gif',
   );
 
-  // 12. Disabling stops the transport.
+  // 12. Discord channel import. The channel for '111' is already bridged above,
+  // so it is skipped; '222' is new and lands in a fresh 'General' category;
+  // '333' is new and uncategorised, so it stays at the top level.
+  const channelImport = createChannelImportService({ sqlite: db.sqlite, bridge, hub, log: () => {} });
+  transport.state.recentMessages = [];
+
+  const channelPreview = await channelImport.discordChannels();
+  const previewChannels = channelPreview.groups.flatMap((group) => group.channels);
+  check(
+    'the channel preview names the guild and groups channels',
+    channelPreview.guildName === 'Test Guild' && channelPreview.groups.length === 2,
+  );
+  check(
+    'the channel preview marks an already bridged channel',
+    previewChannels.find((channel) => channel.id === '111')?.bridged === true &&
+      previewChannels.find((channel) => channel.id === '222')?.bridged === false,
+  );
+  check(
+    'an uncategorised discord channel is grouped on its own',
+    channelPreview.groups.find((group) => group.categoryName === null)?.channels.length === 1,
+  );
+
+  const channelImportResult = await channelImport.importMissing();
+  check('new discord channels are imported', channelImportResult.imported === 2);
+  check('an already bridged channel is skipped', channelImportResult.skipped === 1);
+  check('the discord category is recreated', channelImportResult.categoriesCreated === 1);
+  check(
+    'the imported channels are bridged to discord',
+    ['222', '333'].every((id) => listChannels(db.sqlite).some((channel) => channel.discord_channel_id === id)),
+  );
+  check(
+    'the imported channel sits in its discord category',
+    listCategories(db.sqlite).some((category) => category.name === 'General'),
+  );
+
+  const channelImportAgain = await channelImport.importMissing();
+  check(
+    'importing channels again skips everything',
+    channelImportAgain.imported === 0 && channelImportAgain.skipped === 3 && channelImportAgain.categoriesCreated === 0,
+  );
+
+  // 13. Disabling stops the transport.
   settings.updateBridge({ enabled: false });
   await bridge.applySettings();
   check('transport stops when disabled', transport.state.ready === false);

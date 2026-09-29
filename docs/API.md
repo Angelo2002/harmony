@@ -113,7 +113,7 @@ implicit `@everyone` role grants every member `ViewChannels`, `SendMessages`, `A
 | `AttachFiles` | `1 << 3` | Uploading attachments |
 | `EmbedLinks` | `1 << 4` | *Reserved* — not enforced yet |
 | `AddReactions` | `1 << 5` | Adding and removing your own reactions |
-| `ManageChannels` | `1 << 6` | Creating, editing and deleting channels and categories |
+| `ManageChannels` | `1 << 6` | Creating, editing, deleting and importing channels and categories |
 | `ManageRoles` | `1 << 7` | Managing roles and members' roles |
 | `ManageEmojis` | `1 << 8` | Uploading, importing and deleting custom emoji |
 | `ManageServer` | `1 << 9` | Server settings, retention, the Discord bridge and the audit log |
@@ -258,6 +258,46 @@ type EmojiImportResponse = {
   imported: number;   // emoji copied in
   skipped: number;    // already present in Harmony
   failed: number;     // unreadable: an unusable name, too large, and so on
+};
+
+/** A text channel in the linked Discord server. */
+type DiscordChannelOption = {
+  id: string;
+  name: string;
+  categoryId: string | null;   // the Discord category it sits in, or null
+};
+
+type DiscordCategoryOption = { id: string; name: string };
+
+type DiscordChannelListResponse = {
+  guildName: string | null;    // null when the Discord bridge is not connected
+  categories: DiscordCategoryOption[];
+  channels: DiscordChannelOption[];
+};
+
+/** One Discord channel offered to the channel import. */
+type DiscordChannelImportOption = {
+  id: string;
+  name: string;
+  bridged: boolean;   // whether a Harmony channel already syncs with it
+};
+
+type DiscordChannelImportGroup = {
+  categoryName: string | null;   // null for uncategorised channels
+  channels: DiscordChannelImportOption[];
+};
+
+type DiscordChannelImportPreview = {
+  guildName: string | null;
+  groups: DiscordChannelImportGroup[];
+};
+
+/** How a Discord channel import went. */
+type ChannelImportResponse = {
+  imported: number;           // channels created and bridged
+  skipped: number;            // already bridged
+  failed: number;             // names that do not fit Harmony's rules
+  categoriesCreated: number;  // new categories made to hold the imports
 };
 
 type Invite = {
@@ -449,6 +489,31 @@ configured `defaultChannelId`, that preference is cleared.
 Announces that you are typing in a channel. Returns `204` and fires `TYPING_START`. It is best
 effort: the server throttles it per user, a timed-out member is refused, and a member with
 `showTyping` off broadcasts nothing. Call it at most every few seconds while typing.
+
+#### `GET /api/v1/channels/discord` — `ManageChannels`
+
+Lists the text channels in the Discord server the bridge is connected to, grouped by their Discord
+category, so an admin can see what an import would bring. Returns a `DiscordChannelImportPreview`;
+`guildName` is `null` when the bridge is not running.
+
+```json
+{
+  "guildName": "My Discord Server",
+  "groups": [
+    { "categoryName": null, "channels": [{ "id": "123", "name": "offtopic", "bridged": false }] },
+    { "categoryName": "General", "channels": [{ "id": "456", "name": "general", "bridged": true }] }
+  ]
+}
+```
+
+#### `POST /api/v1/channels/import` — `ManageChannels`
+
+Creates a Harmony channel for every Discord channel the bot can see that is not already bridged,
+recreating its Discord category as a Harmony category of the same name, and links each new channel
+so messages sync. Discord ids are the join key, so an already-bridged channel is skipped and the
+import is safe to run again. Returns a `ChannelImportResponse`; `503 bridge_offline` when the bridge
+is not connected. Each new channel fires `CHANNEL_CREATE`, each new category fires
+`CATEGORY_CREATE`, and the new channels' recent history is pulled in afterwards.
 
 #### `POST /api/v1/categories` — `ManageChannels`
 
@@ -1018,10 +1083,16 @@ empty public base URL disables outbound avatars. `publicBaseUrl` must be an `htt
 #### `GET /api/v1/bridge/channels` — `ManageServer`
 
 ```json
-{ "guildName": "My Discord", "channels": [ { "id": "123", "name": "general" } ] }
+{
+  "guildName": "My Discord",
+  "categories": [ { "id": "cat1", "name": "General" } ],
+  "channels": [ { "id": "123", "name": "general", "categoryId": "cat1" } ]
+}
 ```
 
-Discord text channels the bot can see, for linking to a Harmony channel.
+Discord text channels the bot can see, for linking to a Harmony channel, plus the categories they
+sit in. See also [the channel import](#channels-and-categories), which recreates them in Harmony in
+one step.
 
 #### `POST /api/v1/bridge/test` — `ManageServer`
 

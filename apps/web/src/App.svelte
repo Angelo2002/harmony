@@ -14,6 +14,11 @@
 
   let loading = $state(true);
   let setupOpen = $state(false);
+  /**
+   * The owner whose setup has already been looked up. A plain variable, not
+   * `$state`: it is bookkeeping for the effect below, not something to render.
+   */
+  let setupCheckedFor: string | null = null;
 
   onMount(async () => {
     const metaPromise = meta.load();
@@ -21,16 +26,35 @@
       const me = await api<MeResponse>('/auth/me');
       session.user = me.user;
       session.permissions = me.permissions;
-      // The owner is walked through the setup once, on their first sign-in.
-      if (me.user.isOwner) {
-        const settings = await api<ServerSettingsResponse>('/settings');
-        setupOpen = !settings.setupCompleted;
-      }
     } catch {
       // Not signed in, or the server is unreachable — show the auth panel.
     }
     await metaPromise;
     loading = false;
+  });
+
+  /*
+   * Greets the owner the first time they are signed in. This watches the session
+   * instead of running once on mount, because signing in happens on this very
+   * page and does not reload it; running it in `onMount` alone meant the wizard
+   * only appeared after a refresh.
+   */
+  $effect(() => {
+    const user = session.user;
+    if (!user?.isOwner) {
+      setupCheckedFor = null;
+      return;
+    }
+    if (setupCheckedFor === user.id) return;
+    setupCheckedFor = user.id;
+    void api<ServerSettingsResponse>('/settings')
+      .then((settings) => {
+        setupOpen = !settings.setupCompleted;
+      })
+      .catch(() => {
+        // Not worth blocking the app over: the admin panel exposes everything
+        // the wizard would have set.
+      });
   });
 </script>
 

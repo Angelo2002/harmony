@@ -138,7 +138,8 @@
   <h3>Discord bridge</h3>
   <p class="muted">
     Messages are mirrored both ways using a bot and per-channel webhooks. The bot needs the
-    <em>Message Content</em> intent and the <em>Manage Webhooks</em> permission.
+    <em>Message Content</em> and <em>Presence</em> intents and the <em>Manage Webhooks</em> permission.
+    Restart Harmony after changing intents, since the bot only reads them when it reconnects.
   </p>
 
   <form onsubmit={save}>

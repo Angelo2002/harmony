@@ -152,6 +152,37 @@ Do this **before** the instance is reachable from the internet.
    `HARMONY_TRUST_PROXY=true`, and restart.
 6. Invite everyone.
 
+## The Discord bridge (optional)
+
+Harmony runs perfectly well on its own. If you would rather the two share channels
+while people migrate, the bridge needs a bot of your own — the setup wizard offers
+to walk you through this on first run, and **Admin → Bridge** does the same later:
+
+1. Create an application and a bot at
+   <https://discord.com/developers/applications>.
+2. On the **Bot** page, turn on the **Message Content** and **Presence** intents.
+   Both are privileged: the toggles work right away for a bot in fewer than 100
+   servers, and need Discord's approval beyond that.
+3. Invite the bot to your server with **View Channels**, **Send Messages**, **Read
+   Message History**, **Add Reactions** and **Manage Webhooks**.
+4. Paste the token into **Admin → Bridge**, set the public base URL, and enable it.
+
+**Restart Harmony after changing the intents.** The bot reads them only when it
+connects, and an intent that is requested but not enabled makes Discord refuse the
+connection entirely (close code 4014), which takes the whole bridge down rather
+than one feature. **Admin → Bridge** shows the error if that happens.
+
+Bridging is per channel rather than per server: pick a Discord channel when you
+create or edit a Harmony channel, and only that pair syncs. Existing Discord
+channels and custom emoji can be imported from the admin panel, which bridges
+whatever it imports. Discord users show up as stand-in accounts; they take an
+online or offline marker from Discord itself, which is why the Presence intent
+matters for the member list of a bridged channel.
+
+Do not re-invite the bot to change an intent. Intents are a property of the bot's
+gateway connection rather than a permission, so the toggles apply to the bot you
+already have.
+
 ## Installing it as an app
 
 Harmony is a Progressive Web App, so it can be installed to a phone or desktop

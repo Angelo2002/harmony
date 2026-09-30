@@ -18,6 +18,7 @@ import {
 import { resolvePermissions } from '../auth/permissions.ts';
 import { requirePermission } from '../auth/plugin.ts';
 import type { AuditService } from '../audit/service.ts';
+import type { BridgeService } from '../bridge/service.ts';
 import type { Database } from '../db/index.ts';
 import { assignRole, findRole, listMemberRoles, unassignRole } from '../db/roles.ts';
 import { deleteSessionsForUser } from '../db/sessions.ts';
@@ -34,6 +35,7 @@ export interface MemberRouteDeps {
   moderation: ModerationService;
   audit: AuditService;
   users: UserService;
+  bridge: BridgeService;
 }
 
 export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps): void {
@@ -75,11 +77,14 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     requirePermission(request, Permission.ViewChannels);
     const rolesByUser = listMemberRoles(db.sqlite);
     const online = hub.onlineUserIds();
+    // A stand-in account is never connected here, so its presence comes from
+    // Discord instead, via the bridge.
+    const discordOnline = deps.bridge.onlineDiscordIds();
 
     const members: MemberRosterEntry[] = listUsers(db.sqlite).map((row) => ({
       user: presentUser(db.sqlite, row),
       roleIds: rolesByUser.get(row.id) ?? [],
-      online: online.has(row.id),
+      online: online.has(row.id) || (row.discord_id !== null && discordOnline.has(row.discord_id)),
     }));
 
     const body: MemberRosterResponse = { members };

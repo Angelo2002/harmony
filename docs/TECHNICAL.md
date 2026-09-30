@@ -117,10 +117,18 @@ bundled build and would slot in behind the same endpoint.
 The bridge mirrors messages both ways. On the Discord side you need to:
 
 1. Create an application and a bot at <https://discord.com/developers/applications>.
-2. Enable the **Message Content** intent on the Bot page. This is a privileged
-   intent, so the toggle only works for apps that Discord has approved for it.
+2. Enable the **Message Content** and **Presence** intents on the Bot page. Both
+   are privileged: the toggles work right away for a bot in fewer than 100
+   servers, and need Discord's approval beyond that. Message Content is what makes
+   message text readable. Presence is what tells Harmony who on the Discord side is
+   online, for the member list of a bridged channel.
 3. Invite the bot with at least **View Channels**, **Send Messages**, **Read
    Message History**, **Add Reactions** and **Manage Webhooks**.
+
+Intents are read when the bot connects, so restart Harmony after changing them. If
+an intent is requested that has not been enabled, Discord refuses the connection
+outright (close code 4014) rather than degrading, and the bridge reports the failure
+in **Admin → Bridge**.
 
 Then paste the token into **Admin → Bridge**, enable it, and pick a Discord channel
 when creating or editing a Harmony channel. Only bridged channels sync. The setup
@@ -130,6 +138,16 @@ Harmony users are mirrored to Discord as webhook messages, so they carry the
 author's display name; Discord always marks webhook messages with an "APP" tag.
 Discord users appear in Harmony as stand-in accounts created automatically the
 first time they post.
+
+A stand-in account has no way to sign in, so its presence is never Harmony's own.
+It is borrowed from Discord instead: the bridge keeps the guild's presences in
+memory and marks a stand-in online or offline as its owner's status changes, with
+the status sent on connect filling in everyone before anybody moves. None of it is
+stored, so stopping the bridge or restarting Harmony simply drops the stand-ins back
+to offline. Only accounts that already have a stand-in are announced — presence
+covers every member of the Discord server, and creating an account for each of them
+would bury the real members. An account created later still starts out online if its
+owner was already around.
 
 Text, images, videos, avatars, replies, reactions, edits and deletes are all
 mirrored in both directions. Images and clips are transferred between the two

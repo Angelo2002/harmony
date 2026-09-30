@@ -49,6 +49,7 @@ function createFakeTransport() {
     reactionAdded: [],
     reactionRemoved: [],
     reactionCleared: [],
+    presence: [],
     guildEmojis: [{ id: '700', name: 'YES', animated: false }],
     // A mutable channel list, so a test can add one to import selectively.
     textChannels: [
@@ -97,6 +98,9 @@ function createFakeTransport() {
     onReactionCleared(handler) {
       state.reactionCleared.push(handler);
     },
+    onPresence(handler) {
+      state.presence.push(handler);
+    },
     async guildEmojis() {
       return state.guildEmojis;
     },
@@ -144,6 +148,9 @@ function createFakeTransport() {
     emitReactionClear(reaction) {
       for (const handler of state.reactionCleared) handler(reaction);
     },
+    emitPresence(presence) {
+      for (const handler of state.presence) handler(presence);
+    },
   };
 }
 
@@ -170,6 +177,7 @@ const bridge = createBridgeService({
   settings,
   messages,
   users,
+  hub,
   logger,
   transportFactory: () => transport,
   resolvePreview: (messageId, content) => previews.push({ messageId, content }),
@@ -811,10 +819,66 @@ try {
       !listChannels(db.sqlite).some((channel) => channel.discord_channel_id === '555'),
   );
 
-  // 13. Disabling stops the transport.
+  // 13. Discord presence fills in the Discord side of the member list.
+  const frames = [];
+  const watcherId = hub.register(
+    (payload) => frames.push(JSON.parse(payload)),
+    () => {},
+  );
+  hub.authenticate(watcherId, {
+    user: { id: 'watcher' },
+    permissions: 0n,
+    sessionId: 'watcher-session',
+    token: 'watcher-token',
+  });
+  // The watcher's own arrival announced itself; only what follows matters here.
+  frames.length = 0;
+
+  const standIn = findUserByDiscordId(db.sqlite, '999');
+  check('the stand-in account of a bridged author exists', standIn !== null);
+
+  transport.emitPresence({ userId: '999', online: true });
+  check('a Discord account is remembered as online', bridge.onlineDiscordIds().has('999'));
+  check(
+    'its stand-in account is announced as online',
+    frames.some(
+      (frame) => frame.t === 'PRESENCE_UPDATE' && frame.d?.user?.id === standIn?.id && frame.d?.online === true,
+    ),
+    JSON.stringify(frames),
+  );
+
+  frames.length = 0;
+  transport.emitPresence({ userId: '999', online: true });
+  check('a repeated presence change announces nothing', frames.length === 0);
+
+  transport.emitPresence({ userId: '4242', online: true });
+  check('a Discord account with no stand-in is not announced', frames.length === 0);
+  check(
+    'but it is remembered, so a stand-in created later starts out online',
+    bridge.onlineDiscordIds().has('4242'),
+  );
+
+  frames.length = 0;
+  transport.emitPresence({ userId: '999', online: false });
+  check(
+    'going offline is announced as well',
+    frames.some((frame) => frame.t === 'PRESENCE_UPDATE' && frame.d?.online === false),
+    JSON.stringify(frames),
+  );
+  check('and is no longer reported as online', !bridge.onlineDiscordIds().has('999'));
+
+  transport.emitPresence({ userId: '999', online: true });
+
+  // 14. Disabling stops the transport, and takes the presence with it.
   settings.updateBridge({ enabled: false });
   await bridge.applySettings();
   check('transport stops when disabled', transport.state.ready === false);
+  check(
+    'stopping the bridge reports the stand-ins as offline',
+    frames.some((frame) => frame.t === 'PRESENCE_UPDATE' && frame.d?.online === false),
+    JSON.stringify(frames),
+  );
+  check('and forgets who was online', bridge.onlineDiscordIds().size === 0);
 } catch (error) {
   failures++;
   console.error('UNEXPECTED ERROR:', error);

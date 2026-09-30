@@ -980,6 +980,12 @@ Presence is not stored: a member is online while they hold at least one live
 gateway connection. Clients keep it current with `PRESENCE_UPDATE` rather than
 refetching this endpoint.
 
+A Discord stand-in account never holds a gateway connection, so its `online` comes
+from the bridge instead, which borrows it from the linked guild's presences. It is
+`false` whenever the bridge is down, and only accounts the bridge has announced are
+counted, so an id Discord reports for somebody with no stand-in here changes
+nothing.
+
 #### `PUT /api/v1/members/:userId/roles/:roleId` — `ManageRoles`
 
 Assigns a role. Returns `204` and fires `MEMBER_UPDATE` with `{ "userId": "..." }`. The `@everyone`
@@ -1432,6 +1438,11 @@ type PresenceUpdatePayload = {
   online: boolean;
 };
 ```
+
+Stand-in accounts are the exception, since they never connect here. While the bridge is running, the
+same event carries their presence, borrowed from the linked guild: it fires when a Discord account
+the bridge has a stand-in for changes status, and when the bridge stops, which reports every stand-in
+as offline. A client can treat it exactly like any other presence update.
 
 ### Close codes
 

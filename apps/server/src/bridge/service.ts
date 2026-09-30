@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import type { Metadata } from 'sharp';
 import {
   ALLOWED_IMAGE_TYPES,
+  GatewayEvent,
   rewriteMentions,
   unwrapSuppressedLinks,
   type BridgeResponse,
@@ -13,6 +14,7 @@ import {
   type Message,
   type MessageDeletePayload,
   type MessageReference,
+  type PresenceUpdatePayload,
 } from '@harmony/shared';
 import type { Config } from '../config.ts';
 import { insertAttachment } from '../db/attachments.ts';
@@ -24,9 +26,10 @@ import {
 } from '../db/bridge.ts';
 import { findChannel, findChannelByDiscordId, listChannels, setChannelWebhook, type ChannelRow } from '../db/channels.ts';
 import { findEmojiByName } from '../db/emojis.ts';
-import { findUserByDiscordId, findUserByUsername, insertGhostUser, type UserRow } from '../db/users.ts';
+import { findUserByDiscordId, findUserByUsername, insertGhostUser, presentUser, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import type { MessageService, ReactionEvent } from '../messages/service.ts';
+import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
 import type { UserService } from '../users/service.ts';
 import { createBlobStore } from '../storage/blobs.ts';
@@ -37,6 +40,7 @@ import type {
   DiscordIncomingDelete,
   DiscordIncomingEdit,
   DiscordIncomingMessage,
+  DiscordIncomingPresence,
   DiscordIncomingReaction,
   DiscordMention,
   DiscordTransport,
@@ -61,6 +65,12 @@ export interface BridgeService {
   importChannel(channelId: string, limit?: number): Promise<number>;
   /** Sends a test message so an admin can verify a mapping and see any error. */
   testMirror(channelId: string): Promise<void>;
+  /**
+   * The Discord accounts the linked guild currently reports as online, by Discord
+   * id. Empty while the bridge is down, because we can only see what Discord is
+   * telling us right now.
+   */
+  onlineDiscordIds(): Set<string>;
   shutdown(): Promise<void>;
 }
 
@@ -70,6 +80,7 @@ export interface BridgeDeps {
   settings: SettingsService;
   messages: MessageService;
   users: UserService;
+  hub: GatewayHub;
   logger: BridgeLogger;
   transportFactory: (token: string, logger: BridgeLogger) => DiscordTransport;
   /**
@@ -104,6 +115,47 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
 
   function authorName(message: Message): string {
     return message.author?.displayName ?? message.author?.username ?? 'Harmony';
+  }
+
+  /**
+   * The Discord accounts the linked guild currently reports as not offline, by
+   * Discord id. Filled in by the bridge only and never stored, so a restart
+   * starts everybody offline again, exactly like Harmony's own presence.
+   */
+  const discordOnline = new Set<string>();
+
+  /** Tells clients that one stand-in account came online or went away. */
+  function announceDiscordPresence(discordId: string, online: boolean): void {
+    const row = findUserByDiscordId(deps.sqlite, discordId);
+    if (!row) return;
+    const payload: PresenceUpdatePayload = { user: presentUser(deps.sqlite, row), online };
+    deps.hub.dispatch(GatewayEvent.PresenceUpdate, payload);
+  }
+
+  /**
+   * Records one Discord presence. Nothing is announced for somebody we have no
+   * stand-in account for: a guild's presence list covers every member of the
+   * Discord server, and inventing an account for each of them would bury the real
+   * members. The id is remembered all the same, so an account created later
+   * already knows whether its owner was around.
+   */
+  function applyDiscordPresence(presence: DiscordIncomingPresence): void {
+    if (discordOnline.has(presence.userId) === presence.online) return;
+
+    if (presence.online) discordOnline.add(presence.userId);
+    else discordOnline.delete(presence.userId);
+
+    announceDiscordPresence(presence.userId, presence.online);
+  }
+
+  /**
+   * Forgets everything the bridge knew about Discord, telling clients that every
+   * stand-in account went offline. Used when the bot stops, so a departed bot
+   * does not leave green dots behind for a guild we can no longer see.
+   */
+  function forgetDiscordPresence(): void {
+    for (const discordId of discordOnline) announceDiscordPresence(discordId, false);
+    discordOnline.clear();
   }
 
   /**
@@ -679,6 +731,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
         transport = null;
         activeToken = null;
         guildEmojiByName = null;
+        forgetDiscordPresence();
       }
       if (!desired) return;
 
@@ -705,6 +758,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
           logger.info('bridge reaction sync failed', error),
         );
       });
+      transport.onPresence((presence) => applyDiscordPresence(presence));
       activeToken = desired;
       await transport.start();
       // Backfill any history we have not seen yet, without blocking startup.
@@ -731,6 +785,10 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
 
     importChannel,
 
+    onlineDiscordIds() {
+      return new Set(discordOnline);
+    },
+
     async testMirror(channelId) {
       const channel = findChannel(deps.sqlite, channelId);
       if (!channel) throw new HttpError(404, 'channel_not_found', 'That channel does not exist.');
@@ -739,10 +797,12 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     },
 
     async shutdown() {
-      if (!transport) return;
-      await transport.stop();
-      transport = null;
-      activeToken = null;
+      if (transport) {
+        await transport.stop();
+        transport = null;
+        activeToken = null;
+      }
+      forgetDiscordPresence();
     },
   };
 }

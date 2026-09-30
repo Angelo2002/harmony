@@ -443,11 +443,14 @@
         <ol class="wizard-help">
           <li>Open the <strong>Discord Developer Portal</strong> and create an application.</li>
           <li>On the <strong>Bot</strong> page, create the bot and copy its token.</li>
-          <li>Enable the <strong>Message Content</strong> intent — Discord has to approve this for bots in
-            more than a handful of servers.</li>
+          <li>Turn on the <strong>Message Content</strong> and <strong>Presence</strong> intents. Both are
+            privileged: the toggles work right away for a bot in fewer than 100 servers, and need Discord's
+            approval beyond that. Message Content is what lets the bridge read messages; Presence is what
+            tells Harmony who is online on the Discord side.</li>
           <li>Invite the bot with <strong>View Channels</strong>, <strong>Send Messages</strong>,
             <strong>Read Message History</strong>, <strong>Add Reactions</strong> and
             <strong>Manage Webhooks</strong>.</li>
+          <li>Save your changes, then restart Harmony. The bot picks up the intents when it reconnects.</li>
         </ol>
 
         <label>

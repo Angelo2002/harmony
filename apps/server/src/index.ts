@@ -117,6 +117,7 @@ const bridge = createBridgeService({
   settings: settingsService,
   messages: messageService,
   users: userService,
+  hub,
   logger: bridgeLogger,
   transportFactory: (token, logger) => createDiscordTransport(token, logger),
   // A link posted on Discord should preview here too. Previews are pushed
@@ -172,7 +173,14 @@ registerRetentionRoutes(app, { settings: settingsService, pruner });
 registerAuditRoutes(app, { audit: auditService });
 registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
-registerMemberRoutes(app, { db, hub, moderation: moderationService, audit: auditService, users: userService });
+registerMemberRoutes(app, {
+  db,
+  hub,
+  moderation: moderationService,
+  audit: auditService,
+  users: userService,
+  bridge,
+});
 registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub, bridge, settings: settingsService, importer: channelImport });
 registerMessageRoutes(app, { service: messageService });

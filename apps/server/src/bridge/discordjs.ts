@@ -5,6 +5,7 @@ import {
   GatewayIntentBits,
   Partials,
   type Message as DiscordMessage,
+  type Presence,
   type TextChannel,
 } from 'discord.js';
 import type { BridgeStatus, DiscordCategoryOption, DiscordChannelOption } from '@harmony/shared';
@@ -14,6 +15,7 @@ import type {
   DiscordIncomingDelete,
   DiscordIncomingEdit,
   DiscordIncomingMessage,
+  DiscordIncomingPresence,
   DiscordIncomingReaction,
   DiscordTransport,
   EditInput,
@@ -35,6 +37,9 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.GuildMessageReactions,
+      // Privileged. Without it Discord sends no presences and the member list has
+      // no way to tell who is around on the Discord side of a bridge.
+      GatewayIntentBits.GuildPresences,
     ],
     // Partials let us see edits, deletes and reactions of messages sent before startup.
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
@@ -46,7 +51,16 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
   const reactionAddedHandlers: Array<(reaction: DiscordIncomingReaction) => void> = [];
   const reactionRemovedHandlers: Array<(reaction: DiscordIncomingReaction) => void> = [];
   const reactionClearedHandlers: Array<(reaction: DiscordIncomingReaction) => void> = [];
+  const presenceHandlers: Array<(presence: DiscordIncomingPresence) => void> = [];
   let status: BridgeStatus = { ready: false, botTag: null, guildName: null, error: null };
+
+  function reportPresence(presence: Presence): void {
+    const incoming: DiscordIncomingPresence = {
+      userId: presence.userId,
+      online: presence.status !== 'offline',
+    };
+    for (const handler of presenceHandlers) handler(incoming);
+  }
 
   client.once(Events.ClientReady, (ready) => {
     status = {
@@ -56,6 +70,13 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       error: null,
     };
     logger.info('discord bridge connected', { botTag: status.botTag, guildName: status.guildName });
+
+    // Discord sends the guild's current presences with the guild we receive on
+    // connecting, so the member list starts out populated instead of waiting for
+    // everybody to change status. Only members who are not offline are included.
+    for (const guild of ready.guilds.cache.values()) {
+      for (const presence of guild.presences.cache.values()) reportPresence(presence);
+    }
   });
 
   /** Maps a discord.js message onto the shape the bridge works with. */
@@ -175,6 +196,12 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
     })();
   });
 
+  // Somebody came online, went idle or signed off.
+  client.on(Events.PresenceUpdate, (_previous, presence) => {
+    if (!presence) return;
+    reportPresence(presence);
+  });
+
   function firstGuild() {
     return client.guilds.cache.first() ?? null;
   }
@@ -280,6 +307,10 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
 
     onReactionCleared(handler) {
       reactionClearedHandlers.push(handler);
+    },
+
+    onPresence(handler) {
+      presenceHandlers.push(handler);
     },
 
     async guildEmojis(): Promise<DiscordEmoji[]> {

@@ -65,14 +65,18 @@
     /*
      * Discord stand-in accounts belong to the Discord side of a bridge, so they
      * are only worth listing where they can actually be reached: a bridged
-     * channel. They get a group of their own rather than a place among the online
-     * or offline members, because this instance has no way to see whether someone
-     * is on Discord — showing them as offline would be a guess, not a fact.
+     * channel. They keep their own pair of sections rather than joining the ones
+     * above, so it stays obvious which members are here and which are on Discord.
      */
     if (chat.activeChannel?.discordChannelId != null) {
-      const discord = roster.members.filter((entry) => entry.user.isBot).sort(byName);
-      if (discord.length > 0) {
-        result.push({ key: 'discord', label: 'Discord', color: null, members: discord });
+      const standIns = roster.members.filter((entry) => entry.user.isBot);
+      const around = standIns.filter((entry) => entry.online).sort(byName);
+      const away = standIns.filter((entry) => !entry.online).sort(byName);
+      if (around.length > 0) {
+        result.push({ key: 'discord-online', label: 'Discord', color: null, members: around });
+      }
+      if (away.length > 0) {
+        result.push({ key: 'discord-offline', label: 'Discord (offline)', color: null, members: away });
       }
     }
 

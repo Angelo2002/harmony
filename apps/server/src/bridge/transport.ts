@@ -56,6 +56,18 @@ export interface DiscordEmoji {
   animated: boolean;
 }
 
+/**
+ * One Discord member's online state. Discord tells us this for a guild we have the
+ * privileged GuildPresences intent for, both when the bot connects and on every
+ * later change.
+ */
+export interface DiscordIncomingPresence {
+  /** The Discord account this is about. */
+  userId: string;
+  /** False only for offline. Idle, do-not-disturb and invisible all count as away. */
+  online: boolean;
+}
+
 /** A reaction change on a Discord message that we care about. */
 export interface DiscordIncomingReaction {
   messageId: string;
@@ -140,6 +152,11 @@ export interface DiscordTransport {
   onReactionRemoved(handler: (reaction: DiscordIncomingReaction) => void): void;
   /** Every reaction of one emoji was cleared from a message. */
   onReactionCleared(handler: (reaction: DiscordIncomingReaction) => void): void;
+  /**
+   * Who is online in the linked guild: once per member when the bot connects,
+   * then whenever someone's status changes.
+   */
+  onPresence(handler: (presence: DiscordIncomingPresence) => void): void;
   mirror(input: MirrorInput): Promise<MirrorResult>;
   editMessage(input: EditInput): Promise<void>;
   deleteMessage(input: DeleteInput): Promise<void>;

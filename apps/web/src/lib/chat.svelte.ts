@@ -71,10 +71,19 @@ class ChatStore {
   replyTarget = $state<Message | null>(null);
   /** People typing in the open channel, each with when their notice expires. */
   typingUsers = $state<Array<{ user: User; expiresAt: number }>>([]);
+  /** The message a search result landed on, flashed briefly. */
+  highlightedId = $state<string | null>(null);
+  /**
+   * Bumped when a jump wants the message list to scroll to its end. An explicit
+   * signal because replacing the list looks like a prepend to the view, which it
+   * deliberately refuses to scroll for.
+   */
+  scrollSignal = $state(0);
 
   #gateway = new GatewayClient(GatewayClient.defaultUrl());
   #started = false;
   #typingTimer: ReturnType<typeof setInterval> | null = null;
+  #highlightTimer: ReturnType<typeof setTimeout> | null = null;
   /** Guards the channel-list refresh that a denied channel triggers. */
   #healing = false;
 
@@ -107,6 +116,9 @@ class ChatStore {
     this.replyTarget = null;
     this.hasMore = false;
     this.loadingOlder = false;
+    this.highlightedId = null;
+    if (this.#highlightTimer) clearTimeout(this.#highlightTimer);
+    this.#highlightTimer = null;
     this.#clearTyping();
     roster.reset();
   }
@@ -132,17 +144,29 @@ class ChatStore {
     this.hasMore = false;
     this.loadingOlder = false;
     this.replyTarget = null;
+    this.highlightedId = null;
     this.#clearTyping();
     if (channelId) await this.loadHistory(channelId);
+  }
+
+  /** One page of a channel's history, ending just before the cursor when given. */
+  async #fetchHistory(channelId: string, cursor?: { before: string; beforeId: string }): Promise<Message[]> {
+    const query = new URLSearchParams({ limit: String(historyPageSize) });
+    if (cursor) {
+      query.set('before', cursor.before);
+      query.set('beforeId', cursor.beforeId);
+    }
+    const data = await api<{ messages: Message[] }>(`/channels/${channelId}/messages?${query}`);
+    return data.messages;
   }
 
   async loadHistory(channelId: string): Promise<void> {
     this.loading = true;
     try {
-      const data = await api<{ messages: Message[] }>(`/channels/${channelId}/messages?limit=${historyPageSize}`);
+      const messages = await this.#fetchHistory(channelId);
       if (channelId === this.activeChannelId) {
-        this.messages = data.messages;
-        this.hasMore = data.messages.length >= historyPageSize;
+        this.messages = messages;
+        this.hasMore = messages.length >= historyPageSize;
       }
     } catch (cause) {
       // Access to a locked channel can be taken away while it is open. Refresh the
@@ -166,6 +190,52 @@ class ChatStore {
   }
 
   /**
+   * Opens a channel at a particular message, for a search result. The page holds
+   * the messages just before it and the message itself is put on the end, so it
+   * appears with its context above it rather than alone.
+   */
+  async jumpToMessage(channelId: string, message: Message): Promise<void> {
+    this.activeChannelId = channelId;
+    this.messages = [];
+    this.hasMore = false;
+    this.loadingOlder = false;
+    this.replyTarget = null;
+    this.highlightedId = null;
+    this.#clearTyping();
+
+    this.loading = true;
+    try {
+      const page = await this.#fetchHistory(channelId, {
+        before: message.createdAt,
+        beforeId: message.id,
+      });
+      if (channelId !== this.activeChannelId) return;
+      this.messages = [...page, message];
+      this.hasMore = page.length >= historyPageSize;
+    } catch {
+      // A message that vanished between searching and jumping is not worth an
+      // error: the channel still opens, just at its newest page.
+      await this.loadHistory(channelId);
+    } finally {
+      this.loading = false;
+    }
+
+    this.#highlight(message.id);
+    // The jumped-to message is the last one loaded, so bring it into view.
+    this.scrollSignal += 1;
+  }
+
+  /** Flashes a message for a few seconds, so a jump is obvious. */
+  #highlight(messageId: string): void {
+    this.highlightedId = messageId;
+    if (this.#highlightTimer) clearTimeout(this.#highlightTimer);
+    this.#highlightTimer = setTimeout(() => {
+      this.highlightedId = null;
+      this.#highlightTimer = null;
+    }, 3000);
+  }
+
+  /**
    * Fetches the page of messages just before the oldest one loaded and prepends
    * it. The cursor is the oldest message's timestamp together with its id, so a
    * burst of messages sharing a millisecond is never skipped.
@@ -177,16 +247,11 @@ class ChatStore {
 
     this.loadingOlder = true;
     try {
-      const query = new URLSearchParams({
-        limit: String(historyPageSize),
-        before: oldest.createdAt,
-        beforeId: oldest.id,
-      });
-      const data = await api<{ messages: Message[] }>(`/channels/${channelId}/messages?${query}`);
+      const page = await this.#fetchHistory(channelId, { before: oldest.createdAt, beforeId: oldest.id });
       // A channel switch while this was in flight must not splice in old history.
       if (channelId !== this.activeChannelId) return;
-      this.messages = [...data.messages, ...this.messages];
-      this.hasMore = data.messages.length >= historyPageSize;
+      this.messages = [...page, ...this.messages];
+      this.hasMore = page.length >= historyPageSize;
     } finally {
       this.loadingOlder = false;
     }

@@ -10,6 +10,7 @@
   import Chat from './components/Chat.svelte';
   import ProfileCard from './components/ProfileCard.svelte';
   import ProfilePanel from './components/ProfilePanel.svelte';
+  import SearchPanel from './components/SearchPanel.svelte';
   import SetupWizard from './components/SetupWizard.svelte';
 
   let loading = $state(true);
@@ -67,6 +68,9 @@
   {/if}
   {#if ui.profileOpen}
     <ProfilePanel />
+  {/if}
+  {#if ui.searchOpen}
+    <SearchPanel onclose={() => ui.closeSearch()} />
   {/if}
   {#if setupOpen}
     <SetupWizard onclose={() => (setupOpen = false)} />

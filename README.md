@@ -10,9 +10,10 @@ machine you own, with a bridge so nobody has to leave Discord behind.
 
 One instance is one server: channels and categories, a member list, replies,
 emoji reactions, custom emoji, images and video, invites, per-channel slowmode,
-timeouts and bans, and an admin panel for all of it. It runs as a single small
-program, keeps everything in one folder you can back up, and needs no database
-server, no Docker and no cloud account.
+message search across everything you can see, timeouts and bans, and an admin
+panel for all of it. It runs as a single small program, keeps everything in one
+folder you can back up, and needs no database server, no Docker and no cloud
+account.
 
 ## Why Harmony?
 

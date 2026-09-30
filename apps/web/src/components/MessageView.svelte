@@ -244,6 +244,20 @@
       element.scrollTo({ top: element.scrollHeight });
     }
   });
+
+  /*
+   * A search result jumps to a message, which replaces the whole list and so looks
+   * like a prepend to the effect above. The signal scrolls regardless of where the
+   * reader was, since they asked to be taken to that message.
+   */
+  let seenScrollSignal = 0;
+  $effect(() => {
+    const signal = chat.scrollSignal;
+    if (signal === seenScrollSignal) return;
+    seenScrollSignal = signal;
+    const element = scroller;
+    if (element) element.scrollTo({ top: element.scrollHeight });
+  });
 </script>
 
 {#snippet inlineSegments(segments: InlineSegment[])}
@@ -337,6 +351,7 @@
         class:mentions-me={mentionsMe}
         class:selected={chat.replyTarget?.id === message.id}
         class:actions-open={actionsFor === message.id}
+        class:highlighted={chat.highlightedId === message.id}
         use:trackSize
         onclick={(event) => onMessageClick(event, message)}
       >

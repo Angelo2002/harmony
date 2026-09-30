@@ -65,15 +65,57 @@ export function findMessage(sqlite: DatabaseSync, id: string): MessageRow | null
   return (sqlite.prepare('SELECT * FROM messages WHERE id = ?').get(id) as MessageRow | undefined) ?? null;
 }
 
+export interface SearchOptions {
+  /** The term to look for, as a literal substring. */
+  query: string;
+  /** Channel ids the searcher may see; an empty list finds nothing. */
+  channelIds: string[];
+  authorId?: string | undefined;
+  limit: number;
+  before?: string | undefined;
+  beforeId?: string | undefined;
+}
+
+/** Escapes the LIKE wildcards so searching for `100%` means a literal `100%`. */
+function likePattern(query: string): string {
+  return `%${query.replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
+}
+
 /**
- * Returns the newest `limit` messages for a channel in ascending order.
- *
- * Paging backwards takes a cursor of the oldest message you have: its
- * `createdAt` plus its id. The id matters because `created_at` only has
- * millisecond precision — a burst of messages (a bridge history import, say) can
- * share a timestamp, and a timestamp-only cursor would skip the rest of that
- * millisecond. `rowid` ties them back to insertion order.
+ * Case-insensitive substring search over message text, newest first. Deleted
+ * messages are left out, and a caller must pass the channels the searcher may
+ * see, so locked channels can never leak through the results. Paging uses the
+ * same `created_at` + id cursor as the history reader, for the same reason: a
+ * burst of messages can share a millisecond.
  */
+export function searchMessages(sqlite: DatabaseSync, options: SearchOptions): MessageRow[] {
+  const { query, channelIds, authorId, limit, before, beforeId } = options;
+  if (channelIds.length === 0 || query.length === 0) return [];
+
+  const conditions = ['deleted_at IS NULL', "content LIKE ? ESCAPE '\\'"];
+  const values: Array<string | number> = [likePattern(query)];
+
+  conditions.push(`channel_id IN (${channelIds.map(() => '?').join(', ')})`);
+  values.push(...channelIds);
+
+  if (authorId !== undefined) {
+    conditions.push('author_id = ?');
+    values.push(authorId);
+  }
+  if (before !== undefined && beforeId !== undefined) {
+    conditions.push('(created_at < ? OR (created_at = ? AND rowid < (SELECT rowid FROM messages WHERE id = ?)))');
+    values.push(before, before, beforeId);
+  } else if (before !== undefined) {
+    conditions.push('created_at < ?');
+    values.push(before);
+  }
+
+  values.push(limit);
+  return sqlite
+    .prepare(`SELECT * FROM messages WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC, rowid DESC LIMIT ?`)
+    .all(...values) as unknown as MessageRow[];
+}
+
 /** When a member last posted in a channel, for slowmode. Deleted rows still count. */
 export function lastMessageAt(sqlite: DatabaseSync, channelId: string, authorId: string): string | null {
   const row = sqlite
@@ -84,6 +126,15 @@ export function lastMessageAt(sqlite: DatabaseSync, channelId: string, authorId:
   return row?.at ?? null;
 }
 
+/**
+ * Returns the newest `limit` messages for a channel in ascending order.
+ *
+ * Paging backwards takes a cursor of the oldest message you have: its
+ * `createdAt` plus its id. The id matters because `created_at` only has
+ * millisecond precision — a burst of messages (a bridge history import, say) can
+ * share a timestamp, and a timestamp-only cursor would skip the rest of that
+ * millisecond. `rowid` ties them back to insertion order.
+ */
 export function listMessages(
   sqlite: DatabaseSync,
   channelId: string,

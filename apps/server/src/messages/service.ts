@@ -14,11 +14,12 @@ import {
   type Reaction,
   type ReactionsClearPayload,
   type ReactionUpdatePayload,
+  type SearchQuery,
 } from '@harmony/shared';
 import type { AuthContext } from '../auth/service.ts';
 import type { AuditService } from '../audit/service.ts';
 import { assertNotTimedOut } from '../auth/guards.ts';
-import { canAccessChannel, channelAccessFor } from '../access/service.ts';
+import { canAccessChannel, channelAccessFor, visibleChannels } from '../access/service.ts';
 import { attachToMessage, findAttachment, listAttachmentsForMessages } from '../db/attachments.ts';
 import { findChannel, type ChannelRow } from '../db/channels.ts';
 import { findEmoji } from '../db/emojis.ts';
@@ -28,6 +29,7 @@ import {
   lastMessageAt,
   listMessages,
   parseMessageEmbed,
+  searchMessages,
   softDeleteMessage,
   updateMessageContent,
   type MessageRow,
@@ -52,6 +54,8 @@ export interface ReactionEvent {
 
 export interface MessageService {
   history(channelId: string, query: MessageHistoryQuery, viewerId: string): MessageListResponse;
+  /** Message search across the channels the caller can see, newest first. */
+  search(auth: AuthContext, query: SearchQuery): MessageListResponse;
   create(
     auth: AuthContext,
     channelId: string,
@@ -311,6 +315,18 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     for (const listener of reactionsClearedListeners) safeNotify(listener, event);
   }
 
+  /** Turns a page of rows into rendered messages, batching the lookups. */
+  function renderPage(rows: MessageRow[], viewerId: string): MessageListResponse {
+    const ids = rows.map((row) => row.id);
+    const byMessage = listAttachmentsForMessages(sqlite, ids);
+    const reactions = listReactionsForMessages(sqlite, ids, viewerId);
+    return {
+      messages: rows.map((row) =>
+        toMessage(row, byMessage.get(row.id) ?? [], reactions.get(row.id) ?? []),
+      ),
+    };
+  }
+
   return {
     history(channelId, query, viewerId) {
       requireChannel(channelId);
@@ -320,14 +336,33 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
         before: query.before,
         beforeId: query.beforeId,
       });
-      const ids = rows.map((row) => row.id);
-      const byMessage = listAttachmentsForMessages(sqlite, ids);
-      const reactions = listReactionsForMessages(sqlite, ids, viewerId);
-      return {
-        messages: rows.map((row) =>
-          toMessage(row, byMessage.get(row.id) ?? [], reactions.get(row.id) ?? []),
-        ),
-      };
+      return renderPage(rows, viewerId);
+    },
+
+    search(auth, query) {
+      // Only the channels this member can see are ever searched, so a locked
+      // channel cannot leak through a result even if its text matches.
+      const visible = visibleChannels(sqlite, channelAccessFor(sqlite, auth.user.id)).map(
+        (channel) => channel.id,
+      );
+
+      let channelIds = visible;
+      if (query.channelId !== undefined) {
+        if (!visible.includes(query.channelId)) {
+          throw new HttpError(403, 'channel_forbidden', 'You do not have access to that channel.');
+        }
+        channelIds = [query.channelId];
+      }
+
+      const rows = searchMessages(sqlite, {
+        query: query.q,
+        channelIds,
+        authorId: query.authorId,
+        limit: query.limit,
+        before: query.before,
+        beforeId: query.beforeId,
+      });
+      return renderPage(rows, auth.user.id);
     },
 
     create(auth, channelId, content, attachmentIds, replyToId) {

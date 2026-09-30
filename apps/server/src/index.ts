@@ -44,6 +44,7 @@ import { registerMemberRoutes } from './routes/members.ts';
 import { registerInviteRoutes } from './routes/invites.ts';
 import { registerChannelRoutes } from './routes/channels.ts';
 import { registerMessageRoutes } from './routes/messages.ts';
+import { registerSearchRoutes } from './routes/search.ts';
 import { registerAttachmentRoutes } from './routes/attachments.ts';
 import { registerEmbedRoutes } from './routes/embeds.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
@@ -175,6 +176,7 @@ registerMemberRoutes(app, { db, hub, moderation: moderationService, audit: audit
 registerInviteRoutes(app, db);
 registerChannelRoutes(app, { db, hub, bridge, settings: settingsService, importer: channelImport });
 registerMessageRoutes(app, { service: messageService });
+registerSearchRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
 registerEmbedRoutes(app, { settings: settingsService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });

@@ -100,6 +100,18 @@ however many times they are posted. The database rows reference blobs by hash, a
 retention pruning removes any blob nothing references any more. Backing up the
 database and the `uploads/` folder together is therefore enough.
 
+## Search
+
+Message search is a case-insensitive substring match (`LIKE`) over the text, rather than a full-text
+index. That is a deliberate trade for a server this size: the query reads the real table, so it can
+never disagree with what is actually stored — no index to keep in step with edits, soft deletes or
+retention pruning — at the cost of a scan that is imperceptible at the message counts one community
+produces. The channels a searcher may see are resolved first and passed into the query, so a locked
+channel cannot leak through a result.
+
+If a very large instance ever needed ranking or word matching, SQLite's FTS5 is available in the
+bundled build and would slot in behind the same endpoint.
+
 ## The Discord bridge
 
 The bridge mirrors messages both ways. On the Discord side you need to:

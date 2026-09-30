@@ -82,6 +82,15 @@
         </button>
         <span class="chat-title">{channelGlyph(chat.activeChannel)} {chat.activeChannel.name}</span>
         <button
+          type="button"
+          class="search-open"
+          aria-label="Search messages"
+          title="Search messages"
+          onclick={() => ui.openSearch()}
+        >
+          🔍
+        </button>
+        <button
           class="drawer-toggle"
           type="button"
           aria-label="Show members"

@@ -24,6 +24,7 @@ code wins — please open an issue.
   - [Auth](#auth)
   - [Channels and categories](#channels-and-categories)
   - [Messages](#messages)
+  - [Search](#search)
   - [Reactions](#reactions)
   - [Attachments](#attachments)
   - [Custom emoji](#custom-emoji)
@@ -691,6 +692,35 @@ The URL is treated as hostile exactly like the metadata fetch — public hosts o
 re-checked — the response must be an `image/*` type of at most 8 MB, and SVG is refused because it
 can carry script. Returns `404 media_unavailable` when the image cannot be fetched, so a client
 should tolerate a broken image rather than expect one.
+
+### Search
+
+#### `GET /api/v1/search` — `ViewChannels`
+
+```json
+{ "messages": [ /* Message */ ] }
+```
+
+Searches message text, newest match first. Only the channels the caller can see are searched, so a
+locked channel's contents never appear in a result; the only channel that can be searched explicitly
+is one they can already read.
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `q` | string 1–200 | required | Matched as a case-insensitive substring, not a word |
+| `limit` | integer 1–50 | 25 | |
+| `channelId` | string | — | Narrow to one channel, else `403 channel_forbidden` |
+| `authorId` | string | — | Narrow to one author |
+| `before` | ISO 8601 string | — | Return matches older than this timestamp |
+| `beforeId` | string | — | Id of the match `before` came from |
+
+`%` and `_` in `q` are literal characters, not wildcards. Deleted messages are never returned, and
+an edited message is found by its current text only. Paging works exactly like
+[message history](#get-apiv1channelsidmessages--viewchannels): the cursor is the oldest match you
+already have, its `createdAt` plus its `id`.
+
+Matches are returned as full `Message` objects, ready to render, so a client can show them the same
+way it shows a channel.
 
 ### Reactions
 

@@ -1971,6 +1971,106 @@ try {
     ).status === 200,
   );
 
+  // --- Search ---
+  const searchChannel = await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'searchroom' } });
+  const searchChannelId = searchChannel.json.id;
+  const postInSearch = (token, content) =>
+    req(`/channels/${searchChannelId}/messages`, { method: 'POST', token, body: { content } });
+  const search = (query, token = ownerToken) => req(`/search?${new URLSearchParams(query)}`, { token });
+
+  await postInSearch(ownerToken, 'qqq alpha findme');
+  const editedForSearch = await postInSearch(ownerToken, 'qqq oldword here');
+  await req(`/messages/${editedForSearch.json.id}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { content: 'qqq newword here' },
+  });
+  const deletedForSearch = await postInSearch(ownerToken, 'qqq deletedword here');
+  await req(`/messages/${deletedForSearch.json.id}`, { method: 'DELETE', token: ownerToken });
+  await postInSearch(bobToken, 'qqq bobword here');
+  await postInSearch(ownerToken, 'qqq a_b underscore');
+  await postInSearch(ownerToken, 'qqq axb underscore');
+  await postInSearch(ownerToken, 'qqq page one');
+  await postInSearch(ownerToken, 'qqq page two');
+  await postInSearch(ownerToken, 'qqq page three');
+
+  const found = await search({ q: 'findme' });
+  check(
+    'search finds a message by a word',
+    found.json?.messages?.length === 1 && found.json.messages[0].content === 'qqq alpha findme',
+  );
+  check('search ignores case', (await search({ q: 'FINDME' })).json?.messages?.length === 1);
+  check('search leaves out deleted messages', (await search({ q: 'deletedword' })).json?.messages?.length === 0);
+  check('an edited message is found by its new text', (await search({ q: 'newword' })).json?.messages?.length === 1);
+  check(
+    'an edited message is no longer found by its old text',
+    (await search({ q: 'oldword' })).json?.messages?.length === 0,
+  );
+  check(
+    'like wildcards in a search are taken literally',
+    (await search({ q: 'qqq a_b' })).json?.messages?.length === 1,
+  );
+  check('a search without a term is refused (400)', (await req('/search', { token: ownerToken })).status === 400);
+
+  const byBob = await search({ q: 'bobword', authorId: bobId });
+  check(
+    'search can be narrowed to one author',
+    byBob.json?.messages?.length === 1 && byBob.json.messages[0].author.id === bobId,
+  );
+  check(
+    'a search narrowed to one author leaves the others out',
+    (await search({ q: 'bobword', authorId: owner.json?.user?.id })).json?.messages?.length === 0,
+  );
+  check(
+    'search can be narrowed to one channel',
+    (await search({ q: 'findme', channelId: searchChannelId })).json?.messages?.length === 1 &&
+      (await search({ q: 'findme', channelId: general.id })).json?.messages?.length === 0,
+  );
+
+  const firstPage = await search({ q: 'qqq page', limit: '2' });
+  check(
+    'search returns the newest matches first',
+    firstPage.json?.messages?.length === 2 && firstPage.json.messages[0].content === 'qqq page three',
+  );
+  const oldestMatch = firstPage.json.messages[1];
+  const secondPage = await search({
+    q: 'qqq page',
+    limit: '2',
+    before: oldestMatch.createdAt,
+    beforeId: oldestMatch.id,
+  });
+  check(
+    'search pages through older matches with the cursor',
+    secondPage.json?.messages?.length === 1 && secondPage.json.messages[0].content === 'qqq page one',
+  );
+
+  // A locked channel's text must not leak through a search.
+  const secretRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Secret' } });
+  const secretChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'secretroom', requiredRoleId: secretRole.json.id },
+  });
+  await req(`/channels/${secretChannel.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'qqq zzz hidden' },
+  });
+  check(
+    'search skips channels the member cannot see',
+    (await search({ q: 'zzz hidden' }, bobToken)).json?.messages?.length === 0,
+  );
+  check(
+    'an administrator searches locked channels too',
+    (await search({ q: 'zzz hidden' })).json?.messages?.length === 1,
+  );
+  check(
+    'searching a locked channel directly is refused (403)',
+    (await search({ q: 'zzz hidden', channelId: secretChannel.json.id }, bobToken)).status === 403,
+  );
+  await req(`/channels/${secretChannel.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${secretRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
   // --- Audit log ---
   check('the audit log needs ManageServer (403)', (await req('/audit', { token: bobToken })).status === 403);
 

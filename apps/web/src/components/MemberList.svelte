@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { MemberRosterEntry, Role } from '@harmony/shared';
   import { avatarUrl, initial } from '../lib/avatar';
+  import { chat } from '../lib/chat.svelte';
   import { profileCard } from '../lib/profile-card.svelte';
   import { roster } from '../lib/roster.svelte';
   import { ui } from '../lib/ui.svelte';
@@ -37,8 +38,6 @@
 
   const groups = $derived.by((): Group[] => {
     const byId = new Map(roster.roles.map((role) => [role.id, role]));
-    // Discord stand-in accounts are never really present, so they would only
-    // pad the offline list; they are left out of the roster on purpose.
     const humans = roster.members.filter((entry) => !entry.user.isBot);
     const online = humans.filter((entry) => entry.online);
     const offline = humans.filter((entry) => !entry.online);
@@ -62,6 +61,21 @@
     if (offline.length > 0) {
       result.push({ key: 'offline', label: 'Offline', color: null, members: offline.sort(byName) });
     }
+
+    /*
+     * Discord stand-in accounts belong to the Discord side of a bridge, so they
+     * are only worth listing where they can actually be reached: a bridged
+     * channel. They get a group of their own rather than a place among the online
+     * or offline members, because this instance has no way to see whether someone
+     * is on Discord — showing them as offline would be a guess, not a fact.
+     */
+    if (chat.activeChannel?.discordChannelId != null) {
+      const discord = roster.members.filter((entry) => entry.user.isBot).sort(byName);
+      if (discord.length > 0) {
+        result.push({ key: 'discord', label: 'Discord', color: null, members: discord });
+      }
+    }
+
     return result;
   });
 </script>

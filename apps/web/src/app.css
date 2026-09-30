@@ -1467,17 +1467,24 @@ button.ghost {
   margin-top: 0.4rem;
 }
 
-.attachments img {
+/*
+ * Attachments are capped in both directions. A width alone is not enough: a tall
+ * phone recording or a long screenshot would keep its aspect ratio and run the
+ * full height of the window. The browser keeps the ratio while fitting inside
+ * these, and clicking opens the original.
+ */
+.attachments img,
+.attachments video {
   max-width: min(420px, 100%);
+  max-height: 360px;
   height: auto;
   border-radius: var(--h-radius);
 }
 
 .attachments video {
-  max-width: min(420px, 100%);
-  height: auto;
-  border-radius: var(--h-radius);
   background: #000;
+  /* Insurance against a stretched frame if a browser sizes the box itself. */
+  object-fit: contain;
 }
 
 /* ---- Admin panel ---- */

@@ -1464,5 +1464,5 @@ ws.onmessage = (event) => {
 - **Reserved permissions.** `EmbedLinks` and `MentionEveryone` are defined in the bitfield but not
   enforced by any endpoint yet.
 - **Bridged content is best-effort.** Discord's webhooks cannot post real replies or reactions, so
-  replies are mirrored as quotes and reactions are placed by the bot. See the README's bridge
-  section for the full picture.
+  replies are mirrored as quotes and reactions are placed by the bot. See
+  [The Discord bridge](TECHNICAL.md#the-discord-bridge) for the full picture.

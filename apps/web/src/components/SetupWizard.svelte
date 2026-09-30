@@ -169,19 +169,33 @@
       if (token.trim()) body.token = token.trim();
       bridge = await api<BridgeResponse>('/bridge', { method: 'PATCH', body: JSON.stringify(body) });
       token = '';
-      return true;
     } catch (cause) {
       fail(cause);
       return false;
     } finally {
       busy = false;
     }
+
+    // The bot connects in the background, so give it a moment: the next two
+    // steps can only list anything once it is online.
+    await waitForBridge();
+    return true;
+  }
+
+  /** Polls the bridge for a few seconds, so the import steps have something to list. */
+  async function waitForBridge(): Promise<void> {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const status = await api<BridgeResponse>('/bridge').catch(() => null);
+      if (status) bridge = status;
+      // Ready, or it failed for a reason waiting will not fix.
+      if (status?.status.ready || status?.status.error) return;
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
   }
 
   async function loadChannels(): Promise<void> {
     busy = true;
     error = null;
-    importSummary = null;
     try {
       const preview = await api<DiscordChannelImportPreview>('/channels/discord');
       channelPreview = preview;
@@ -201,6 +215,7 @@
   async function importChannels(): Promise<void> {
     busy = true;
     error = null;
+    let done = false;
     try {
       const result = await api<ChannelImportResponse>('/channels/import', {
         method: 'POST',
@@ -213,17 +228,19 @@
             (result.categoriesCreated > 0 ? ` and ${result.categoriesCreated} categories` : '') +
             '.';
       channelPreview = null;
+      done = true;
     } catch (cause) {
       fail(cause);
-    } finally {
-      busy = false;
     }
+    busy = false;
+    // The step's whole point is the import, so it moves on by itself rather than
+    // waiting for a button that does nothing else.
+    if (done) advance();
   }
 
   async function loadEmojis(): Promise<void> {
     busy = true;
     error = null;
-    importSummary = null;
     try {
       const preview = await api<DiscordEmojiListResponse>('/emojis/discord');
       emojiPreview = preview;
@@ -239,6 +256,7 @@
   async function importEmojis(): Promise<void> {
     busy = true;
     error = null;
+    let done = false;
     try {
       const result = await api<EmojiImportResponse>('/emojis/import', {
         method: 'POST',
@@ -251,11 +269,12 @@
             ? 'Every one of those is already here.'
             : 'Nothing was imported.';
       emojiPreview = null;
+      done = true;
     } catch (cause) {
       fail(cause);
-    } finally {
-      busy = false;
     }
+    busy = false;
+    if (done) advance();
   }
 
   /** Advances, saving whatever the step collects. A failed save stays put. */
@@ -279,10 +298,14 @@
     if (step === 5) void loadEmojis();
   }
 
+  /** Going back re-lists the step's preview, since importing cleared it. */
   function back(): void {
     if (step === 0) return;
     error = null;
+    importSummary = null;
     step -= 1;
+    if (step === 4) void loadChannels();
+    if (step === 5) void loadEmojis();
   }
 
   /** Marks the wizard done, so it does not greet the owner again. */
@@ -300,7 +323,7 @@
     onclose();
   }
 
-  /** Nothing to import when the bridge never connected. */
+  /** True once the bot is online, which the Discord panel reports as ready. */
   const bridgeReady = $derived(bridge?.status.ready === true);
 </script>
 
@@ -455,12 +478,8 @@
 
       {:else if step === 4}
         <h3>Bring your channels over</h3>
-        {#if !bridgeReady && !channelPreview}
-          <p class="muted">
-            The bridge is not connected yet, so there is nothing to list. You can import channels any time
-            from the admin panel once it is.
-          </p>
-        {:else if channelPreview}
+        {#if importSummary}<p class="ok-text">{importSummary}</p>{/if}
+        {#if channelPreview}
           {#if channelPreview.guildName === null}
             <p class="muted">The bridge is not connected. Save a token in the previous step, then try again.</p>
           {:else}
@@ -491,30 +510,30 @@
               </div>
             {/each}
           {/if}
+        {:else if busy}
+          <p class="muted">Listing the Discord channels…</p>
+        {:else}
+          <p class="muted">
+            The channel list could not be loaded. If the bridge has not connected yet, check the token in the
+            previous step; you can also import channels later from Admin → Channels.
+          </p>
         {/if}
 
-        {#if importSummary}<p class="ok-text">{importSummary}</p>{/if}
-
         <div class="editor-actions">
-          {#if channelPreview}
+          {#if channelPreview && channelPreview.guildName !== null}
             <button type="button" onclick={importChannels} disabled={busy || selectedChannels.size === 0}>
               Import {selectedChannels.size} selected
             </button>
-            <button type="button" onclick={loadChannels} disabled={busy}>Refresh</button>
           {:else}
             <button type="button" onclick={loadChannels} disabled={busy}>Try again</button>
           {/if}
-          <button type="button" onclick={next} disabled={busy}>Continue</button>
           <button type="button" onclick={skip} disabled={busy}>Skip</button>
         </div>
 
       {:else if step === 5}
         <h3>Bring your emoji over</h3>
-        {#if !bridgeReady && !emojiPreview}
-          <p class="muted">
-            The bridge is not connected yet. You can import emoji from the admin panel once it is.
-          </p>
-        {:else if emojiPreview}
+        {#if importSummary}<p class="ok-text">{importSummary}</p>{/if}
+        {#if emojiPreview}
           {#if emojiPreview.guildName === null}
             <p class="muted">The bridge is not connected. Save a token two steps back, then try again.</p>
           {:else if emojiPreview.emojis.length === 0}
@@ -542,20 +561,23 @@
               {/each}
             </ul>
           {/if}
+        {:else if busy}
+          <p class="muted">Listing the Discord emoji…</p>
+        {:else}
+          <p class="muted">
+            The emoji list could not be loaded. If the bridge has not connected yet, check the token two
+            steps back; you can also import emoji later from Admin → Emojis.
+          </p>
         {/if}
 
-        {#if importSummary}<p class="ok-text">{importSummary}</p>{/if}
-
         <div class="editor-actions">
-          {#if emojiPreview}
+          {#if emojiPreview && emojiPreview.guildName !== null && emojiPreview.emojis.length > 0}
             <button type="button" onclick={importEmojis} disabled={busy || selectedEmojis.size === 0}>
               Import {selectedEmojis.size} selected
             </button>
-            <button type="button" onclick={loadEmojis} disabled={busy}>Refresh</button>
           {:else}
             <button type="button" onclick={loadEmojis} disabled={busy}>Try again</button>
           {/if}
-          <button type="button" onclick={next} disabled={busy}>Continue</button>
           <button type="button" onclick={skip} disabled={busy}>Skip</button>
         </div>
 

@@ -701,9 +701,21 @@ button.avatar.fallback {
 
 .chat-header {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.9rem 1rem;
   font-weight: 600;
   box-shadow: 0 1px 0 rgb(0 0 0 / 20%);
+}
+
+/* Fills the header so the actions sit against the right edge. */
+.chat-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The "is typing…" line sits just above the composer. */
@@ -2304,17 +2316,7 @@ button.danger {
   }
 
   .chat-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
     padding: 0.6rem 0.9rem;
-  }
-
-  .chat-title {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .messages {

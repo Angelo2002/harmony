@@ -707,12 +707,16 @@ is one they can already read.
 
 | Query | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `q` | string 1–200 | required | Matched as a case-insensitive substring, not a word |
+| `q` | string 1–200 | — | Case-insensitive substring, not a word. May be left out when a filter is given |
 | `limit` | integer 1–50 | 25 | |
 | `channelId` | string | — | Narrow to one channel, else `403 channel_forbidden` |
 | `authorId` | string | — | Narrow to one author |
 | `before` | ISO 8601 string | — | Return matches older than this timestamp |
 | `beforeId` | string | — | Id of the match `before` came from |
+
+At least one of `q`, `channelId` or `authorId` is required; a filter on its own is a valid search,
+which is how a client lists everything one member said or everything in one channel. Asking for none
+of them returns `400 validation_error`.
 
 `%` and `_` in `q` are literal characters, not wildcards. Deleted messages are never returned, and
 an edited message is found by its current text only. Paging works exactly like

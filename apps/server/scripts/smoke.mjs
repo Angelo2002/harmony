@@ -2012,6 +2012,21 @@ try {
   );
   check('a search without a term is refused (400)', (await req('/search', { token: ownerToken })).status === 400);
 
+  // A filter on its own is enough: everything one member said, or everything in
+  // one channel, without any search term.
+  const byAuthorOnly = await search({ authorId: bobId });
+  check(
+    'a search can be a filter with no term',
+    byAuthorOnly.json?.messages?.length > 0 &&
+      byAuthorOnly.json.messages.every((message) => message.author.id === bobId),
+  );
+  const byChannelOnly = await search({ channelId: searchChannelId, limit: '50' });
+  check(
+    'a search can be a channel with no term',
+    byChannelOnly.json?.messages?.length > 0 &&
+      byChannelOnly.json.messages.every((message) => message.channelId === searchChannelId),
+  );
+
   const byBob = await search({ q: 'bobword', authorId: bobId });
   check(
     'search can be narrowed to one author',

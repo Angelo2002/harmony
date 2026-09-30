@@ -23,7 +23,9 @@
   let debounce: ReturnType<typeof setTimeout> | null = null;
 
   const hasMore = $derived(results.length >= pageSize);
-  const canSearch = $derived(term.trim().length > 0);
+  /** A term on its own, or a filter on its own, is enough to search. */
+  const canSearch = $derived(term.trim().length > 0 || channelFilter !== '' || authorFilter !== '');
+  const filteringOnly = $derived(term.trim().length === 0 && canSearch);
 
   function fail(cause: unknown): void {
     error = cause instanceof ApiError ? cause.message : String(cause);
@@ -61,7 +63,9 @@
   }
 
   function buildQuery(before?: Message): string {
-    const query = new URLSearchParams({ q: term.trim(), limit: String(pageSize) });
+    const query = new URLSearchParams({ limit: String(pageSize) });
+    const text = term.trim();
+    if (text.length > 0) query.set('q', text);
     if (channelFilter) query.set('channelId', channelFilter);
     if (authorFilter) query.set('authorId', authorFilter);
     if (before) {
@@ -172,16 +176,23 @@
       {#if error}<p class="form-error">{error}</p>{/if}
 
       {#if !canSearch}
-        <p class="muted">Type something to search for across every channel you can see.</p>
+        <p class="muted">Search across every channel you can see, or pick a channel or member on its own.</p>
       {:else if busy && results.length === 0}
         <p class="muted">Searching…</p>
       {:else if !searched}
         <p class="muted">Press Enter to search.</p>
       {:else if results.length === 0}
-        <p class="muted">No messages match “{term.trim()}”.</p>
+        <p class="muted">
+          {#if filteringOnly}
+            Nothing found for that filter.
+          {:else}
+            No messages match “{term.trim()}”.
+          {/if}
+        </p>
       {:else}
         <p class="muted">
-          {results.length}{#if hasMore}+{/if} match{results.length === 1 ? '' : 'es'}, newest first.
+          {results.length}{#if hasMore}+{/if}
+          {filteringOnly ? 'message' : 'match'}{results.length === 1 ? '' : 'es'}, newest first.
         </p>
         <ul class="search-results">
           {#each results as message (message.id)}

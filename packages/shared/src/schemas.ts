@@ -300,20 +300,26 @@ export type AdminUpdateUserInput = z.infer<typeof adminUpdateUserSchema>;
 
 /**
  * A message search. `q` is matched as a case-insensitive substring of the text,
- * so `100%` finds that literally rather than as a wildcard.
+ * so `100%` finds that literally rather than as a wildcard. It may be left out
+ * when a filter narrows the search instead, e.g. everything one member said.
  */
-export const searchQuerySchema = z.object({
-  q: z.string().trim().min(1).max(200),
-  limit: z.coerce.number().int().min(1).max(50).default(25),
-  /** Return matches older than this timestamp, for paging. */
-  before: z.string().optional(),
-  /** Id of the match `before` came from, to break ties within a millisecond. */
-  beforeId: z.string().optional(),
-  /** Narrow to one channel. Only channels the caller can see are accepted. */
-  channelId: z.string().optional(),
-  /** Narrow to one author. */
-  authorId: z.string().optional(),
-});
+export const searchQuerySchema = z
+  .object({
+    q: z.string().trim().min(1).max(200).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(25),
+    /** Return matches older than this timestamp, for paging. */
+    before: z.string().optional(),
+    /** Id of the match `before` came from, to break ties within a millisecond. */
+    beforeId: z.string().optional(),
+    /** Narrow to one channel. Only channels the caller can see are accepted. */
+    channelId: z.string().optional(),
+    /** Narrow to one author. */
+    authorId: z.string().optional(),
+  })
+  .refine((value) => value.q !== undefined || value.channelId !== undefined || value.authorId !== undefined, {
+    message: 'A search needs a term or at least one filter.',
+    path: ['q'],
+  });
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
 
 /** How long a moderation timeout lasts. */

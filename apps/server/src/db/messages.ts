@@ -66,8 +66,8 @@ export function findMessage(sqlite: DatabaseSync, id: string): MessageRow | null
 }
 
 export interface SearchOptions {
-  /** The term to look for, as a literal substring. */
-  query: string;
+  /** The term to look for, as a literal substring. Omitted when filtering only. */
+  query?: string | undefined;
   /** Channel ids the searcher may see; an empty list finds nothing. */
   channelIds: string[];
   authorId?: string | undefined;
@@ -82,18 +82,24 @@ function likePattern(query: string): string {
 }
 
 /**
- * Case-insensitive substring search over message text, newest first. Deleted
- * messages are left out, and a caller must pass the channels the searcher may
- * see, so locked channels can never leak through the results. Paging uses the
+ * Case-insensitive substring search over message text, newest first. With no term
+ * the filters alone decide what comes back, e.g. everything one member said.
+ * Deleted messages are left out, and a caller must pass the channels the searcher
+ * may see, so locked channels can never leak through the results. Paging uses the
  * same `created_at` + id cursor as the history reader, for the same reason: a
  * burst of messages can share a millisecond.
  */
 export function searchMessages(sqlite: DatabaseSync, options: SearchOptions): MessageRow[] {
   const { query, channelIds, authorId, limit, before, beforeId } = options;
-  if (channelIds.length === 0 || query.length === 0) return [];
+  if (channelIds.length === 0) return [];
 
-  const conditions = ['deleted_at IS NULL', "content LIKE ? ESCAPE '\\'"];
-  const values: Array<string | number> = [likePattern(query)];
+  const conditions = ['deleted_at IS NULL'];
+  const values: Array<string | number> = [];
+
+  if (query !== undefined && query.length > 0) {
+    conditions.push("content LIKE ? ESCAPE '\\'");
+    values.push(likePattern(query));
+  }
 
   conditions.push(`channel_id IN (${channelIds.map(() => '?').join(', ')})`);
   values.push(...channelIds);

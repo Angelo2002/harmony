@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { MeResponse } from '@harmony/shared';
+  import type { MeResponse, ServerSettingsResponse } from '@harmony/shared';
   import { api } from './lib/api';
   import { meta } from './lib/meta.svelte';
   import { session } from './lib/session.svelte';
@@ -10,8 +10,10 @@
   import Chat from './components/Chat.svelte';
   import ProfileCard from './components/ProfileCard.svelte';
   import ProfilePanel from './components/ProfilePanel.svelte';
+  import SetupWizard from './components/SetupWizard.svelte';
 
   let loading = $state(true);
+  let setupOpen = $state(false);
 
   onMount(async () => {
     const metaPromise = meta.load();
@@ -19,6 +21,11 @@
       const me = await api<MeResponse>('/auth/me');
       session.user = me.user;
       session.permissions = me.permissions;
+      // The owner is walked through the setup once, on their first sign-in.
+      if (me.user.isOwner) {
+        const settings = await api<ServerSettingsResponse>('/settings');
+        setupOpen = !settings.setupCompleted;
+      }
     } catch {
       // Not signed in, or the server is unreachable — show the auth panel.
     }
@@ -36,6 +43,9 @@
   {/if}
   {#if ui.profileOpen}
     <ProfilePanel />
+  {/if}
+  {#if setupOpen}
+    <SetupWizard onclose={() => (setupOpen = false)} />
   {/if}
   <ProfileCard />
 {:else}

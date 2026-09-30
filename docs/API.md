@@ -528,8 +528,12 @@ category, so an admin can see what an import would bring. Returns a `DiscordChan
 Creates a Harmony channel for every Discord channel the bot can see that is not already bridged,
 recreating its Discord category as a Harmony category of the same name, and links each new channel
 so messages sync. Discord ids are the join key, so an already-bridged channel is skipped and the
-import is safe to run again. Returns a `ChannelImportResponse`; `503 bridge_offline` when the bridge
-is not connected. Each new channel fires `CHANNEL_CREATE`, each new category fires
+import is safe to run again.
+
+Send `{ "channelIds": ["..."] }` to import only those channels, which is what the admin panel's
+picker does; leave it out to import everything not yet bridged. A channel outside the selection is
+simply untouched, not counted as skipped. Returns a `ChannelImportResponse`; `503 bridge_offline`
+when the bridge is not connected. Each new channel fires `CHANNEL_CREATE`, each new category fires
 `CATEGORY_CREATE`, and the new channels' recent history is pulled in afterwards.
 
 #### `POST /api/v1/categories` — `ManageChannels`
@@ -810,8 +814,11 @@ is not running.
 
 Downloads every guild emoji Harmony does not already have and stores it, returning an
 `EmojiImportResponse`. Names are the join key, so an emoji that already exists is skipped and the
-import is safe to run again. Each newly created emoji fires `EMOJI_CREATE`. Returns
-`503 bridge_offline` when the bridge is not connected.
+import is safe to run again.
+
+Send `{ "emojiIds": ["..."] }` to import only those emoji, which is what the admin panel's picker
+does; leave it out to import every one missing. Each newly created emoji fires `EMOJI_CREATE`.
+Returns `503 bridge_offline` when the bridge is not connected.
 
 ### Users and avatars
 
@@ -1102,7 +1109,8 @@ Returns `204`.
   "theme": { "background": "#1e1b2e", "accent": "#eb459e" },
   "maxImageBytes": 10485760,
   "maxVideoBytes": 20971520,
-  "previewUserAgent": null
+  "previewUserAgent": null,
+  "setupCompleted": false
 }
 ```
 
@@ -1117,6 +1125,8 @@ Returns the updated settings. `serverName` and `theme` changing also update `GET
 clears the preference. `embedsEnabled` turns link previews on or off for the whole instance. The two
 upload limits are in bytes and may not exceed the server's hard ceiling of 100 MB. `previewUserAgent`
 sets the client name used when unfurling a link; an empty string or `null` means Harmony's own.
+`setupCompleted` records that the owner has been through the first-run setup; setting it `false`
+again makes the wizard greet them once more.
 
 ### Instance icon
 

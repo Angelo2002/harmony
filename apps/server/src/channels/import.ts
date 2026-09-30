@@ -30,8 +30,11 @@ export interface ChannelImportDeps {
 export interface ChannelImportService {
   /** The linked guild's channels, grouped as the import preview shows them. */
   discordChannels(): Promise<DiscordChannelImportPreview>;
-  /** Creates and bridges a Harmony channel for every Discord channel not yet linked. */
-  importMissing(): Promise<ChannelImportResponse>;
+  /**
+   * Creates and bridges a Harmony channel for every Discord channel not yet
+   * linked, or for just the ones named in `selection`.
+   */
+  importMissing(selection?: { channelIds?: string[] }): Promise<ChannelImportResponse>;
 }
 
 /**
@@ -110,12 +113,15 @@ export function createChannelImportService(deps: ChannelImportDeps): ChannelImpo
       return { guildName, groups };
     },
 
-    async importMissing() {
+    async importMissing(selection) {
       const { guildName, categories, channels } = await deps.bridge.listDiscordChannels();
       if (guildName === null) {
         throw new HttpError(503, 'bridge_offline', 'The Discord bridge is not connected, so there is nothing to import.');
       }
 
+      // A selection narrows the run to those channels; anything else is left for
+      // a later import rather than counted as skipped.
+      const requested = selection?.channelIds ? new Set(selection.channelIds) : null;
       const bridged = bridgedDiscordIds();
       const categoryNameById = new Map(categories.map((category) => [category.id, category.name]));
       // Reuse a Harmony category of the same name, so a second run, or a server
@@ -128,6 +134,7 @@ export function createChannelImportService(deps: ChannelImportDeps): ChannelImpo
       let categoriesCreated = 0;
 
       for (const channel of channels) {
+        if (requested !== null && !requested.has(channel.id)) continue;
         if (bridged.has(channel.id)) {
           skipped++;
           continue;

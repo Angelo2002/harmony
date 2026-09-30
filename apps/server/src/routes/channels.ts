@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import {
   GatewayEvent,
   Permission,
+  channelImportSchema,
   createCategorySchema,
   createChannelSchema,
   moveSchema,
@@ -129,7 +130,8 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
    */
   app.post('/api/v1/channels/import', async (request) => {
     requirePermission(request, Permission.ManageChannels);
-    const body: ChannelImportResponse = await deps.importer.importMissing();
+    const input = parseBody(channelImportSchema, request.body ?? {});
+    const body: ChannelImportResponse = await deps.importer.importMissing(input);
     return body;
   });
 

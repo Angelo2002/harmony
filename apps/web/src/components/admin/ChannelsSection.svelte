@@ -25,17 +25,18 @@
   let newCategoryName = $state('');
   let editing = $state<{ kind: 'channel' | 'category'; id: string; name: string } | null>(null);
   let importPreview = $state<DiscordChannelImportPreview | null>(null);
+  /** Discord channel ids ticked for import. */
+  let selected = $state<Set<string>>(new Set());
   let importMessage = $state<string | null>(null);
   let importOk = $state(false);
   let error = $state<string | null>(null);
   let busy = $state(false);
 
-  /** How many Discord channels are not bridged yet. */
-  const newCount = $derived(
-    importPreview?.groups.reduce(
-      (total, group) => total + group.channels.filter((channel) => !channel.bridged).length,
-      0,
-    ) ?? 0,
+  /** Discord channels that are not bridged yet, i.e. the importable ones. */
+  const unbridgedIds = $derived(
+    importPreview?.groups.flatMap((group) =>
+      group.channels.filter((channel) => !channel.bridged).map((channel) => channel.id),
+    ) ?? [],
   );
 
   async function load(): Promise<void> {
@@ -177,13 +178,29 @@
     return { text: `Channel import finished: ${parts.join(', ')}.`, ok: result.failed === 0 };
   }
 
-  /** Lists the linked server's channels before importing, so the admin sees the count. */
+  /** Ticks or unticks one Discord channel for import. */
+  function toggleSelected(id: string, on: boolean): void {
+    const next = new Set(selected);
+    if (on) next.add(id);
+    else next.delete(id);
+    selected = next;
+  }
+
+  /** Lists the linked server's channels before importing, so the admin can choose. */
   async function checkDiscordChannels(): Promise<void> {
     busy = true;
     error = null;
     importMessage = null;
     try {
-      importPreview = await api<DiscordChannelImportPreview>('/channels/discord');
+      const preview = await api<DiscordChannelImportPreview>('/channels/discord');
+      importPreview = preview;
+      // Everything not bridged yet starts ticked; the owner unticks what they
+      // would rather bring over later.
+      selected = new Set(
+        preview.groups.flatMap((group) =>
+          group.channels.filter((channel) => !channel.bridged).map((channel) => channel.id),
+        ),
+      );
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
     } finally {
@@ -195,7 +212,10 @@
     busy = true;
     error = null;
     try {
-      const result = await api<ChannelImportResponse>('/channels/import', { method: 'POST' });
+      const result = await api<ChannelImportResponse>('/channels/import', {
+        method: 'POST',
+        body: JSON.stringify({ channelIds: [...selected] }),
+      });
       const described = describeImport(result);
       importOk = described.ok;
       importMessage = described.text;
@@ -344,8 +364,12 @@
 
     <div class="editor-actions">
       <button type="button" onclick={checkDiscordChannels} disabled={busy}>Check Discord channels</button>
-      {#if newCount > 0}
-        <button type="button" onclick={importChannels} disabled={busy}>Import {newCount} channels</button>
+      {#if unbridgedIds.length > 0}
+        <button type="button" onclick={importChannels} disabled={busy || selected.size === 0}>
+          Import {selected.size} of {unbridgedIds.length}
+        </button>
+        <button type="button" onclick={() => (selected = new Set(unbridgedIds))} disabled={busy}>Select all</button>
+        <button type="button" onclick={() => (selected = new Set())} disabled={busy}>Select none</button>
         <button type="button" onclick={() => (importPreview = null)} disabled={busy}>Cancel</button>
       {/if}
     </div>
@@ -358,14 +382,25 @@
       {:else}
         <p class="muted">
           {importPreview.groups.reduce((total, group) => total + group.channels.length, 0)} channels in
-          <strong>{importPreview.guildName}</strong>{#if newCount > 0}, {newCount} new{:else}, all already bridged{/if}.
+          <strong>{importPreview.guildName}</strong>{#if unbridgedIds.length > 0}, {unbridgedIds.length} new{:else}, all already bridged{/if}.
         </p>
         {#each importPreview.groups as group (group.categoryName ?? '')}
           <div class="group">
             <div class="group-head"><strong class="grow">{group.categoryName ?? 'No category'}</strong></div>
-            <ul class="chips">
+            <ul class="import-list">
               {#each group.channels as channel (channel.id)}
-                <li class:imported={channel.bridged}>#{channel.name}{#if channel.bridged} ✓{/if}</li>
+                <li>
+                  <label class="checkbox">
+                    <input
+                      type="checkbox"
+                      disabled={channel.bridged || busy}
+                      checked={channel.bridged || selected.has(channel.id)}
+                      onchange={(event) => toggleSelected(channel.id, event.currentTarget.checked)}
+                    />
+                    #{channel.name}
+                    {#if channel.bridged}<span class="muted">already bridged</span>{/if}
+                  </label>
+                </li>
               {/each}
             </ul>
           </div>

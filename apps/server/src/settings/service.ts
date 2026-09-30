@@ -17,6 +17,8 @@ export interface ServerSettings {
   maxVideoBytes: number;
   /** User agent for unfurling links, or null to identify as Harmony. */
   previewUserAgent: string | null;
+  /** True once the owner has been through the first-run setup wizard. */
+  setupCompleted: boolean;
 }
 
 /** A settings patch. `theme` is partial so one colour can be changed on its own. */
@@ -29,6 +31,7 @@ export interface ServerSettingsUpdate {
   maxImageBytes?: number;
   maxVideoBytes?: number;
   previewUserAgent?: string | null;
+  setupCompleted?: boolean;
 }
 
 export interface BridgeSettings {
@@ -81,6 +84,7 @@ const KEY_ICON_HASH = 'instance_icon_hash';
 const KEY_IMAGE_BYTES = 'upload_image_bytes';
 const KEY_VIDEO_BYTES = 'upload_video_bytes';
 const KEY_PREVIEW_UA = 'preview_user_agent';
+const KEY_SETUP_COMPLETED = 'setup_completed';
 
 function parseString(raw: string, fallback: string): string {
   try {
@@ -149,6 +153,7 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
     const name = stored.get(KEY_SERVER_NAME);
     const requireInvite = stored.get(KEY_REQUIRE_INVITE);
     const embeds = stored.get(KEY_EMBEDS_ENABLED);
+    const setup = stored.get(KEY_SETUP_COMPLETED);
 
     return {
       serverName: name ? parseString(name, defaults.serverName) : defaults.serverName,
@@ -162,6 +167,7 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       maxImageBytes: parseSize(stored.get(KEY_IMAGE_BYTES), defaults.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES),
       maxVideoBytes: parseSize(stored.get(KEY_VIDEO_BYTES), defaults.maxVideoBytes ?? DEFAULT_MAX_VIDEO_BYTES),
       previewUserAgent: parseStringOrNull(stored.get(KEY_PREVIEW_UA)),
+      setupCompleted: setup ? parseBoolean(setup, defaults.setupCompleted) : defaults.setupCompleted,
     };
   }
 
@@ -236,6 +242,9 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       if (patch.previewUserAgent !== undefined) {
         const trimmed = patch.previewUserAgent?.trim() ?? '';
         writeSetting(sqlite, KEY_PREVIEW_UA, JSON.stringify(trimmed.length > 0 ? trimmed : null));
+      }
+      if (patch.setupCompleted !== undefined) {
+        writeSetting(sqlite, KEY_SETUP_COMPLETED, JSON.stringify(patch.setupCompleted));
       }
       return get();
     },

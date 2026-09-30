@@ -50,6 +50,12 @@ function createFakeTransport() {
     reactionRemoved: [],
     reactionCleared: [],
     guildEmojis: [{ id: '700', name: 'YES', animated: false }],
+    // A mutable channel list, so a test can add one to import selectively.
+    textChannels: [
+      { id: '111', name: 'general', categoryId: 'cat1' },
+      { id: '222', name: 'random', categoryId: 'cat1' },
+      { id: '333', name: 'offtopic', categoryId: null },
+    ],
     recentMessages: [],
     downloadBytes: null,
     downloads: [],
@@ -70,11 +76,7 @@ function createFakeTransport() {
       return {
         guildName: 'Test Guild',
         categories: [{ id: 'cat1', name: 'General' }],
-        channels: [
-          { id: '111', name: 'general', categoryId: 'cat1' },
-          { id: '222', name: 'random', categoryId: 'cat1' },
-          { id: '333', name: 'offtopic', categoryId: null },
-        ],
+        channels: state.textChannels,
       };
     },
     onMessage(handler) {
@@ -733,6 +735,16 @@ try {
     secondImport.imported.length === 0 && secondImport.skipped === 2 && secondImport.failed === 1,
   );
 
+  // A selection imports only what was asked for, and nothing else.
+  transport.state.guildEmojis = [...transport.state.guildEmojis, { id: '750', name: 'later', animated: false }];
+  const unselected = await emojiImport.importMissing(auth, { emojiIds: ['999'] });
+  check('an emoji selection that matches nothing imports nothing', unselected.imported.length === 0);
+  const selectedEmoji = await emojiImport.importMissing(auth, { emojiIds: ['750'] });
+  check(
+    'an emoji selection imports only the chosen emoji',
+    selectedEmoji.imported.length === 1 && selectedEmoji.imported[0].name === 'later' && selectedEmoji.skipped === 0,
+  );
+
   const animated = await bridge.downloadGuildEmoji('740', true);
   check(
     'an animated emoji is fetched as a gif',
@@ -779,6 +791,24 @@ try {
   check(
     'importing channels again skips everything',
     channelImportAgain.imported === 0 && channelImportAgain.skipped === 3 && channelImportAgain.categoriesCreated === 0,
+  );
+
+  // A selection imports only the named channels, leaving the rest for later.
+  transport.state.textChannels = [
+    ...transport.state.textChannels,
+    { id: '444', name: 'later', categoryId: 'cat1' },
+  ];
+  const unselectedChannels = await channelImport.importMissing({ channelIds: ['999'] });
+  check(
+    'a channel selection that matches nothing imports nothing',
+    unselectedChannels.imported === 0 && unselectedChannels.skipped === 0,
+  );
+  const selectedChannels = await channelImport.importMissing({ channelIds: ['444'] });
+  check(
+    'a channel selection imports only the chosen channel',
+    selectedChannels.imported === 1 &&
+      listChannels(db.sqlite).some((channel) => channel.discord_channel_id === '444') &&
+      !listChannels(db.sqlite).some((channel) => channel.discord_channel_id === '555'),
   );
 
   // 13. Disabling stops the transport.

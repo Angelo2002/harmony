@@ -1771,6 +1771,20 @@ button.danger {
   border-top: 1px solid var(--h-bg-elevated);
 }
 
+/* A tick-list for choosing what to import from Discord. */
+.import-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.25rem 1rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-list .checkbox {
+  gap: 0.5rem;
+}
+
 .member-roles {
   display: flex;
   align-items: center;
@@ -2009,6 +2023,80 @@ button.danger {
   width: min(520px, 96vw);
   height: auto;
   max-height: 94vh;
+}
+
+/* ---- First-run setup wizard ---- */
+
+.setup-wizard {
+  width: min(640px, 96vw);
+  height: auto;
+  max-height: 94vh;
+}
+
+/* The step rail: a row of labels, the current one lit, the passed ones dimmed. */
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+}
+
+.wizard-steps li {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--h-bg-deep);
+  color: var(--h-text-muted);
+}
+
+.wizard-steps li.done {
+  color: var(--h-text);
+}
+
+.wizard-steps li.active {
+  background: var(--h-accent);
+  color: var(--h-on-accent);
+  font-weight: 600;
+}
+
+.wizard-colours {
+  display: flex;
+  gap: 1rem;
+}
+
+.wizard-colours label {
+  flex: 1;
+}
+
+.wizard-colours input[type='color'] {
+  height: 2.5rem;
+  padding: 0.2rem;
+  cursor: pointer;
+}
+
+.wizard-help {
+  margin: 0 0 1rem;
+  padding-left: 1.25rem;
+  color: var(--h-text-muted);
+  font-size: 0.9rem;
+}
+
+.wizard-help li {
+  margin-bottom: 0.4rem;
+}
+
+/* A quiet back link under the primary actions. */
+.wizard-footer {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--h-bg-elevated);
+}
+
+.wizard-footer button {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
 }
 
 .profile-avatar {

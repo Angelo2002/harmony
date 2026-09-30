@@ -13,13 +13,15 @@
   let name = $state('');
   let fileInput = $state<HTMLInputElement | null>(null);
   let discord = $state<DiscordEmojiListResponse | null>(null);
+  /** Discord emoji ids ticked for import. */
+  let selected = $state<Set<string>>(new Set());
   let importMessage = $state<string | null>(null);
   let importOk = $state(false);
   let error = $state<string | null>(null);
   let busy = $state(false);
 
-  /** How many of the Discord emoji are not here yet. */
-  const newCount = $derived(discord?.emojis.filter((emoji) => !emoji.imported).length ?? 0);
+  /** Discord emoji Harmony does not have yet, i.e. the importable ones. */
+  const missingIds = $derived(discord?.emojis.filter((emoji) => !emoji.imported).map((emoji) => emoji.id) ?? []);
 
   function fail(cause: unknown): void {
     error = cause instanceof ApiError ? cause.message : String(cause);
@@ -70,13 +72,24 @@
     }
   }
 
-  /** Looks up the linked guild's emoji before importing, so the admin sees the count. */
+  /** Ticks or unticks one Discord emoji for import. */
+  function toggleSelected(id: string, on: boolean): void {
+    const next = new Set(selected);
+    if (on) next.add(id);
+    else next.delete(id);
+    selected = next;
+  }
+
+  /** Looks up the linked guild's emoji before importing, so the admin can choose. */
   async function checkDiscord(): Promise<void> {
     busy = true;
     error = null;
     importMessage = null;
     try {
-      discord = await api<DiscordEmojiListResponse>('/emojis/discord');
+      const data = await api<DiscordEmojiListResponse>('/emojis/discord');
+      discord = data;
+      // Everything missing starts ticked; the owner unticks what they do not want.
+      selected = new Set(data.emojis.filter((emoji) => !emoji.imported).map((emoji) => emoji.id));
     } catch (cause) {
       fail(cause);
     } finally {
@@ -101,7 +114,10 @@
     busy = true;
     error = null;
     try {
-      const result = await api<EmojiImportResponse>('/emojis/import', { method: 'POST' });
+      const result = await api<EmojiImportResponse>('/emojis/import', {
+        method: 'POST',
+        body: JSON.stringify({ emojiIds: [...selected] }),
+      });
       const described = describeImport(result);
       importOk = described.ok;
       importMessage = described.text;
@@ -144,14 +160,18 @@
   <div class="panel">
     <h2>Import from Discord</h2>
     <p class="muted">
-      Copy the linked Discord server's custom emoji over in one go. Names that already exist are
-      left alone, so it is safe to run more than once. Needs the bridge to be connected.
+      Copy the linked Discord server's custom emoji over, choosing which ones. Names that already
+      exist are left alone, so it is safe to run more than once. Needs the bridge to be connected.
     </p>
 
     <div class="editor-actions">
       <button type="button" onclick={checkDiscord} disabled={busy}>Check Discord emoji</button>
-      {#if newCount > 0}
-        <button type="button" onclick={importEmoji} disabled={busy}>Import {newCount} emoji</button>
+      {#if missingIds.length > 0}
+        <button type="button" onclick={importEmoji} disabled={busy || selected.size === 0}>
+          Import {selected.size} of {missingIds.length}
+        </button>
+        <button type="button" onclick={() => (selected = new Set(missingIds))} disabled={busy}>Select all</button>
+        <button type="button" onclick={() => (selected = new Set())} disabled={busy}>Select none</button>
         <button type="button" onclick={() => (discord = null)} disabled={busy}>Cancel</button>
       {/if}
     </div>
@@ -163,12 +183,23 @@
         <p class="muted">No custom emoji found in <strong>{discord.guildName}</strong>.</p>
       {:else}
         <p class="muted">
-          {discord.emojis.length} emoji in <strong>{discord.guildName}</strong>{#if newCount > 0},
-            {newCount} new{:else}, all already here{/if}.
+          {discord.emojis.length} emoji in <strong>{discord.guildName}</strong>{#if missingIds.length > 0},
+            {missingIds.length} new{:else}, all already here{/if}.
         </p>
-        <ul class="chips">
+        <ul class="import-list">
           {#each discord.emojis as emoji (emoji.id)}
-            <li class:imported={emoji.imported}>{emoji.name}{#if emoji.imported} ✓{/if}</li>
+            <li>
+              <label class="checkbox">
+                <input
+                  type="checkbox"
+                  disabled={emoji.imported || busy}
+                  checked={emoji.imported || selected.has(emoji.id)}
+                  onchange={(event) => toggleSelected(emoji.id, event.currentTarget.checked)}
+                />
+                :{emoji.name}:
+                {#if emoji.imported}<span class="muted">already here</span>{/if}
+              </label>
+            </li>
           {/each}
         </ul>
       {/if}

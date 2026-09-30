@@ -140,7 +140,10 @@ Do this **before** the instance is reachable from the internet.
 1. Start it on loopback (`npm start`) and open <http://127.0.0.1:8787>.
 2. **Register the first account.** The first person to register becomes the
    instance owner. Until you have done this, anyone who can reach the server can
-   claim that account, so do not expose it first.
+   claim that account, so do not expose it first. A setup wizard then greets the
+   owner and walks through naming and theming the instance, storage retention, the
+   Discord bridge, and which channels and emoji to import; it can be skipped, and
+   it does not appear again once finished.
 3. Set the server name, icon and colours, and check the upload limits and
    retention rules in the admin panel.
 4. Decide about registration. With `HARMONY_REQUIRE_INVITE=true` only people with

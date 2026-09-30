@@ -70,6 +70,7 @@ const settingsService = createSettingsService(db.sqlite, {
   maxImageBytes: DEFAULT_MAX_IMAGE_BYTES,
   maxVideoBytes: DEFAULT_MAX_VIDEO_BYTES,
   previewUserAgent: null,
+  setupCompleted: false,
 });
 const authService = createAuthService(db.sqlite, config, settingsService);
 const auditService = createAuditService(db.sqlite);

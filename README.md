@@ -14,9 +14,11 @@ deletes, with custom emoji matched by name), and an admin panel covering setting
 roles, members, channels, emoji, media, retention, the bridge, invites and bans.
 Members can change their own password, and an administrator can edit any account's
 username, display name, picture and password — which doubles as the password
-reset, since there is no email. It is a Progressive Web App, so it installs to a
-phone or desktop home screen and runs without browser chrome. The full HTTP and
-gateway API for custom clients and bots is documented in
+reset, since there is no email. On the owner's first sign-in a setup wizard walks
+through naming and theming the instance, storage retention, the Discord bridge,
+and choosing which channels and emoji to import. It is a Progressive Web App, so
+it installs to a phone or desktop home screen and runs without browser chrome.
+The full HTTP and gateway API for custom clients and bots is documented in
 [`docs/API.md`](docs/API.md).
 
 ## Tech stack

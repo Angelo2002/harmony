@@ -20,8 +20,11 @@ export interface EmojiImportOutcome {
 export interface EmojiImportService {
   /** The linked guild's emoji, each marked with whether Harmony already has it. */
   discordEmojis(): Promise<DiscordEmojiListResponse>;
-  /** Downloads and stores every guild emoji Harmony does not already have. */
-  importMissing(auth: AuthContext): Promise<EmojiImportOutcome>;
+  /**
+   * Downloads and stores every guild emoji Harmony does not already have, or
+   * just the ones named in `selection`.
+   */
+  importMissing(auth: AuthContext, selection?: { emojiIds?: string[] }): Promise<EmojiImportOutcome>;
 }
 
 /**
@@ -45,18 +48,21 @@ export function createEmojiImportService(deps: EmojiImportDeps): EmojiImportServ
       };
     },
 
-    async importMissing(auth) {
+    async importMissing(auth, selection) {
       const { guildName, emojis } = await deps.bridge.listGuildEmojis();
       if (guildName === null) {
         throw new HttpError(503, 'bridge_offline', 'The Discord bridge is not connected, so there is nothing to import.');
       }
 
+      // A selection narrows the run to those emoji; the rest stay for later.
+      const wanted = selection?.emojiIds ? new Set(selection.emojiIds) : null;
       const existing = existingNames();
       const imported: Emoji[] = [];
       let skipped = 0;
       let failed = 0;
 
       for (const emoji of emojis) {
+        if (wanted !== null && !wanted.has(emoji.id)) continue;
         if (existing.has(emoji.name)) {
           skipped++;
           continue;

@@ -4,6 +4,7 @@ import {
   GatewayEvent,
   Permission,
   createEmojiSchema,
+  emojiImportSchema,
   type DiscordEmojiListResponse,
   type EmojiImportResponse,
   type EmojiListResponse,
@@ -42,7 +43,8 @@ export function registerEmojiRoutes(app: FastifyInstance, deps: EmojiRouteDeps):
    */
   app.post('/api/v1/emojis/import', async (request) => {
     const auth = requirePermission(request, Permission.ManageEmojis);
-    const outcome = await deps.importer.importMissing(auth);
+    const input = parseBody(emojiImportSchema, request.body ?? {});
+    const outcome = await deps.importer.importMissing(auth, input);
 
     for (const emoji of outcome.imported) deps.hub.dispatch(GatewayEvent.EmojiCreate, emoji);
 

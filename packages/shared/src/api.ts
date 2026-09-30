@@ -92,6 +92,8 @@ export interface ServerSettingsResponse {
    * to preview them.
    */
   previewUserAgent: string | null;
+  /** True once the owner has been through the first-run setup wizard. */
+  setupCompleted: boolean;
 }
 
 /** A user together with the roles assigned to them. */

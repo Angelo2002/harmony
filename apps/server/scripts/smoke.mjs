@@ -538,6 +538,13 @@ try {
   check('settings start with no default channel', settings.json?.defaultChannelId === null);
   check('link previews default to on', settings.json?.embedsEnabled === true);
   check('settings report the upload limits', settings.json?.maxImageBytes > 0 && settings.json?.maxVideoBytes > 0);
+  check('a fresh instance has not been through setup', settings.json?.setupCompleted === false);
+  check(
+    'setup can be marked complete',
+    (
+      await req('/settings', { method: 'PATCH', token: ownerToken, body: { setupCompleted: true } })
+    ).json?.setupCompleted === true,
+  );
 
   const resized = await req('/settings', {
     method: 'PATCH',

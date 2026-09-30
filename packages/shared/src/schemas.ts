@@ -178,6 +178,8 @@ export const updateSettingsSchema = z.object({
   maxVideoBytes: uploadSize,
   /** An empty string clears it, falling back to Harmony's own user agent. */
   previewUserAgent: z.string().trim().max(200).nullable().optional(),
+  /** Set true once the owner has finished or skipped the first-run wizard. */
+  setupCompleted: z.boolean().optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
@@ -242,6 +244,21 @@ export const bridgeImportSchema = z.object({
   limit: z.number().int().min(1).max(100).optional(),
 });
 export type BridgeImportInput = z.infer<typeof bridgeImportSchema>;
+
+/**
+ * Which Discord channels to import. Leaving `channelIds` out means "everything not
+ * bridged yet", so the original all-at-once behaviour is unchanged.
+ */
+export const channelImportSchema = z.object({
+  channelIds: z.array(z.string().min(1)).max(1000).optional(),
+});
+export type ChannelImportInput = z.infer<typeof channelImportSchema>;
+
+/** Which Discord emoji to import. `emojiIds` left out means every one missing. */
+export const emojiImportSchema = z.object({
+  emojiIds: z.array(z.string().min(1)).max(1000).optional(),
+});
+export type EmojiImportInput = z.infer<typeof emojiImportSchema>;
 
 export const updateProfileSchema = z
   .object({

@@ -239,6 +239,20 @@ animated one is preferred, recognised either from the `og:image:type` that follo
 address itself. A reader that takes the first one gets a frozen picture, which is most of why a gif
 link used to preview badly.
 
+Giphy is handled a step earlier still. Its pages are not scraped at all: `giphy.com/gifs/…` and
+`giphy.com/embed/…` are handed to Giphy's keyless oEmbed endpoint, which answers with the address of
+the file itself. That address is then fetched by the ordinary guarded path, so a gif page behaves
+exactly like a link straight at a gif and is kept as an attachment with no card. No account and no
+key is involved, which is the rule this project holds to for every provider it recognises.
+
+One detail is behind a surprising amount of the earlier unreliability: the fetch says it wants an
+image first and only falls back to a page (`Accept: image/*, text/html;q=0.9`), rather than the other
+way round. Giphy serves its media host by content negotiation on a single address — ask for `image/*`
+and it returns the gif, ask for HTML and it returns a web page — so a client that asks for HTML first
+is told about the gif it wanted and then wraps it in a card instead of showing it. Asking for the
+picture first costs nothing when the answer really is a page, since that is still read exactly as
+before.
+
 It also makes the second and later postings of the same link free. Blobs are content-addressed, so
 the bytes were only ever stored once; the row is what is per-message, and a row is a few hundred
 bytes. What the column adds is the ability to notice before fetching that this instance already holds

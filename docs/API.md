@@ -689,7 +689,7 @@ elsewhere in the text does not download the same file twice. A message the Disco
 resolves the same way it would if it had been typed here. Turn the whole thing off instance-wide
 with `embedsEnabled` in the server settings.
 
-Two providers are recognised from the link itself and asked for a small JSON summary instead of a
+Three providers are recognised from the link itself and asked for a small JSON summary instead of a
 page, because their pages are heavy, script-driven or both:
 
 - **YouTube** (`watch?v=`, `youtu.be`, `/shorts/`, `/embed/`) resolves through YouTube's oEmbed
@@ -698,9 +698,20 @@ page, because their pages are heavy, script-driven or both:
 - **X/Twitter** status links (`x.com`, `twitter.com`, including `/i/status/`) resolve through X's
   embed endpoint, which gives the author and handle, the text without its trailing media link, and
   the media image. A tweet with no media carries no image rather than its avatar.
+- **Giphy** gif pages (`giphy.com/gifs/…`, `giphy.com/embed/…`) resolve through Giphy's keyless
+  oEmbed endpoint, which names the file behind the page. That address is then fetched like any other
+  link straight at a picture, so the gif is kept as an attachment and the message carries no card.
+  The page itself is no help here: it offers a still WebP and the animated GIF as two previews, and
+  a page rewritten to a file is exactly what a chat client should show.
 
 Everything else is scraped for OpenGraph metadata. Only the head is read: social tags always live
 there, and on a heavy page they can be hundreds of kilobytes in.
+
+The fetch asks for an image first and a page only as a fallback (`Accept: image/*, text/html;q=0.9`),
+because some hosts serve both for the same address and choose by what the client says it wants.
+Asking for HTML first is how a media address that answers with a web page — Giphy's do — ends up as a
+card pointing at a perfectly good gif instead of the gif itself. A response that really is HTML is
+still read as a page exactly as before.
 
 The unfurler names itself `Harmony/1.0 link-preview`. Sites protected by a managed bot challenge —
 Cloudflare, and so Klipy, among others — refuse that name and the preview never appears; the server

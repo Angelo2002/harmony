@@ -15,7 +15,7 @@ import type { SettingsService } from '../settings/service.ts';
 import { resolvesToPublicHost } from './guard.ts';
 import { readCappedBody } from './media.ts';
 import { parseEmbedMetadata } from './metadata.ts';
-import { fetchTweetEmbed, fetchYouTubeEmbed, tweetStatusId, youtubeVideoId } from './providers.ts';
+import { fetchGiphyMedia, fetchTweetEmbed, fetchYouTubeEmbed, isGiphyPage, tweetStatusId, youtubeVideoId } from './providers.ts';
 
 /** Outbound fetch limits, kept tight because the target is user-supplied. */
 const FETCH_TIMEOUT_MS = 6000;
@@ -208,16 +208,20 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
 
 /** A name for a file fetched from a link, which usually has none of its own. */
 function filenameFor(url: string, contentType: string): string {
+  const extension = contentType.split('/')[1]?.split('+')[0] ?? 'img';
   const last = new URL(url).pathname.split('/').filter(Boolean).pop() ?? '';
   if (last.length > 0 && last.length <= 100) {
     try {
-      return decodeURIComponent(last);
+      const decoded = decodeURIComponent(last);
+      // A provider page rewritten to a file address ends in a slug, not a name,
+      // so the type it turned out to be is what gives a download its extension.
+      return /\.[a-z0-9]{2,5}$/i.test(decoded) ? decoded : `${decoded}.${extension}`;
     } catch {
       // A broken escape sequence is still a better name than none at all.
       return last;
     }
   }
-  return `linked-image.${contentType.split('/')[1]?.split('+')[0] ?? 'img'}`;
+  return `linked-image.${extension}`;
 }
 
 async function fetchOutcome(
@@ -235,8 +239,8 @@ async function fetchOutcome(
   }
 
   // Providers with a small JSON endpoint of their own are asked directly: it is
-  // quicker than their page and does not depend on their markup. Both fetch a
-  // fixed address, so the caller's URL cannot steer the request anywhere.
+  // quicker than their page and does not depend on their markup. All of them
+  // fetch a fixed address, so the caller's URL cannot steer the request anywhere.
   const videoId = youtubeVideoId(target);
   if (videoId) {
     const embed = await fetchYouTubeEmbed(videoId, userAgent);
@@ -246,6 +250,15 @@ async function fetchOutcome(
   if (statusId) {
     const embed = await fetchTweetEmbed(statusId, userAgent);
     if (embed) return { kind: 'embed', embed };
+  }
+
+  // Giphy's endpoint names the file behind one of its pages, which turns a gif
+  // page into the same thing as a link straight at a gif: fetched and kept, with
+  // no card. Only the target moves; the guarded loop below does the fetching, so
+  // the address Giphy hands back is checked exactly like any other.
+  if (isGiphyPage(target)) {
+    const media = await fetchGiphyMedia(target.toString(), userAgent);
+    if (media) target = new URL(media);
   }
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -258,7 +271,15 @@ async function fetchOutcome(
       const response = await fetch(target, {
         redirect: 'manual',
         signal: controller.signal,
-        headers: { 'user-agent': userAgent, accept: 'text/html,application/xhtml+xml,image/*;q=0.8' },
+        // The picture is asked for first, and the page only as a fallback. Some
+        // hosts serve both for one address and pick by what the client says it
+        // wants, and a media address that answers with a web page is exactly how
+        // a gif link ends up as a card pointing at a perfectly good gif. A
+        // response that really is HTML is still read as a page below.
+        headers: {
+          'user-agent': userAgent,
+          accept: 'image/*,text/html;q=0.9,application/xhtml+xml;q=0.8',
+        },
       });
 
       if (response.status >= 300 && response.status < 400) {
@@ -284,9 +305,14 @@ async function fetchOutcome(
       // which is better than nothing at all.
       if (isStorableImage(contentType)) {
         const data = await readCappedBody(response, maxImageBytes);
-        if (data) return { kind: 'image', url: target.toString(), contentType, data };
-        log('linked image too large to keep', { url: target.toString(), limit: maxImageBytes });
-        return { kind: 'embed', embed: bareImageCard(target, contentType) };
+        // `url` rather than `target`: what the message was given, not wherever
+        // it was finally served from. That is what the message is checked
+        // against when it is edited, and what the next copy of the same link is
+        // matched to, so a page that is rewritten to a file address still knows
+        // it has seen this link before.
+        if (data) return { kind: 'image', url, contentType, data };
+        log('linked image too large to keep', { url, limit: maxImageBytes });
+        return { kind: 'embed', embed: bareImageCard(url, target.toString()) };
       }
       if (!/text\/html|application\/xhtml/i.test(contentType)) return { kind: 'embed', embed: null };
 
@@ -307,15 +333,16 @@ function isStorableImage(contentType: string): boolean {
 
 /**
  * The old behaviour for a picture we will not keep: a card whose image the
- * client fetches through the proxy. Only reached for files too large to store.
+ * client fetches through the proxy. Only reached for files too large to store,
+ * and the two addresses differ when a provider rewrote one into the other.
  */
-function bareImageCard(target: URL, _contentType: string): LinkEmbed {
+function bareImageCard(url: string, imageUrl: string): LinkEmbed {
   return {
-    url: target.toString(),
+    url,
     title: null,
     description: null,
-    siteName: target.hostname.replace(/^www\./, ''),
-    imageUrl: target.toString(),
+    siteName: new URL(url).hostname.replace(/^www\./, ''),
+    imageUrl,
     player: null,
   };
 }

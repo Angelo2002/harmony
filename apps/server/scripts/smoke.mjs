@@ -16,7 +16,7 @@ import WebSocket from 'ws';
 import sharp from 'sharp';
 import { listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
-import { tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
+import { isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
 import { insertGhostUser, insertUser } from '../src/db/users.ts';
@@ -942,6 +942,16 @@ try {
   check('an i/status link yields its tweet id', tweetStatusId(new URL('https://x.com/i/status/20')) === '20');
   check('a profile link is not a tweet', tweetStatusId(new URL('https://x.com/jack')) === null);
   check('a lookalike host is not x', tweetStatusId(new URL('https://x.com.evil.test/jack/status/20')) === null);
+
+  // A Giphy page is rewritten to the file behind it through their keyless
+  // endpoint, so only their page shapes are recognised. Their media addresses
+  // are already a link straight at a picture and are left alone.
+  check('a gifs page is recognised', isGiphyPage(new URL('https://giphy.com/gifs/cat-JIX9t2j0ZTN9S')));
+  check('a www gifs page is recognised', isGiphyPage(new URL('https://www.giphy.com/gifs/cat-JIX9t2j0ZTN9S')));
+  check('an embed page is recognised', isGiphyPage(new URL('https://giphy.com/embed/JIX9t2j0ZTN9S')));
+  check('a plain media address is not a page', isGiphyPage(new URL('https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif')) === false);
+  check('a channel page is not a gif', isGiphyPage(new URL('https://giphy.com/channel/kdy')) === false);
+  check('a lookalike host is not giphy', isGiphyPage(new URL('https://giphy.com.evil.test/gifs/cat-JIX9t2j0ZTN9S')) === false);
 
   const storedPlayer = parseMessageEmbed(
     JSON.stringify({ url: 'https://youtu.be/dQw4w9WgXcQ', player: { provider: 'youtube', id: 'dQw4w9WgXcQ' } }),

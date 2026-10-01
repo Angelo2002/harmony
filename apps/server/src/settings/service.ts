@@ -1,5 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { HEX_COLOR_PATTERN, MAX_UPLOAD_CEILING_BYTES, DEFAULT_MAX_IMAGE_BYTES, DEFAULT_MAX_VIDEO_BYTES, type RetentionSettings, type ThemeSettings } from '@harmony/shared';
+import {
+  HEX_COLOR_PATTERN,
+  MAX_ICON_PADDING,
+  MAX_UPLOAD_CEILING_BYTES,
+  DEFAULT_MAX_IMAGE_BYTES,
+  DEFAULT_MAX_VIDEO_BYTES,
+  type IconSettings,
+  type RetentionSettings,
+  type ThemeSettings,
+} from '@harmony/shared';
 import { readAllSettings, writeSetting } from '../db/settings.ts';
 
 export interface ServerSettings {
@@ -11,6 +20,8 @@ export interface ServerSettings {
   embedsEnabled: boolean;
   /** Instance colours; the rest of the palette is derived from these two. */
   theme: ThemeSettings;
+  /** How the installed app icon is drawn; see `IconSettings`. */
+  icon: IconSettings;
   /** Largest accepted image upload, in bytes. */
   maxImageBytes: number;
   /** Largest accepted video upload, in bytes. */
@@ -28,6 +39,7 @@ export interface ServerSettingsUpdate {
   defaultChannelId?: string | null;
   embedsEnabled?: boolean;
   theme?: Partial<ThemeSettings>;
+  icon?: Partial<IconSettings>;
   maxImageBytes?: number;
   maxVideoBytes?: number;
   previewUserAgent?: string | null;
@@ -71,6 +83,8 @@ const KEY_DEFAULT_CHANNEL = 'default_channel_id';
 const KEY_EMBEDS_ENABLED = 'embeds_enabled';
 const KEY_THEME_BACKGROUND = 'theme_background';
 const KEY_THEME_ACCENT = 'theme_accent';
+const KEY_ICON_PADDING = 'icon_padding';
+const KEY_ICON_BACKGROUND = 'icon_background';
 const KEY_IMAGE_DAYS = 'retention_image_days';
 const KEY_VIDEO_DAYS = 'retention_video_days';
 const KEY_MESSAGE_DAYS = 'retention_message_days';
@@ -131,6 +145,17 @@ function parseHexOrNull(raw: string | undefined): string | null {
   return value !== null && HEX_COLOR_PATTERN.test(value) ? value : null;
 }
 
+/**
+ * A stored icon padding, or null when it is absent or out of range. Null is also
+ * how "work it out from the image" is stored, which is the same thing as far as
+ * the renderer is concerned.
+ */
+function parsePadding(raw: string | undefined): number | null {
+  const value = parseNumberOrNull(raw);
+  if (value === null || value < 0 || value > MAX_ICON_PADDING) return null;
+  return Math.round(value);
+}
+
 /** A positive byte count, clamped to what the multipart layer can buffer. */
 function parseSize(raw: string | undefined, fallback: number): number {
   if (raw == null) return fallback;
@@ -163,6 +188,10 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       theme: {
         background: parseHexOrNull(stored.get(KEY_THEME_BACKGROUND)),
         accent: parseHexOrNull(stored.get(KEY_THEME_ACCENT)),
+      },
+      icon: {
+        padding: parsePadding(stored.get(KEY_ICON_PADDING)),
+        background: parseHexOrNull(stored.get(KEY_ICON_BACKGROUND)),
       },
       maxImageBytes: parseSize(stored.get(KEY_IMAGE_BYTES), defaults.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES),
       maxVideoBytes: parseSize(stored.get(KEY_VIDEO_BYTES), defaults.maxVideoBytes ?? DEFAULT_MAX_VIDEO_BYTES),
@@ -232,6 +261,12 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       }
       if (patch.theme?.accent !== undefined) {
         writeSetting(sqlite, KEY_THEME_ACCENT, JSON.stringify(patch.theme.accent));
+      }
+      if (patch.icon?.padding !== undefined) {
+        writeSetting(sqlite, KEY_ICON_PADDING, JSON.stringify(patch.icon.padding));
+      }
+      if (patch.icon?.background !== undefined) {
+        writeSetting(sqlite, KEY_ICON_BACKGROUND, JSON.stringify(patch.icon.background));
       }
       if (patch.maxImageBytes !== undefined) {
         writeSetting(sqlite, KEY_IMAGE_BYTES, JSON.stringify(patch.maxImageBytes));

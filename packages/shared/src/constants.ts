@@ -49,6 +49,15 @@ export const DEFAULT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const DEFAULT_MAX_VIDEO_BYTES = 20 * 1024 * 1024;
 
 /**
+ * Share of an installed app icon's tile left clear around the artwork, as a
+ * percentage, when the instance works it out from the image.
+ */
+export const DEFAULT_ICON_PADDING = 10;
+
+/** Past this the artwork is too small to read, whatever it is. */
+export const MAX_ICON_PADDING = 45;
+
+/**
  * The largest single upload the multipart layer will buffer. An admin cannot
  * configure a per-type limit above this.
  */

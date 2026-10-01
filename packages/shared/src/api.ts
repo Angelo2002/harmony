@@ -82,6 +82,8 @@ export interface ServerSettingsResponse {
   embedsEnabled: boolean;
   /** Instance colours; everything else in the palette is derived from these. */
   theme: ThemeSettings;
+  /** How the installed app icon is drawn. */
+  icon: IconSettings;
   /** Largest accepted image upload, in bytes. */
   maxImageBytes: number;
   /** Largest accepted video upload, in bytes. */
@@ -192,6 +194,28 @@ export interface EmojiImportResponse {
 }
 
 /** When content is automatically deleted. `null` means "keep forever". */
+/**
+ * How the instance's installed app icon is drawn.
+ *
+ * An operating system crops an installed icon to a shape of its own, so how much
+ * of the tile the artwork should fill is a judgement only the owner can make: a
+ * logo wants room around it, a picture that already fills its own frame wants
+ * none, and only the artwork itself can settle which it is.
+ */
+export interface IconSettings {
+  /**
+   * Share of the tile left clear around the artwork, as a percentage. Null works
+   * it out from the image: none for a picture that fills its frame, and
+   * `DEFAULT_ICON_PADDING` for a logo drawn on transparency.
+   */
+  padding: number | null;
+  /**
+   * What sits behind the artwork, or null to take the colour from the artwork
+   * itself. Only ever visible where the padding leaves a gap.
+   */
+  background: string | null;
+}
+
 export interface RetentionSettings {
   /** Delete image attachments older than this many days. */
   imageRetentionDays: number | null;

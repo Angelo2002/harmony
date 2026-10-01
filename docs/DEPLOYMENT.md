@@ -204,13 +204,20 @@ otherwise. A larger source makes a sharper icon — the shipped default is only
 96×96 — so if the icon matters to you, upload a square image of at least 512×512
 in **Admin → Settings**.
 
-Uploaded icons may have a transparent background, and the two cases are treated
-differently. A picture that fills its frame — no transparent pixels at all — is
-shown edge to edge in the installed app, exactly as drawn. A logo drawn on
-transparency is inset on a tile of its own colours, so the crop that the operating
-system applies to an installed app icon takes the tile rather than the artwork.
-Either way the icon is opaque: a transparent one would be left to the platform to
-back, and both Android and iOS fill those in as a dark frame around the logo.
+Uploaded icons may have a transparent background, and what the installed app does
+with it is a plain choice rather than a clever one, because only you know what
+your image is. **Admin → Settings** has both parts of it:
+
+- **Padding** is how much of the tile to leave clear around the artwork, as a
+  percentage. Left to work itself out, a picture with no transparent pixels gets
+  none — it was drawn to its own edges, so it fills the tile — and a logo drawn
+  on transparency gets 10%, so the crop lands on the tile instead of the drawing.
+  Set it to 0 for a full image, or raise it if a logo is being cut.
+- **Background** is what shows where the padding leaves a gap. Left alone it is
+  the artwork's own colour, which reads as part of the icon; pick one to override
+  it.
+
+The settings panel shows a preview of the result, which updates when you save.
 
 Updates arrive on the next visit: the service worker caches nothing, so a new
 deploy is never served stale, though an existing install may need one reload.

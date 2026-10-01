@@ -1173,7 +1173,8 @@ Returns `204`.
 `{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null,
 "embedsEnabled"?: boolean, "maxImageBytes"?: number, "maxVideoBytes"?: number,
 "previewUserAgent"?: string | null,
-"theme"?: { "background"?: string | null, "accent"?: string | null } }`.
+"theme"?: { "background"?: string | null, "accent"?: string | null },
+"icon"?: { "padding"?: number | null, "background"?: string | null } }`.
 Returns the updated settings. `serverName` and `theme` changing also update `GET /api/v1/meta`.
 `defaultChannelId` must reference an existing channel, or `400 invalid_default_channel`; `null`
 clears the preference. `embedsEnabled` turns link previews on or off for the whole instance. The two
@@ -1181,6 +1182,13 @@ upload limits are in bytes and may not exceed the server's hard ceiling of 100 M
 sets the client name used when unfurling a link; an empty string or `null` means Harmony's own.
 `setupCompleted` records that the owner has been through the first-run setup; setting it `false`
 again makes the wizard greet them once more.
+
+`icon.padding` is a percentage of an installed app icon's tile to leave clear around the artwork,
+from 0 to 45. `null` works it out from the image: none for a picture with no transparent pixels,
+10% for a logo drawn on transparency. `icon.background` is a `#rrggbb` colour, or `null` to take it
+from the artwork itself. Both only affect the renders described under
+[the icon endpoint](#get-apiv1iconssize--no-auth), and both change the URLs in the manifest, so a
+changed setting is never served from the long cache.
 
 ### Instance icon
 

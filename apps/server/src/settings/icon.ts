@@ -3,8 +3,10 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import {
   ALLOWED_IMAGE_TYPES,
+  DEFAULT_ICON_PADDING,
   DEFAULT_MAX_ICON_BYTES,
   ICON_SIZE,
+  MAX_ICON_PADDING,
   deriveTheme,
   type ImageContentType,
 } from '@harmony/shared';
@@ -24,8 +26,16 @@ export interface IconService {
   clear(): void;
   /** A square PNG of the instance icon at `size`, or null when there is none. */
   render(size: number): Promise<Buffer | null>;
-  /** The icon padded into Android's maskable safe zone, on the themed background. */
+  /**
+   * The variant an installed app icon needs: the one the operating system will
+   * crop to a shape of its own. See `maskableFrom` for how it is laid out.
+   */
   renderMaskable(size: number): Promise<Buffer | null>;
+  /**
+   * A string that changes whenever anything the rendered icon depends on changes.
+   * Callers put it in the URL, since the responses are cached immutably.
+   */
+  version(): string;
 }
 
 /** A colour as channels, which is how sharp takes a background. */
@@ -33,6 +43,15 @@ interface Rgb {
   r: number;
   g: number;
   b: number;
+}
+
+/** `#rrggbb` as channels. The settings layer only ever stores that form. */
+function hexToRgb(hex: string): Rgb {
+  return {
+    r: Number.parseInt(hex.slice(1, 3), 16),
+    g: Number.parseInt(hex.slice(3, 5), 16),
+    b: Number.parseInt(hex.slice(5, 7), 16),
+  };
 }
 
 /** Everything worth knowing about the icon artwork. */
@@ -85,24 +104,30 @@ async function measureArtwork(source: string): Promise<Artwork> {
 }
 
 /**
- * The variant Android crops to whatever shape its launcher uses, so anything that
+ * The variant an operating system crops to a shape of its own, so anything that
  * would be cut has to be kept away from the edges.
  *
- * A picture that already fills its frame is passed through at full size, because
- * that is how it was drawn: padding it would only shrink it and ring it with a
- * border nobody asked for. A logo drawn on transparency is the case the padding
- * exists for, and it is drawn at 80% on a tile of its own colour, so the cropping
- * that is coming takes the tile rather than the artwork.
+ * How much room to leave is the instance's to decide, because it depends on the
+ * artwork: a picture that fills its own frame wants none, and a logo drawn on
+ * transparency wants enough that the crop takes the tile instead of the drawing.
+ * Left to itself, that choice is made from the image. Whatever is left over is
+ * filled with a colour the instance chooses, or the artwork's own by default. The
+ * padding is a share of the tile, so 10 means the artwork is drawn at 80%.
+ *
+ * The artwork is composited onto that fill even at zero padding, which is what
+ * keeps the result opaque: a transparent icon is left for the platform to back,
+ * and iOS backs those with black.
  */
-async function maskableFrom(source: string, size: number, art: Artwork, tile: Rgb): Promise<Buffer> {
-  if (art.opaque) {
-    return sharp(source).resize(size, size, { fit: 'cover', position: 'centre' }).png().toBuffer();
-  }
-
-  const inner = Math.max(1, Math.round(size * 0.8));
+async function maskableFrom(
+  source: string,
+  size: number,
+  padding: number,
+  background: Rgb,
+): Promise<Buffer> {
+  const inner = Math.max(1, Math.round(size * (1 - padding / 100)));
   const scaled = await sharp(source).resize(inner, inner, { fit: 'cover', position: 'centre' }).png().toBuffer();
   const pad = Math.round((size - inner) / 2);
-  return sharp({ create: { width: size, height: size, channels: 3, background: tile } })
+  return sharp({ create: { width: size, height: size, channels: 3, background } })
     .composite([{ input: scaled, top: pad, left: pad }])
     .png()
     .toBuffer();
@@ -151,29 +176,32 @@ export function createIconService(config: Config, settings: SettingsService): Ic
     if (!source) return null;
 
     const art = await artworkOf(source);
+    const chosen = settings.get().icon;
 
-    // The tile only matters for artwork that leaves gaps to fill, but it is
-    // always worked out, since it is also what tells the two apart in the cache
-    // key below. Artwork with nothing opaque in it has no colour of its own, so
-    // it falls back to the app's background.
+    // Left to the instance, the padding follows the artwork: a picture that fills
+    // its own frame gets none, a logo drawn on transparency gets the default.
+    const padding = chosen.padding ?? (art.opaque ? 0 : DEFAULT_ICON_PADDING);
+
+    // The background is only ever seen where the padding leaves a gap, and the
+    // artwork's own colour is the one that reads as part of the icon rather than
+    // as a frame around it. Artwork with nothing opaque in it has no colour of
+    // its own, so that falls back to the app's background.
     const theme = deriveTheme(settings.get().theme);
-    const tile = art.color ?? {
-      r: Number.parseInt(theme.bg.slice(1, 3), 16),
-      g: Number.parseInt(theme.bg.slice(3, 5), 16),
-      b: Number.parseInt(theme.bg.slice(5, 7), 16),
-    };
+    const background = chosen.background
+      ? hexToRgb(chosen.background)
+      : (art.color ?? hexToRgb(theme.bg));
 
-    const key = `${source}|${size}|${maskable ? 'maskable' : 'any'}|${tile.r},${tile.g},${tile.b}`;
+    const key = `${source}|${size}|${maskable ? 'maskable' : 'any'}|${padding}|${background.r},${background.g},${background.b}`;
     const cached = rendered.get(key);
     if (cached) return cached;
 
     // Always opaque. A transparent icon is left to the platform to back, and iOS
     // backs those with black: the same dark frame by another route.
     const buffer = maskable
-      ? await maskableFrom(source, size, art, tile)
+      ? await maskableFrom(source, size, padding, background)
       : await sharp(source)
           .resize(size, size, { fit: 'cover', position: 'centre' })
-          .flatten({ background: tile })
+          .flatten({ background })
           .png()
           .toBuffer();
 
@@ -187,6 +215,13 @@ export function createIconService(config: Config, settings: SettingsService): Ic
 
     render: (size) => render(size, false),
     renderMaskable: (size) => render(size, true),
+
+    version() {
+      const icon = settings.get().icon;
+      // Everything the rendered icon depends on, so a change to any of it is a
+      // new URL and the long cache cannot serve the old one.
+      return [settings.getIconHash() ?? 'default', icon.padding ?? 'auto', icon.background ?? 'auto'].join('-');
+    },
 
     async update(file) {
       if (!ALLOWED_IMAGE_TYPES.includes(file.contentType as ImageContentType)) {

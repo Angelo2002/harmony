@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LIMITS, MAX_UPLOAD_CEILING_BYTES } from './constants.ts';
+import { LIMITS, MAX_ICON_PADDING, MAX_UPLOAD_CEILING_BYTES } from './constants.ts';
 import { TIMEOUT_MAX_MINUTES } from './moderation.ts';
 import { MAX_SLOWMODE_SECONDS } from './slowmode.ts';
 import { HEX_COLOR_PATTERN } from './theme.ts';
@@ -170,6 +170,16 @@ export const updateSettingsSchema = z.object({
     .object({
       background: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb colour').nullable(),
       accent: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb colour').nullable(),
+    })
+    .partial()
+    .optional(),
+  /** How the installed app icon is drawn; see `IconSettings`. */
+  icon: z
+    .object({
+      /** Null works the padding out from the image itself. */
+      padding: z.number().int().min(0).max(MAX_ICON_PADDING).nullable(),
+      /** Null takes the colour from the artwork itself. */
+      background: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb colour').nullable(),
     })
     .partial()
     .optional(),

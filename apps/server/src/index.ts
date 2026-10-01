@@ -68,6 +68,8 @@ const settingsService = createSettingsService(db.sqlite, {
   defaultChannelId: null,
   embedsEnabled: true,
   theme: { background: null, accent: null },
+  // Null in both means "work it out from the uploaded image".
+  icon: { padding: null, background: null },
   maxImageBytes: DEFAULT_MAX_IMAGE_BYTES,
   maxVideoBytes: DEFAULT_MAX_VIDEO_BYTES,
   previewUserAgent: null,
@@ -165,7 +167,7 @@ registerAuth(app, { cookieName: config.cookieName, resolveToken: authService.res
 
 registerHealthRoutes(app, db);
 registerMetaRoutes(app, { config, settings: settingsService });
-registerManifestRoutes(app, { settings: settingsService });
+registerManifestRoutes(app, { settings: settingsService, icon: iconService });
 registerAuthRoutes(app, { service: authService, config });
 registerSettingsRoutes(app, { settings: settingsService, db });
 registerIconRoutes(app, { icon: iconService });

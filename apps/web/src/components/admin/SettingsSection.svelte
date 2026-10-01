@@ -4,6 +4,8 @@
     ALLOWED_IMAGE_TYPES,
     DEFAULT_ACCENT,
     DEFAULT_BACKGROUND,
+    DEFAULT_ICON_PADDING,
+    MAX_ICON_PADDING,
     MAX_UPLOAD_CEILING_BYTES,
     type Channel,
     type ChannelListResponse,
@@ -25,6 +27,18 @@
   let maxImageMb = $state('');
   let maxVideoMb = $state('');
   let previewUserAgent = $state('');
+  let iconPaddingAuto = $state(true);
+  let iconPadding = $state(String(DEFAULT_ICON_PADDING));
+  let iconBackgroundAuto = $state(true);
+  let iconBackground = $state(DEFAULT_BACKGROUND);
+  /**
+   * The icon settings the server has actually stored. A preview cannot show an
+   * unsaved change, since the rendering happens on the server.
+   */
+  let storedIcon = $state<{ padding: number | null; background: string | null }>({
+    padding: null,
+    background: null,
+  });
   let busy = $state(false);
   let message = $state<string | null>(null);
   let error = $state<string | null>(null);
@@ -60,6 +74,7 @@
       maxImageMb = toMb(settings.maxImageBytes);
       maxVideoMb = toMb(settings.maxVideoBytes);
       previewUserAgent = settings.previewUserAgent ?? '';
+      applyIcon(settings.icon);
       channels = channelData.channels;
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
@@ -84,6 +99,34 @@
     themeAccent = DEFAULT_ACCENT;
     previewTheme({ background: themeBackground, accent: themeAccent });
   }
+
+  /**
+   * The padding is a percentage, so it is rounded and held inside the range
+   * rather than trusted: an empty or nonsense field must not become a broken icon.
+   */
+  function readPadding(value: string): number {
+    const parsed = Math.round(Number(value));
+    if (!Number.isFinite(parsed)) return DEFAULT_ICON_PADDING;
+    return Math.min(MAX_ICON_PADDING, Math.max(0, parsed));
+  }
+
+  function applyIcon(icon: { padding: number | null; background: string | null }): void {
+    storedIcon = icon;
+    iconPaddingAuto = icon.padding === null;
+    iconPadding = String(icon.padding ?? DEFAULT_ICON_PADDING);
+    iconBackgroundAuto = icon.background === null;
+    iconBackground = icon.background ?? DEFAULT_BACKGROUND;
+  }
+
+  // A stand-in for what a home screen does to the installed icon: the padding and
+  // background only mean anything once they are stored, so this follows the save.
+  const iconPreview = $derived(
+    `/api/v1/icons/192?maskable=1&v=${[
+      meta.data?.iconHash ?? 'default',
+      storedIcon.padding ?? 'auto',
+      storedIcon.background ?? 'auto',
+    ].join('-')}`,
+  );
 
   async function uploadIcon(event: Event): Promise<void> {
     const input = event.currentTarget as HTMLInputElement;
@@ -134,6 +177,10 @@
         embedsEnabled,
         defaultChannelId: defaultChannelId || null,
         theme: { background: themeBackground, accent: themeAccent },
+        icon: {
+          padding: iconPaddingAuto ? null : readPadding(iconPadding),
+          background: iconBackgroundAuto ? null : iconBackground,
+        },
         previewUserAgent: previewUserAgent.trim(),
       };
       // Blank leaves a size unchanged rather than clearing it.
@@ -152,6 +199,7 @@
       defaultChannelId = updated.defaultChannelId ?? '';
       themeBackground = updated.theme.background ?? DEFAULT_BACKGROUND;
       themeAccent = updated.theme.accent ?? DEFAULT_ACCENT;
+      applyIcon(updated.icon);
       maxImageMb = toMb(updated.maxImageBytes);
       maxVideoMb = toMb(updated.maxVideoBytes);
       previewUserAgent = updated.previewUserAgent ?? '';
@@ -270,6 +318,46 @@
         Shown in the browser tab and beside the server name. Square images work best; PNG, JPEG, GIF
         or WebP.
       </p>
+
+      <div class="icon-preview-row">
+        <img class="icon-preview" src={iconPreview} alt="" />
+        <p class="muted">
+          How an installed app icon is drawn. Phones and desktops crop an installed icon to a shape
+          of their own, which is what the padding below is for. This follows what is saved, so it
+          updates when you save.
+        </p>
+      </div>
+
+      <label class="checkbox">
+        <input type="checkbox" bind:checked={iconPaddingAuto} />
+        Work the padding out from the image
+      </label>
+      <p class="muted">
+        A picture that fills its frame gets none; a logo drawn on transparency gets 10%.
+      </p>
+
+      <label>
+        Padding (%)
+        <input
+          type="number"
+          min="0"
+          max={MAX_ICON_PADDING}
+          step="1"
+          bind:value={iconPadding}
+          disabled={iconPaddingAuto}
+        />
+        <span class="muted">How much of the tile to leave clear around the artwork. 0 fills it.</span>
+      </label>
+
+      <label class="checkbox">
+        <input type="checkbox" bind:checked={iconBackgroundAuto} />
+        Take the background colour from the image
+      </label>
+      <label>
+        Background
+        <input type="color" bind:value={iconBackground} disabled={iconBackgroundAuto} />
+        <span class="muted">Only ever seen where the padding leaves a gap.</span>
+      </label>
     </fieldset>
 
     {#if error}<p class="form-error">{error}</p>{/if}

@@ -372,6 +372,10 @@
             />
           </div>
         </div>
+        <p class="muted">
+          How the icon looks installed on a phone or desktop — how much room to leave around it, and
+          what colour behind it — is in <strong>Admin → Settings</strong>, where you can see a preview.
+        </p>
 
         <label>
           Server name

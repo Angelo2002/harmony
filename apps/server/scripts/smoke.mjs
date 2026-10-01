@@ -2487,6 +2487,63 @@ try {
     `the tile pixel was ${tile[0]},${tile[1]},${tile[2]}`,
   );
 
+  // Working the padding out from the image is the default, but it is a guess, and
+  // the instance can overrule it either way.
+  const iconDefaults = (await req('/settings', { token: ownerToken })).json;
+  check(
+    'the icon padding and background are worked out from the image by default',
+    iconDefaults?.icon?.padding === null && iconDefaults?.icon?.background === null,
+  );
+  check(
+    'an out of range icon padding is refused (400)',
+    (
+      await req('/settings', {
+        method: 'PATCH',
+        token: ownerToken,
+        body: { icon: { padding: 90 } },
+      })
+    ).status === 400,
+  );
+
+  const manifestBefore = await (await fetch(`${ORIGIN}/manifest.webmanifest`)).json();
+  const chosenIcon = await req('/settings', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { icon: { padding: 0, background: '#ffffff' } },
+  });
+  check(
+    'the icon padding and background can be set',
+    chosenIcon.json?.icon?.padding === 0 && chosenIcon.json?.icon?.background === '#ffffff',
+  );
+
+  const unpaddedBytes = Buffer.from(await (await fetch(`${ORIGIN}/api/v1/icons/512?maskable=1`)).arrayBuffer());
+  const unpaddedRow = await iconRow(unpaddedBytes, 256);
+  check(
+    'padding 0 draws the logo across the whole tile',
+    firstOf(unpaddedRow, logoRed) < paddedRed,
+    `the logo starts at x ${firstOf(unpaddedRow, logoRed)}, against x ${paddedRed} by default`,
+  );
+  check(
+    'and the chosen background shows around it, not the app background',
+    unpaddedRow.raw[0] === 255 && unpaddedRow.raw[1] === 255 && unpaddedRow.raw[2] === 255,
+    `the corner was ${unpaddedRow.raw[0]},${unpaddedRow.raw[1]},${unpaddedRow.raw[2]}`,
+  );
+
+  // The rendered icons are served with a long cache, so a changed setting has to
+  // be a changed URL or an installed app would keep the old one forever.
+  const manifestAfter = await (await fetch(`${ORIGIN}/manifest.webmanifest`)).json();
+  const maskableSrc = (manifest) => (manifest.icons ?? []).find((icon) => icon.purpose === 'maskable')?.src ?? '';
+  check(
+    'a changed icon setting is a new icon URL, so the cache cannot serve the old one',
+    maskableSrc(manifestAfter).length > 0 && maskableSrc(manifestAfter) !== maskableSrc(manifestBefore),
+    `${maskableSrc(manifestBefore)} then ${maskableSrc(manifestAfter)}`,
+  );
+
+  await req('/settings', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { icon: { padding: null, background: null } },
+  });
   await req('/icon', { method: 'DELETE', token: ownerToken });
 
   check('an unreasonable icon size is refused (400)', (await fetch(`${ORIGIN}/api/v1/icons/99999`)).status === 400);

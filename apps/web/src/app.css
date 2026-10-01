@@ -1813,6 +1813,30 @@ select {
   gap: 1rem;
 }
 
+/*
+ * A stand-in for what a home screen does to an installed icon: round, because
+ * that is the crop the padding is there to survive.
+ */
+.icon-preview {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--h-bg-deep);
+}
+
+.icon-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.75rem 0;
+}
+
+.icon-preview-row .muted {
+  margin: 0;
+}
+
 .perms {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));

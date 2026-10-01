@@ -33,10 +33,22 @@ const dataDir = mkdtempSync(join(tmpdir(), 'harmony-smoke-'));
 const webDir = mkdtempSync(join(tmpdir(), 'harmony-web-'));
 writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>Harmony test shell</title><div id="app"></div>');
 // A stand-in default icon, so the on-demand icon rendering has a source even
-// without a real client build.
+// without a real client build. Deliberately a picture rather than a flat colour:
+// it is fully opaque, and it reaches every edge, which is what the checks further
+// down use to tell a full bleed from a padded tile.
+const standInBlue = [20, 120, 200];
 writeFileSync(
   join(webDir, 'icon.png'),
-  await sharp({ create: { width: 96, height: 96, channels: 4, background: { r: 88, g: 101, b: 242, alpha: 1 } } })
+  await sharp({ create: { width: 96, height: 96, channels: 3, background: { r: 20, g: 120, b: 200 } } })
+    .composite([
+      {
+        input: await sharp({ create: { width: 96, height: 48, channels: 3, background: { r: 240, g: 200, b: 40 } } })
+          .png()
+          .toBuffer(),
+        top: 0,
+        left: 0,
+      },
+    ])
     .png()
     .toBuffer(),
 );
@@ -2393,15 +2405,90 @@ try {
     (await sharp(icon192Bytes).stats()).isOpaque === true &&
       (await sharp(maskableBytes).stats()).isOpaque === true,
   );
-  // The corner of the maskable tile is padding, well clear of any artwork. The
-  // stand-in icon above is a solid #5865f2 and the theme background is #313338,
-  // so this tells the two apart.
-  const corner = await sharp(maskableBytes).extract({ left: 2, top: 2, width: 1, height: 1 }).raw().toBuffer();
+
+  /** One row of an icon's pixels, with the channel count it was written with. */
+  async function iconRow(bytes, y) {
+    const image = sharp(bytes);
+    const { channels } = await image.metadata();
+    const raw = await image.extract({ left: 0, top: y, width: 512, height: 1 }).raw().toBuffer();
+    return { raw, channels: channels ?? 4 };
+  }
+
+  /** Where the first pixel of exactly this colour sits along a scanned row. */
+  function firstOf(scanned, rgb) {
+    for (let x = 0; x < 512; x++) {
+      const i = x * scanned.channels;
+      if (scanned.raw[i] === rgb[0] && scanned.raw[i + 1] === rgb[1] && scanned.raw[i + 2] === rgb[2]) return x;
+    }
+    return -1;
+  }
+
+  // The stand-in icon is a picture that fills its own frame, so it must be drawn
+  // edge to edge. Padding it would shrink it and ring it with a border nobody
+  // asked for, which is exactly what a full-bleed image should never get.
   check(
-    'the maskable padding takes its colour from the artwork, not the app background',
-    corner[0] === 0x58 && corner[1] === 0x65 && corner[2] === 0xf2,
-    `corner was ${corner[0]},${corner[1]},${corner[2]}`,
+    'a picture that fills its frame is drawn edge to edge, with no tile around it',
+    firstOf(await iconRow(maskableBytes, 400), standInBlue) === 0,
+    `the picture starts at x ${firstOf(await iconRow(maskableBytes, 400), standInBlue)}`,
   );
+
+  // A logo drawn on transparency is what the padding is for. It stays inset on a
+  // tile of its own colour, so the launcher's crop takes the tile and not the art.
+  const transparentLogo = await sharp({
+    create: { width: 96, height: 96, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .composite([
+      {
+        input: await sharp({ create: { width: 24, height: 48, channels: 4, background: { r: 242, g: 63, b: 67, alpha: 1 } } })
+          .png()
+          .toBuffer(),
+        left: 24,
+        top: 24,
+      },
+      {
+        input: await sharp({ create: { width: 24, height: 48, channels: 4, background: { r: 35, g: 165, b: 90, alpha: 1 } } })
+          .png()
+          .toBuffer(),
+        left: 48,
+        top: 24,
+      },
+    ])
+    .png()
+    .toBuffer();
+
+  const logoUpload = new FormData();
+  logoUpload.append('file', new Blob([transparentLogo], { type: 'image/png' }), 'logo.png');
+  const logoRes = await fetch(`${BASE}/icon`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${ownerToken}` },
+    body: logoUpload,
+  });
+  check('a logo drawn on transparency can be uploaded', logoRes.status === 200, `status ${logoRes.status}`);
+
+  const logoMaskableBytes = Buffer.from(
+    await (await fetch(`${ORIGIN}/api/v1/icons/512?maskable=1`)).arrayBuffer(),
+  );
+  const logoPlainBytes = Buffer.from(await (await fetch(`${ORIGIN}/api/v1/icons/512`)).arrayBuffer());
+  const logoRed = [242, 63, 67];
+  const paddedRed = firstOf(await iconRow(logoMaskableBytes, 256), logoRed);
+  const plainRed = firstOf(await iconRow(logoPlainBytes, 256), logoRed);
+  check(
+    'a logo on transparency is inset, leaving the cropping to the tile',
+    paddedRed > plainRed && plainRed > 0,
+    `the logo starts at x ${paddedRed} padded and x ${plainRed} at full width`,
+  );
+
+  // The half-red, half-green logo averages to 139,114,79, which is what the tile
+  // under it should be. The app background would be 49,51,56.
+  const tile = (await iconRow(logoMaskableBytes, 256)).raw;
+  check(
+    "and that tile is the artwork's own colour, not the app background",
+    Math.abs((tile[0] ?? 0) - 139) < 12 && Math.abs((tile[1] ?? 0) - 114) < 12 && Math.abs((tile[2] ?? 0) - 79) < 12,
+    `the tile pixel was ${tile[0]},${tile[1]},${tile[2]}`,
+  );
+
+  await req('/icon', { method: 'DELETE', token: ownerToken });
+
   check('an unreasonable icon size is refused (400)', (await fetch(`${ORIGIN}/api/v1/icons/99999`)).status === 400);
 
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);

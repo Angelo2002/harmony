@@ -1206,15 +1206,21 @@ Returns `{ "iconHash": null }` and puts the built-in default back in use.
 #### `GET /api/v1/icons/:size` — no auth
 
 Serves the instance icon — the admin's upload, or the built-in default — resized to a square PNG of
-`size`, from 16 to 1024. Add `?maskable=1` for the padded variant Android crops to its own launcher
-shape. Used by the [app manifest](#app-manifest); a caller should append the current `iconHash` as
-`?v=` so the long cache is safe. `400 invalid_size` outside the range, `404 icon_unavailable` when no
-icon source exists at all.
+`size`, from 16 to 1024. Add `?maskable=1` for the variant Android crops to its own launcher shape.
+Used by the [app manifest](#app-manifest); a caller should append the current `iconHash` as `?v=` so
+the long cache is safe. `400 invalid_size` outside the range, `404 icon_unavailable` when no icon
+source exists at all.
 
-Both variants are opaque, because a transparent icon is otherwise left to the platform to back and
-several of them fill it with black. They are drawn on the artwork's own colour: the average of its
-opaque pixels. Sharp's dominant colour is not usable here, since a logo drawn on transparency mostly
-consists of that transparency, which averages out near black — the very frame this avoids.
+What `maskable=1` does depends on the artwork. A picture with no transparent pixels is returned edge
+to edge, because that is how it was drawn and padding it would shrink it and ring it with a border.
+A logo drawn on transparency is the case padding exists for: it is drawn at 80% on a tile, so the
+cropping that is coming takes the tile instead of the artwork. That tile is the average of the
+drawing's opaque pixels, not the app background, which is usually dark enough to read as a frame.
+Sharp's own dominant colour cannot be used for it, since a logo drawn on transparency mostly consists
+of that transparency, which averages out near black.
+
+Both variants come back opaque. A transparent icon is otherwise left to the platform to back, and
+iOS fills those with black: the same frame, arrived at from the other direction.
 
 ### App manifest
 

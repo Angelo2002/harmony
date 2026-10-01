@@ -28,24 +28,6 @@ export interface IconService {
   renderMaskable(size: number): Promise<Buffer | null>;
 }
 
-/**
- * Android crops a maskable icon to whatever shape the launcher uses, so the
- * artwork is drawn at 80% and centred on a tile that takes the clipping.
- *
- * The tile is the artwork's own colour rather than the app's background, which
- * matters more than it sounds: the background is usually dark, and a dark tile
- * around a logo reads as a black frame rather than as part of the icon.
- */
-async function maskableFrom(source: string, size: number, tile: Rgb): Promise<Buffer> {
-  const inner = Math.max(1, Math.round(size * 0.8));
-  const art = await sharp(source).resize(inner, inner, { fit: 'cover', position: 'centre' }).png().toBuffer();
-  const pad = Math.round((size - inner) / 2);
-  return sharp({ create: { width: size, height: size, channels: 3, background: tile } })
-    .composite([{ input: art, top: pad, left: pad }])
-    .png()
-    .toBuffer();
-}
-
 /** A colour as channels, which is how sharp takes a background. */
 interface Rgb {
   r: number;
@@ -53,21 +35,31 @@ interface Rgb {
   b: number;
 }
 
+/** Everything worth knowing about the icon artwork. */
+interface Artwork {
+  /** The average colour of the pixels that are actually there, or null if none are. */
+  color: Rgb | null;
+  /**
+   * True when there is not one transparent pixel: a picture that fills its own
+   * frame, rather than a logo drawn on nothing.
+   */
+  opaque: boolean;
+}
+
 /** Alpha at or below this is a pixel that is not really there. */
 const TRANSPARENT_CUTOFF = 8;
 
 /**
- * The colour the artwork is mostly made of.
+ * Measures the artwork: what colour it is, and whether it is a picture or a logo.
  *
- * Transparent pixels are skipped rather than averaged in. A logo drawn on
- * nothing would otherwise average out close to black, and sharp's own dominant
- * colour has exactly that problem, which is the dark ring this exists to avoid.
- * Null means there was nothing opaque to measure.
+ * Transparent pixels are skipped when averaging. A logo drawn on nothing would
+ * otherwise average out close to black, and sharp's own dominant colour has
+ * exactly that problem, which is the dark frame this exists to avoid.
  */
-async function artworkColor(source: string): Promise<Rgb | null> {
-  // Small: only an average is wanted, and this runs once per icon and size.
+async function measureArtwork(source: string): Promise<Artwork> {
+  // Small: only an average is wanted, and the answer is cached by the caller.
   const { data, info } = await sharp(source)
-    .resize(32, 32, { fit: 'inside' })
+    .resize(48, 48, { fit: 'inside' })
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -76,7 +68,9 @@ async function artworkColor(source: string): Promise<Rgb | null> {
   let g = 0;
   let b = 0;
   let seen = 0;
+  let total = 0;
   for (let i = 0; i < data.length; i += info.channels) {
+    total += 1;
     if ((data[i + 3] ?? 0) <= TRANSPARENT_CUTOFF) continue;
     r += data[i] ?? 0;
     g += data[i + 1] ?? 0;
@@ -84,8 +78,34 @@ async function artworkColor(source: string): Promise<Rgb | null> {
     seen += 1;
   }
 
-  if (seen === 0) return null;
-  return { r: r / seen, g: g / seen, b: b / seen };
+  return {
+    color: seen === 0 ? null : { r: r / seen, g: g / seen, b: b / seen },
+    opaque: total > 0 && seen === total,
+  };
+}
+
+/**
+ * The variant Android crops to whatever shape its launcher uses, so anything that
+ * would be cut has to be kept away from the edges.
+ *
+ * A picture that already fills its frame is passed through at full size, because
+ * that is how it was drawn: padding it would only shrink it and ring it with a
+ * border nobody asked for. A logo drawn on transparency is the case the padding
+ * exists for, and it is drawn at 80% on a tile of its own colour, so the cropping
+ * that is coming takes the tile rather than the artwork.
+ */
+async function maskableFrom(source: string, size: number, art: Artwork, tile: Rgb): Promise<Buffer> {
+  if (art.opaque) {
+    return sharp(source).resize(size, size, { fit: 'cover', position: 'centre' }).png().toBuffer();
+  }
+
+  const inner = Math.max(1, Math.round(size * 0.8));
+  const scaled = await sharp(source).resize(inner, inner, { fit: 'cover', position: 'centre' }).png().toBuffer();
+  const pad = Math.round((size - inner) / 2);
+  return sharp({ create: { width: size, height: size, channels: 3, background: tile } })
+    .composite([{ input: scaled, top: pad, left: pad }])
+    .png()
+    .toBuffer();
 }
 
 /**
@@ -99,6 +119,17 @@ export function createIconService(config: Config, settings: SettingsService): Ic
   // A handful of small buffers, keyed by source and size, kept so the manifest's
   // icon requests do not re-encode the image every time.
   const rendered = new Map<string, Buffer>();
+  // Measuring walks the pixels, and the answer only depends on the source.
+  const measured = new Map<string, Promise<Artwork>>();
+
+  function artworkOf(source: string): Promise<Artwork> {
+    let pending = measured.get(source);
+    if (!pending) {
+      pending = measureArtwork(source);
+      measured.set(source, pending);
+    }
+    return pending;
+  }
 
   /**
    * Where the icon comes from: the admin's upload, or the default shipped with
@@ -119,12 +150,14 @@ export function createIconService(config: Config, settings: SettingsService): Ic
     const source = sourcePath();
     if (!source) return null;
 
-    // Always an opaque tile, in the artwork's own colour. A transparent icon is
-    // left to the platform to back, and iOS backs those with black, which is the
-    // same dark frame by another route. Artwork with nothing opaque in it has no
-    // colour of its own, so it falls back to the app's background.
+    const art = await artworkOf(source);
+
+    // The tile only matters for artwork that leaves gaps to fill, but it is
+    // always worked out, since it is also what tells the two apart in the cache
+    // key below. Artwork with nothing opaque in it has no colour of its own, so
+    // it falls back to the app's background.
     const theme = deriveTheme(settings.get().theme);
-    const tile = (await artworkColor(source)) ?? {
+    const tile = art.color ?? {
       r: Number.parseInt(theme.bg.slice(1, 3), 16),
       g: Number.parseInt(theme.bg.slice(3, 5), 16),
       b: Number.parseInt(theme.bg.slice(5, 7), 16),
@@ -134,8 +167,10 @@ export function createIconService(config: Config, settings: SettingsService): Ic
     const cached = rendered.get(key);
     if (cached) return cached;
 
+    // Always opaque. A transparent icon is left to the platform to back, and iOS
+    // backs those with black: the same dark frame by another route.
     const buffer = maskable
-      ? await maskableFrom(source, size, tile)
+      ? await maskableFrom(source, size, art, tile)
       : await sharp(source)
           .resize(size, size, { fit: 'cover', position: 'centre' })
           .flatten({ background: tile })

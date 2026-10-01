@@ -53,12 +53,31 @@ export class GatewayClient {
     });
 
     socket.addEventListener('close', (event) => {
+      // A socket that was already replaced, by ensureConnected below, must not
+      // clear the one now in use or schedule a duplicate reconnect.
+      if (this.#socket !== socket) return;
       this.#socket = null;
       this.#emit({ op: -1, t: 'CLOSE', d: { code: event.code } });
       // 4004 means the session was rejected, 4005 that it was ended by
       // moderation; retrying either would just loop.
       if (!this.#stopped && event.code !== 4004 && event.code !== 4005) this.#scheduleReconnect();
     });
+  }
+
+  /**
+   * Reconnects if the socket is not currently open. Used when the tab comes back
+   * to the foreground: a socket left behind in the background may never report
+   * that it died, so waiting for the reconnect delay would leave the client
+   * silently dead. Replacing it makes the server see a fresh connection.
+   */
+  ensureConnected(): void {
+    // A closed client was closed on purpose, such as on sign-out; never revive it.
+    if (this.#stopped) return;
+    if (this.#socket?.readyState === WebSocket.OPEN) return;
+    const stale = this.#socket;
+    this.#socket = null;
+    stale?.close();
+    this.connect();
   }
 
   close(): void {

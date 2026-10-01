@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onMount } from 'svelte';
   import { chat } from '../lib/chat.svelte';
   import { dragHasFiles, mediaFilesFrom } from '../lib/files';
   import { channelGlyph } from '../lib/format';
@@ -11,8 +11,23 @@
   import MemberList from './MemberList.svelte';
   import MessageView from './MessageView.svelte';
 
-  onMount(() => void chat.start());
-  onDestroy(() => chat.stop());
+  onMount(() => {
+    void chat.start();
+
+    // A phone that backgrounds the app gets no events at all: the socket dies and
+    // nothing scrolls past. Coming back to the foreground is the cue to reconnect
+    // and catch up, which is what makes a reopened installed app show the newest
+    // messages instead of whatever was on screen when it went away.
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') void chat.resync();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      chat.stop();
+    };
+  });
 
   /** The "is typing…" line above the composer, or null when nobody is typing. */
   const typingLabel = $derived.by((): string | null => {

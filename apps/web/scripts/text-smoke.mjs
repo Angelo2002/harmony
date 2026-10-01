@@ -1,7 +1,9 @@
-// Focused checks for the message text parser: markdown, links, emoji and mentions.
+// Focused checks for the client's message plumbing: the text parser for markdown,
+// links, emoji and mentions, and the merge that catches up after being away.
 //
 // Run with: npm run smoke:text
 import { parseMessage } from '../src/lib/message-text.ts';
+import { mergeLatest } from '../src/lib/messages.ts';
 
 let failures = 0;
 function check(name, condition) {
@@ -118,6 +120,33 @@ check(
 );
 check('an email is not a mention', plain('me@example.com', noEmoji, mentionOf) === 'me@example.com');
 check('a url is not mistaken for an emoji or mention', inline('https://x.com/:YES:').some((segment) => segment.type === 'link'));
+
+// --- Catching up after being away ---
+// A stand-in shape: mergeLatest only ever compares ids and copies references.
+const message = (id, extra = {}) => ({ id, channelId: 'c1', content: id, ...extra });
+
+check(
+  'a catch-up page is appended in the order the server sent it',
+  mergeLatest([message('1'), message('2')], [message('2'), message('3'), message('4')])
+    .map((entry) => entry.id)
+    .join(',') === '1,2,3,4',
+);
+check(
+  'a message already loaded is refreshed rather than duplicated',
+  mergeLatest([message('1', { content: 'old' })], [message('1', { content: 'edited' })])[0]?.content === 'edited',
+);
+check(
+  'a refreshed message keeps its position',
+  mergeLatest([message('1'), message('2'), message('3')], [message('2')])
+    .map((entry) => entry.id)
+    .join(',') === '1,2,3',
+);
+check(
+  'a refresh never drops what was already loaded',
+  mergeLatest([message('1'), message('2')], [message('2')]).length === 2,
+);
+check('catching up on an empty channel loads the page', mergeLatest([], [message('1')]).length === 1);
+check('an empty catch-up page changes nothing', mergeLatest([message('1')], []).length === 1);
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

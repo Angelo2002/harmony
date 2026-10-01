@@ -13,6 +13,7 @@ import type {
 } from '@harmony/shared';
 import { ApiError, api } from './api';
 import { emojis } from './emojis.svelte';
+import { mergeLatest } from './messages';
 import { members } from './members.svelte';
 import { roster } from './roster.svelte';
 import { session } from './session.svelte';
@@ -121,6 +122,43 @@ class ChatStore {
     this.#highlightTimer = null;
     this.#clearTyping();
     roster.reset();
+  }
+
+  /**
+   * Brings the client back in step after the app was away, such as a phone that
+   * backgrounded it and was reopened. Nothing arrives while the page is hidden, so
+   * the socket is re-established without waiting and everything that can have
+   * changed meanwhile is refetched.
+   *
+   * The open channel keeps the pages it has already loaded: only the newest page
+   * is folded in, so a reader who had scrolled up is not yanked to the bottom,
+   * while someone sitting at the newest message simply sees it follow along.
+   */
+  async resync(): Promise<void> {
+    this.#gateway.ensureConnected();
+
+    // Resuming on a phone often means resuming with no usable network for a
+    // moment, so the one refresh that would throw is caught rather than left to
+    // surface as an unhandled rejection. The rest keep whatever they already have.
+    void this.loadChannels().catch(() => {});
+    void roster.load();
+    void members.load();
+    void emojis.load();
+    void this.#refreshSession();
+
+    const channelId = this.activeChannelId;
+    if (!channelId) return;
+
+    try {
+      const page = await this.#fetchHistory(channelId);
+      // A channel switch while this was in flight must not splice a page from
+      // the wrong channel into the open one.
+      if (channelId !== this.activeChannelId) return;
+      this.messages = mergeLatest(this.messages, page);
+    } catch {
+      // Still offline, or the channel was locked away while we were gone. The
+      // channel list refresh above is what deals with the second case.
+    }
   }
 
   async loadChannels(): Promise<void> {
@@ -334,10 +372,13 @@ class ChatStore {
       const me = await api<MeResponse>('/auth/me');
       session.user = me.user;
       session.permissions = me.permissions;
-    } catch {
-      // The session is gone (kicked, banned or expired).
-      session.user = null;
-      session.permissions = '0';
+    } catch (cause) {
+      // The session is gone: kicked, banned or expired. A request that never
+      // reached the server is a different matter, and must not sign anyone out.
+      if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) {
+        session.user = null;
+        session.permissions = '0';
+      }
     }
   }
 

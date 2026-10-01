@@ -69,7 +69,7 @@ const TWITTER_IMAGE_KEYS = new Set(['twitter:image', 'twitter:image:src']);
  * A page may offer several and they are not equal. Giphy and Klipy both list a
  * still WebP first and the animated GIF second, so a reader that takes the first
  * one gets a frozen picture: the whole reason a gif link previews badly. The
- * animated one is recognised either from the `og:image:type` that follows it, or
+ * animated one is recognized either from the `og:image:type` that follows it, or
  * from the address itself, since a name ending in .gif is one too.
  */
 function imageCandidates(tags: MetaTag[]): ImageCandidate[] {
@@ -174,7 +174,7 @@ export function parseEmbedMetadata(html: string, url: string): LinkEmbed {
     description: collapseText(pick('og:description', 'twitter:description', 'description'), MAX_DESCRIPTION),
     siteName: collapseText(pick('og:site_name', 'application-name') ?? hostnameOf(url), MAX_SITE_NAME),
     imageUrl: previewImage(tags, url),
-    // A page's own og:video is not trusted as a player; providers are recognised
+    // A page's own og:video is not trusted as a player; providers are recognized
     // from the URL instead, so the embed origin is always ours to choose.
     player: null,
   };

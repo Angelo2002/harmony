@@ -20,7 +20,7 @@ export interface IconService {
   hash(): string | null;
   /** Absolute path of the stored icon blob. */
   pathFor(hash: string): string;
-  /** Normalises and stores an uploaded icon, returning its content hash. */
+  /** Normalizes and stores an uploaded icon, returning its content hash. */
   update(file: { contentType: string; data: Buffer }): Promise<string>;
   /** Drops the uploaded icon, so clients fall back to the built-in default. */
   clear(): void;
@@ -38,7 +38,7 @@ export interface IconService {
   version(): string;
 }
 
-/** A colour as channels, which is how sharp takes a background. */
+/** A color as channels, which is how sharp takes a background. */
 interface Rgb {
   r: number;
   g: number;
@@ -56,7 +56,7 @@ function hexToRgb(hex: string): Rgb {
 
 /** Everything worth knowing about the icon artwork. */
 interface Artwork {
-  /** The average colour of the pixels that are actually there, or null if none are. */
+  /** The average color of the pixels that are actually there, or null if none are. */
   color: Rgb | null;
   /**
    * True when there is not one transparent pixel: a picture that fills its own
@@ -69,10 +69,10 @@ interface Artwork {
 const TRANSPARENT_CUTOFF = 8;
 
 /**
- * Measures the artwork: what colour it is, and whether it is a picture or a logo.
+ * Measures the artwork: what color it is, and whether it is a picture or a logo.
  *
  * Transparent pixels are skipped when averaging. A logo drawn on nothing would
- * otherwise average out close to black, and sharp's own dominant colour has
+ * otherwise average out close to black, and sharp's own dominant color has
  * exactly that problem, which is the dark frame this exists to avoid.
  */
 async function measureArtwork(source: string): Promise<Artwork> {
@@ -111,7 +111,7 @@ async function measureArtwork(source: string): Promise<Artwork> {
  * artwork: a picture that fills its own frame wants none, and a logo drawn on
  * transparency wants enough that the crop takes the tile instead of the drawing.
  * Left to itself, that choice is made from the image. Whatever is left over is
- * filled with a colour the instance chooses, or the artwork's own by default. The
+ * filled with a color the instance chooses, or the artwork's own by default. The
  * padding is a share of the tile, so 10 means the artwork is drawn at 80%.
  *
  * The artwork is composited onto that fill even at zero padding, which is what
@@ -125,7 +125,7 @@ async function maskableFrom(
   background: Rgb,
 ): Promise<Buffer> {
   const inner = Math.max(1, Math.round(size * (1 - padding / 100)));
-  const scaled = await sharp(source).resize(inner, inner, { fit: 'cover', position: 'centre' }).png().toBuffer();
+  const scaled = await sharp(source).resize(inner, inner, { fit: 'cover', position: 'center' }).png().toBuffer();
   const pad = Math.round((size - inner) / 2);
   return sharp({ create: { width: size, height: size, channels: 3, background } })
     .composite([{ input: scaled, top: pad, left: pad }])
@@ -135,7 +135,7 @@ async function maskableFrom(
 
 /**
  * The instance icon shown in the browser tab and beside the server name, and the
- * source for the sizes an installed app icon needs. It is normalised to a square
+ * source for the sizes an installed app icon needs. It is normalized to a square
  * PNG, and the default is shipped with the web client, so nothing is stored until
  * an admin uploads their own.
  */
@@ -183,8 +183,8 @@ export function createIconService(config: Config, settings: SettingsService): Ic
     const padding = chosen.padding ?? (art.opaque ? 0 : DEFAULT_ICON_PADDING);
 
     // The background is only ever seen where the padding leaves a gap, and the
-    // artwork's own colour is the one that reads as part of the icon rather than
-    // as a frame around it. Artwork with nothing opaque in it has no colour of
+    // artwork's own color is the one that reads as part of the icon rather than
+    // as a frame around it. Artwork with nothing opaque in it has no color of
     // its own, so that falls back to the app's background.
     const theme = deriveTheme(settings.get().theme);
     const background = chosen.background
@@ -200,7 +200,7 @@ export function createIconService(config: Config, settings: SettingsService): Ic
     const buffer = maskable
       ? await maskableFrom(source, size, padding, background)
       : await sharp(source)
-          .resize(size, size, { fit: 'cover', position: 'centre' })
+          .resize(size, size, { fit: 'cover', position: 'center' })
           .flatten({ background })
           .png()
           .toBuffer();
@@ -242,7 +242,7 @@ export function createIconService(config: Config, settings: SettingsService): Ic
       let normalized: Buffer;
       try {
         normalized = await sharp(file.data)
-          .resize(ICON_SIZE, ICON_SIZE, { fit: 'cover', position: 'centre' })
+          .resize(ICON_SIZE, ICON_SIZE, { fit: 'cover', position: 'center' })
           .png()
           .toBuffer();
       } catch {

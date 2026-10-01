@@ -12,7 +12,7 @@ import { api } from './api';
 /**
  * The picker's data. Both tabs are kept here so a heart pressed on one is
  * reflected on the other: a gif saved from the local list shows as saved when the
- * favourites list is next opened, without a refetch.
+ * favorites list is next opened, without a refetch.
  */
 class GifState {
   favorites = $state<GifFavorite[]>([]);

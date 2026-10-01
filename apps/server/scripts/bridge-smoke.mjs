@@ -778,7 +778,7 @@ try {
 
   // 12. Discord channel import. The channel for '111' is already bridged above,
   // so it is skipped; '222' is new and lands in a fresh 'General' category;
-  // '333' is new and uncategorised, so it stays at the top level.
+  // '333' is new and uncategorized, so it stays at the top level.
   const channelImport = createChannelImportService({ sqlite: db.sqlite, bridge, hub, log: () => {} });
   transport.state.recentMessages = [];
 
@@ -794,7 +794,7 @@ try {
       previewChannels.find((channel) => channel.id === '222')?.bridged === false,
   );
   check(
-    'an uncategorised discord channel is grouped on its own',
+    'an uncategorized discord channel is grouped on its own',
     channelPreview.groups.find((group) => group.categoryName === null)?.channels.length === 1,
   );
 

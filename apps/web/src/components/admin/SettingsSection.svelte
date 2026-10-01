@@ -85,7 +85,7 @@
     }
   });
 
-  // Leaving the panel undoes any colour that was only being previewed.
+  // Leaving the panel undoes any color that was only being previewed.
   onDestroy(restoreTheme);
 
   function pickBackground(event: Event): void {
@@ -271,7 +271,7 @@
       <input bind:value={previewUserAgent} placeholder="Harmony/1.0 link-preview" maxlength="200" />
     </label>
     <p class="muted">
-      Some sites will not serve a preview to a client they do not recognise — many Cloudflare-backed
+      Some sites will not serve a preview to a client they do not recognize — many Cloudflare-backed
       ones, such as Klipy — so their links stay as plain text. Naming a user agent the site allows
       makes them preview. Leave blank to identify honestly as Harmony.
     </p>
@@ -306,7 +306,7 @@
     </fieldset>
 
     <fieldset>
-      <legend>Colours</legend>
+      <legend>Colors</legend>
       <div class="inline">
         <label>
           Background
@@ -316,10 +316,10 @@
           Accent
           <input type="color" value={themeAccent} oninput={pickAccent} />
         </label>
-        <button type="button" onclick={resetTheme}>Reset colours</button>
+        <button type="button" onclick={resetTheme}>Reset colors</button>
       </div>
       <p class="muted">
-        Panel shades, text and highlight tints are all derived from these two colours, and the text
+        Panel shades, text and highlight tints are all derived from these two colors, and the text
         flips between dark and light on its own. Changes preview here immediately; save to keep them.
       </p>
     </fieldset>
@@ -379,7 +379,7 @@
 
       <label class="checkbox">
         <input type="checkbox" bind:checked={iconBackgroundAuto} />
-        Take the background colour from the image
+        Take the background color from the image
       </label>
       <label>
         Background

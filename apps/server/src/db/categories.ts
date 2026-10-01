@@ -65,7 +65,7 @@ export function deleteCategory(sqlite: DatabaseSync, id: string): void {
   sqlite.prepare('DELETE FROM categories WHERE id = ?').run(id);
 }
 
-/** Swaps a category's position with its neighbour in the display order. */
+/** Swaps a category's position with its neighbor in the display order. */
 export function moveCategory(sqlite: DatabaseSync, id: string, direction: 'up' | 'down'): void {
   const ordered = listCategories(sqlite);
   const index = ordered.findIndex((category) => category.id === id);

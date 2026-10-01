@@ -114,7 +114,7 @@ export function createPruner(deps: PrunerDeps): Pruner {
     // Uploads that never turned into a message.
     deletedAttachments += deleteUnattachedAttachmentsOlderThan(deps.sqlite, isoHoursAgo(UNATTACHED_UPLOAD_HOURS));
 
-    // Realise whatever the deletions above freed.
+    // Realize whatever the deletions above freed.
     let swept = sweepUnreferencedBlobs();
     deletedBlobs += swept.count;
     freedBytes += swept.bytes;

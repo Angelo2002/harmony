@@ -43,7 +43,7 @@ export interface InstanceMeta {
   name: string;
   apiVersion: string;
   requireInvite: boolean;
-  /** Instance colours, so even the sign-in screen is themed. */
+  /** Instance colors, so even the sign-in screen is themed. */
   theme: ThemeSettings;
   /**
    * Content hash of the admin-uploaded server icon, or null to use the client's
@@ -85,7 +85,7 @@ export interface ServerSettingsResponse {
   defaultChannelId: string | null;
   /** Whether the server unfurls link previews by fetching the linked pages. */
   embedsEnabled: boolean;
-  /** Instance colours; everything else in the palette is derived from these. */
+  /** Instance colors; everything else in the palette is derived from these. */
   theme: ThemeSettings;
   /** How the installed app icon is drawn. */
   icon: IconSettings;
@@ -209,7 +209,7 @@ export interface EmojiImportResponse {
  * How the instance's installed app icon is drawn.
  *
  * An operating system crops an installed icon to a shape of its own, so how much
- * of the tile the artwork should fill is a judgement only the owner can make: a
+ * of the tile the artwork should fill is a judgment only the owner can make: a
  * logo wants room around it, a picture that already fills its own frame wants
  * none, and only the artwork itself can settle which it is.
  */
@@ -221,7 +221,7 @@ export interface IconSettings {
    */
   padding: number | null;
   /**
-   * What sits behind the artwork, or null to take the colour from the artwork
+   * What sits behind the artwork, or null to take the color from the artwork
    * itself. Only ever visible where the padding leaves a gap.
    */
   background: string | null;
@@ -237,8 +237,8 @@ export interface RetentionSettings {
   /** Delete audit log entries older than this many days. */
   auditRetentionDays: number | null;
   /**
-   * Delete a saved gif this many days after it was last favourited or sent.
-   * Favourites are exempt from the image and message rules, so this is the only
+   * Delete a saved gif this many days after it was last favorited or sent.
+   * Favorites are exempt from the image and message rules, so this is the only
    * thing that ever ages them out; null keeps them forever.
    */
   favoriteRetentionDays: number | null;
@@ -258,7 +258,7 @@ export interface RetentionUsage {
 /**
  * A gif somebody kept. It is held by content hash, not by any message, so it
  * outlives the message it was found in and is only ever aged out by the rule for
- * favourites.
+ * favorites.
  */
 export interface GifFavorite {
   id: string;
@@ -272,7 +272,7 @@ export interface GifFavorite {
   /** The link it was fetched from, or null for something uploaded here. */
   sourceUrl: string | null;
   createdAt: string;
-  /** When it was last favourited or sent, which its retention counts from. */
+  /** When it was last favorited or sent, which its retention counts from. */
   usedAt: string;
 }
 
@@ -390,7 +390,7 @@ export interface DiscordChannelImportOption {
 
 /** The Discord channels that share a category, as the import preview groups them. */
 export interface DiscordChannelImportGroup {
-  /** The Discord category's name, or null for uncategorised channels. */
+  /** The Discord category's name, or null for uncategorized channels. */
   categoryName: string | null;
   channels: DiscordChannelImportOption[];
 }

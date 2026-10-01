@@ -144,7 +144,7 @@ Do this **before** the instance is reachable from the internet.
    owner and walks through naming and theming the instance, storage retention, the
    Discord bridge, and which channels and emoji to import; it can be skipped, and
    it does not appear again once finished.
-3. Set the server name, icon and colours, and check the upload limits and
+3. Set the server name, icon and colors, and check the upload limits and
    retention rules in the admin panel.
 4. Decide about registration. With `HARMONY_REQUIRE_INVITE=true` only people with
    an invite code (Admin → Invites) can sign up; leave it off for an open server.
@@ -188,7 +188,7 @@ already have.
 Harmony is a Progressive Web App, so it can be installed to a phone or desktop
 home screen and run full-screen, with no browser UI around it. The manifest is
 built from the instance's own settings, so the installed app takes the server's
-name, icon and colours.
+name, icon and colors.
 
 Installing needs **HTTPS**: a browser will not offer it over plain HTTP. Once the
 instance is behind TLS:
@@ -214,7 +214,7 @@ your image is. **Admin → Settings** has both parts of it:
   on transparency gets 10%, so the crop lands on the tile instead of the drawing.
   Set it to 0 for a full image, or raise it if a logo is being cut.
 - **Background** is what shows where the padding leaves a gap. Left alone it is
-  the artwork's own colour, which reads as part of the icon; pick one to override
+  the artwork's own color, which reads as part of the icon; pick one to override
   it.
 
 The settings panel shows a preview of the result, which updates when you save.

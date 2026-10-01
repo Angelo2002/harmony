@@ -43,9 +43,9 @@ export interface GifFavoriteInput {
 }
 
 /**
- * Keeps a gif, or bumps the one already kept. Favouriting the same gif twice is
+ * Keeps a gif, or bumps the one already kept. Favoriting the same gif twice is
  * the same gif, so a repeat only moves `used_at` forward — which is exactly what
- * the retention rule for favourites counts from.
+ * the retention rule for favorites counts from.
  */
 export function upsertGifFavorite(sqlite: DatabaseSync, input: GifFavoriteInput): GifFavoriteRow {
   const now = new Date().toISOString();
@@ -99,7 +99,7 @@ export function touchGifFavorite(sqlite: DatabaseSync, userId: string, hash: str
     .run(new Date().toISOString(), userId, hash);
 }
 
-/** Favourites nobody has favourited or sent since `before`. */
+/** Favorites nobody has favorited or sent since `before`. */
 export function deleteGifFavoritesUnusedBefore(sqlite: DatabaseSync, before: string): number {
   const result = sqlite.prepare('DELETE FROM gif_favorites WHERE used_at < ?').run(before);
   return Number(result.changes);

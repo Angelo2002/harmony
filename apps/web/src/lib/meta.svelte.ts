@@ -39,7 +39,7 @@ class MetaState {
   async load(): Promise<void> {
     try {
       this.data = await api<InstanceMeta>('/meta');
-      // Theme the shell before anything renders, so even sign-in is coloured.
+      // Theme the shell before anything renders, so even sign-in is colored.
       setSavedTheme(this.data.theme);
       applyFavicon(this.iconUrl);
     } catch {

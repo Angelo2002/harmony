@@ -12,7 +12,7 @@
   --h-text: #dbdee1;
   --h-text-muted: #949ba4;
   --h-accent: #5865f2;
-  /* Text and icons placed on top of an accent-coloured surface. */
+  /* Text and icons placed on top of an accent-colored surface. */
   --h-on-accent: #fff;
   /* Translucent overlays for hover and active states. */
   --h-hover: rgb(255 255 255 / 4%);
@@ -844,7 +844,7 @@ img.avatar {
  * The hover time must stay on one line. If it wraps, the extra line makes the
  * whole row taller, which stretches the message and makes grouped spacing look
  * uneven. It may overflow the 40px gutter to the left (harmless), so it is
- * kept flush right rather than centred to avoid a right overflow that could add
+ * kept flush right rather than centerd to avoid a right overflow that could add
  * a horizontal scrollbar to the message list.
  */
 .gutter-time {
@@ -1644,7 +1644,7 @@ select {
 
 /*
  * A full-bleed button behind the panel, so the dimmed area is a real close
- * control a keyboard can reach rather than an unlabelled click target.
+ * control a keyboard can reach rather than an unlabeled click target.
  */
 .overlay-close {
   position: absolute;
@@ -2527,16 +2527,16 @@ button.danger {
   font-weight: 600;
 }
 
-.wizard-colours {
+.wizard-colors {
   display: flex;
   gap: 1rem;
 }
 
-.wizard-colours label {
+.wizard-colors label {
   flex: 1;
 }
 
-.wizard-colours input[type='color'] {
+.wizard-colors input[type='color'] {
   height: 2.5rem;
   padding: 0.2rem;
   cursor: pointer;

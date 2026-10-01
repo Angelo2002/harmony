@@ -15,7 +15,7 @@ function apply(tokens: ThemeTokens): void {
   root.style.setProperty('--h-hover', tokens.hover);
   root.style.setProperty('--h-active', tokens.active);
   root.style.colorScheme = tokens.scheme;
-  // The Android status bar and splash screen follow the app's own colours.
+  // The Android status bar and splash screen follow the app's own colors.
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', tokens.bg);
 }
 
@@ -25,7 +25,7 @@ export function setSavedTheme(theme: Partial<ThemeSettings> | null | undefined):
   apply(deriveTheme(saved));
 }
 
-/** Applies a theme temporarily, e.g. while an admin is picking colours. */
+/** Applies a theme temporarily, e.g. while an admin is picking colors. */
 export function previewTheme(theme: Partial<ThemeSettings> | null | undefined): void {
   apply(deriveTheme(theme));
 }

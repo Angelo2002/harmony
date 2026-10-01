@@ -32,11 +32,15 @@ export function klipySearchUrl(key: string, query: { q?: string; limit: number }
 }
 
 /**
- * The sizes Klipy serves each gif at, the one kept first. One address is used for
- * both the tile and the copy that gets stored, so what somebody picks is exactly
- * what they were looking at, and the browser has already fetched it.
+ * The sizes Klipy serves each gif at.
+ *
+ * Two orders, because the grid and the copy that gets kept want different things:
+ * the copy is as large as is reasonable, while the tile is fetched through this
+ * server and so is kept small — a page of full-size gifs would be megabytes
+ * through the instance's own connection for every search.
  */
-const VARIANTS = ['md', 'hd', 'sm', 'xs'] as const;
+const KEPT_VARIANTS = ['md', 'hd', 'sm', 'xs'] as const;
+const PREVIEW_VARIANTS = ['sm', 'xs', 'md', 'hd'] as const;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -48,30 +52,52 @@ function positiveNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
+interface SizedUrl {
+  url: string;
+  width: number | null;
+  height: number | null;
+}
+
+/** One format of one gif, at the first size that offers it. */
+function media(
+  file: Record<string, unknown>,
+  variants: readonly string[],
+  formats: readonly string[],
+): SizedUrl | null {
+  for (const variant of variants) {
+    const sizes = asRecord(file[variant]);
+    for (const format of formats) {
+      const chosen = asRecord(sizes?.[format]);
+      const url = typeof chosen?.url === 'string' ? chosen.url : null;
+      if (url) return { url, width: positiveNumber(chosen?.width), height: positiveNumber(chosen?.height) };
+    }
+  }
+  return null;
+}
+
 /**
  * One gif from a search result. Only the gif format is taken: a result that has
  * no gif at any size is left out rather than saved as something the picker would
- * never list back, since the picker is gif-only throughout.
+ * never list back, since the picker is gif-only throughout. The tile may fall back
+ * to Klipy's still WebP, which is only ever displayed.
  */
 function toResult(item: unknown): GifSearchResult | null {
-  const file = asRecord(asRecord(item)?.file);
+  const record = asRecord(item);
+  const file = asRecord(record?.file);
   if (!file) return null;
 
-  for (const variant of VARIANTS) {
-    const gif = asRecord(asRecord(file[variant])?.gif);
-    const url = typeof gif?.url === 'string' ? gif.url : null;
-    if (!url) continue;
+  const kept = media(file, KEPT_VARIANTS, ['gif']);
+  if (!kept) return null;
+  const preview = media(file, PREVIEW_VARIANTS, ['gif', 'webp']) ?? kept;
 
-    const title = asRecord(item)?.title;
-    return {
-      url,
-      previewUrl: url,
-      width: positiveNumber(gif?.width),
-      height: positiveNumber(gif?.height),
-      title: typeof title === 'string' ? title : '',
-    };
-  }
-  return null;
+  const title = record?.title;
+  return {
+    url: kept.url,
+    previewUrl: preview.url,
+    width: kept.width,
+    height: kept.height,
+    title: typeof title === 'string' ? title : '',
+  };
 }
 
 /**

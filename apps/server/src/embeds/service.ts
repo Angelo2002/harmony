@@ -430,7 +430,7 @@ async function fetchImageBytes(
 }
 
 /**
- * The old behaviour for a picture we will not keep: a card whose image the
+ * The old behavior for a picture we will not keep: a card whose image the
  * client fetches through the proxy. Only reached for files too large to store,
  * and the two addresses differ when a provider rewrote one into the other.
  */

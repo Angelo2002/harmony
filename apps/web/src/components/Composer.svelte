@@ -396,7 +396,7 @@
       activeTrigger = null;
       startSlowmodeCooldown();
     } catch (cause) {
-      // The server refused for slowmode: honour it even if this tab had not
+      // The server refused for slowmode: honor it even if this tab had not
       // started its own countdown, e.g. the first post after a reload.
       if (cause instanceof ApiError && cause.code === 'slowmode') startSlowmodeCooldown();
       error = cause instanceof ApiError ? cause.message : String(cause);

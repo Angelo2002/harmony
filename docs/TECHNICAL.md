@@ -235,7 +235,7 @@ it came from, so the original is one right-click away.
 
 The page half of this has one wrinkle worth knowing. A page may offer several preview images and they
 are not equal — Giphy and Klipy both list a still WebP first and the animated GIF second — so the
-animated one is preferred, recognised either from the `og:image:type` that follows it or from the
+animated one is preferred, recognized either from the `og:image:type` that follows it or from the
 address itself. A reader that takes the first one gets a frozen picture, which is most of why a gif
 link used to preview badly.
 
@@ -243,12 +243,12 @@ Giphy is handled a step earlier still. Its pages are not scraped at all: `giphy.
 `giphy.com/embed/…` are handed to Giphy's keyless oEmbed endpoint, which answers with the address of
 the file itself. That address is then fetched by the ordinary guarded path, so a gif page behaves
 exactly like a link straight at a gif and is kept as an attachment with no card. No account and no
-key is involved, which is the rule this project holds to for every provider it recognises.
+key is involved, which is the rule this project holds to for every provider it recognizes.
 
 Tenor and Klipy have no such endpoint, so their pages are read instead: both name the gif in their own
 preview metadata, and that address is fetched by the same guarded path and kept the same way. The two
 differ only in access — Tenor serves its pages to anyone, while Klipy puts them behind a Cloudflare
-challenge and hands them over to a recognised crawler name alone. That is precisely what the opt-in
+challenge and hands them over to a recognized crawler name alone. That is precisely what the opt-in
 `previewUserAgent` setting is for, and why Klipy page links preview only once it is set.
 
 A Discord attachment link needs a different trick again, because the address itself is the problem:
@@ -316,9 +316,16 @@ because the key is part of the request path and would otherwise be readable by a
 their network tab. Nothing is stored until a gif is saved or picked, at which point the address is
 fetched through the same guarded path a link preview uses and kept like anything else — so a hosted
 gif becomes ours rather than a link that can expire under it. Only the service's own addresses are
-accepted, which keeps the picker from becoming a way to make the server fetch arbitrary pages, and
-one size is used for both the tile and the kept copy, so what somebody picks is what they were
-looking at.
+accepted, which keeps the picker from becoming a way to make the server fetch arbitrary pages.
+
+The grid loads its tiles through that same path rather than from the service directly. The instance's
+policy only lets the page load its own images, so a tile pointing straight at a third party is simply
+refused by the browser — which is how a picker can work perfectly in development, where the client is
+served by Vite with no such policy, and show nothing at all in production. Fetching through the server
+is what the policy allows, and it has the happy side effect that browsing the picker does not hand
+Klipy every member's address. One consequence is worth knowing: the tile and the copy that is kept are
+not the same file, because a grid of full-size gifs would be megabytes through the instance's own
+connection for every search.
 
 ## Versioning
 

@@ -374,7 +374,7 @@
         </div>
         <p class="muted">
           How the icon looks installed on a phone or desktop — how much room to leave around it, and
-          what colour behind it — is in <strong>Admin → Settings</strong>, where you can see a preview.
+          what color behind it — is in <strong>Admin → Settings</strong>, where you can see a preview.
         </p>
 
         <label>
@@ -382,7 +382,7 @@
           <input bind:value={serverName} maxlength="64" placeholder="Harmony" />
         </label>
 
-        <div class="wizard-colours">
+        <div class="wizard-colors">
           <label>
             Background
             <input
@@ -596,7 +596,7 @@
         <ul class="wizard-help">
           <li>
             <strong>Roles do not carry over from Discord.</strong> The whole permission set is yours to
-            build fresh — set up roles and their colours in the admin panel, then hand them out on the
+            build fresh — set up roles and their colors in the admin panel, then hand them out on the
             Members tab.
           </li>
           <li>

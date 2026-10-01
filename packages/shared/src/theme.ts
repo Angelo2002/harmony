@@ -1,20 +1,20 @@
 /**
  * Per-instance theming.
  *
- * An admin picks just two colours: a background and an accent. Everything else
- * the client needs — the panel surfaces, the text greys, the translucent hover
- * and active overlays, and the colour placed on top of accent surfaces — is
+ * An admin picks just two colors: a background and an accent. Everything else
+ * the client needs — the panel surfaces, the text grays, the translucent hover
+ * and active overlays, and the color placed on top of accent surfaces — is
  * derived here, so both dark and light backgrounds come out readable without
  * anyone having to reason about contrast.
  */
 
-/** The two colours an admin picks. `null` means "keep the built-in default". */
+/** The two colors an admin picks. `null` means "keep the built-in default". */
 export interface ThemeSettings {
   background: string | null;
   accent: string | null;
 }
 
-/** Every colour the client turns into a CSS custom property. */
+/** Every color the client turns into a CSS custom property. */
 export interface ThemeTokens {
   /** Whether the derived palette is dark or light, for `color-scheme`. */
   scheme: 'dark' | 'light';
@@ -24,14 +24,14 @@ export interface ThemeTokens {
   text: string;
   textMuted: string;
   accent: string;
-  /** Text and icons placed on top of an accent-coloured surface. */
+  /** Text and icons placed on top of an accent-colored surface. */
   onAccent: string;
   /** Translucent overlays for hover and selected states. */
   hover: string;
   active: string;
 }
 
-/** Matches a `#rrggbb` colour, the only form the theme accepts. */
+/** Matches a `#rrggbb` color, the only form the theme accepts. */
 export const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 export const DEFAULT_BACKGROUND = '#313338';
@@ -90,7 +90,7 @@ function mix(a: Rgb, b: Rgb, amount: number): Rgb {
 }
 
 /**
- * Derives the whole palette from the two colours an admin picks. Anything left
+ * Derives the whole palette from the two colors an admin picks. Anything left
  * null falls back to the built-in defaults, so an untouched instance renders
  * exactly as it always did.
  */

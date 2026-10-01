@@ -10,7 +10,7 @@ export interface ManifestRouteDeps {
 
 /**
  * The web app manifest, built from the instance's own settings so an installed
- * app carries the server's name, icon and colours rather than a fixed identity.
+ * app carries the server's name, icon and colors rather than a fixed identity.
  * `display: standalone` is what makes the home-screen app open without browser
  * chrome. It is public, since a browser fetches it before anyone signs in.
  */

@@ -80,7 +80,7 @@ export function registerAttachmentRoutes(app: FastifyInstance, deps: AttachmentR
       .header('ETag', `"${attachment.hash}"`);
 
     // Video players seek with range requests, and Safari will not start playback
-    // without them, so honour a single range when one is asked for.
+    // without them, so honor a single range when one is asked for.
     const size = statSync(path).size;
     const range = request.headers.range !== undefined ? parseRange(request.headers.range, size) : null;
     if (range) {

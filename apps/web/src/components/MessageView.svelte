@@ -192,7 +192,7 @@
   /**
    * On a touch screen a tap opens a message's actions. Long press is left to the
    * browser so text can still be selected, and anything with its own tap
-   * behaviour (a link, a button, a spoiler, a name or avatar) is left alone.
+   * behavior (a link, a button, a spoiler, a name or avatar) is left alone.
    * On a device with hover the actions already appear on hover, so a click does
    * nothing here.
    */
@@ -541,8 +541,8 @@
                           class:on={gifs.byHash.has(attachment.hash)}
                           aria-pressed={gifs.byHash.has(attachment.hash)}
                           title={gifs.byHash.has(attachment.hash)
-                            ? 'Remove from favourites'
-                            : 'Add to favourites'}
+                            ? 'Remove from favorites'
+                            : 'Add to favorites'}
                           onclick={() => toggleGifFavorite(attachment)}
                         >
                           {gifs.byHash.has(attachment.hash) ? '♥' : '♡'}

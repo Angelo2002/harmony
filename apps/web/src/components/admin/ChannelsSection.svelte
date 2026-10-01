@@ -121,7 +121,7 @@
     });
   }
 
-  /** Recategorising sends the channel to the end of its new category. */
+  /** Recategorizing sends the channel to the end of its new category. */
   function setCategory(channel: Channel, categoryId: string): void {
     void run(async () => {
       await api(`/channels/${channel.id}`, {

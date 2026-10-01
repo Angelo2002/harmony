@@ -152,7 +152,7 @@ type User = {
   username: string;
   displayName: string | null;   // falls back to username in the UI
   avatarHash: string | null;    // see "Users and avatars"
-  roleColor: number | null;     // packed RGB integer, from the highest coloured role
+  roleColor: number | null;     // packed RGB integer, from the highest colored role
   isBot: boolean;               // true for Discord stand-in accounts
   isOwner: boolean;
   createdAt: string;
@@ -241,15 +241,15 @@ type EmbedPlayer = {
 type Role = {
   id: string;
   name: string;
-  color: number | null;         // packed RGB, or null for the default colour
-  position: number;             // display/colour ordering only
+  color: number | null;         // packed RGB, or null for the default color
+  position: number;             // display/color ordering only
   permissions: string;          // decimal bitfield string
   hoist: boolean;               // true gives the role its own member list group
   mentionable: boolean;
   isDefault: boolean;           // true only for @everyone
 };
 
-// The two colours an admin picks. Everything else is derived, see "Theming".
+// The two colors an admin picks. Everything else is derived, see "Theming".
 type ThemeSettings = {
   background: string | null;    // #rrggbb, or null for the built-in default
   accent: string | null;
@@ -300,7 +300,7 @@ type DiscordChannelImportOption = {
 };
 
 type DiscordChannelImportGroup = {
-  categoryName: string | null;   // null for uncategorised channels
+  categoryName: string | null;   // null for uncategorized channels
   channels: DiscordChannelImportOption[];
 };
 
@@ -499,7 +499,7 @@ appends the channel to the end of the target category, unless `position` is give
 { "direction": "up" }
 ```
 
-`direction` is `up` or `down`. Swaps the channel with its neighbour inside its own category, so it
+`direction` is `up` or `down`. Swaps the channel with its neighbor inside its own category, so it
 is a no-op at either end. Returns the moved `Channel` and fires `CHANNEL_UPDATE`.
 
 #### `DELETE /api/v1/channels/:id` — `ManageChannels`
@@ -562,7 +562,7 @@ Returns the new `Category`, fires `CATEGORY_CREATE`. `requiredRoleId` must name 
 { "direction": "up" }
 ```
 
-`direction` is `up` or `down`. Swaps the category with its neighbour in the sidebar order, so it is
+`direction` is `up` or `down`. Swaps the category with its neighbor in the sidebar order, so it is
 a no-op at either end. Returns the moved `Category` and fires `CATEGORY_UPDATE`.
 
 #### `DELETE /api/v1/categories/:id` — `ManageChannels`
@@ -696,7 +696,7 @@ elsewhere in the text does not download the same file twice. A message the Disco
 resolves the same way it would if it had been typed here. Turn the whole thing off instance-wide
 with `embedsEnabled` in the server settings.
 
-Three providers are recognised from the link itself and asked for a small JSON summary instead of a
+Three providers are recognized from the link itself and asked for a small JSON summary instead of a
 page, because their pages are heavy, script-driven or both:
 
 - **YouTube** (`watch?v=`, `youtu.be`, `/shorts/`, `/embed/`) resolves through YouTube's oEmbed
@@ -714,7 +714,7 @@ page, because their pages are heavy, script-driven or both:
 Tenor and Klipy have no endpoint of their own, so their pages are read instead: each names the gif in
 its preview metadata and that address is fetched the same way. The only difference between them is
 access — Tenor serves its pages to anyone, while Klipy hides them behind a Cloudflare challenge and
-surrenders them only to a crawler name it recognises, which is what `previewUserAgent` is for.
+surrenders them only to a crawler name it recognizes, which is what `previewUserAgent` is for.
 
 **Discord attachments** are a case of their own. Discord signs every attachment address and it
 expires, so a link copied out of the client is usually dead by the time it is pasted here. When the
@@ -869,7 +869,7 @@ message.
 
 ### Gifs and the picker
 
-The picker has three tabs. **Favourites** are private to the member who saved them, and a saved gif is
+The picker has three tabs. **Favorites** are private to the member who saved them, and a saved gif is
 held by **content hash** rather than by an attachment row, which is what lets it outlive the message
 it was found in: it is exempt from the image, video and message retention rules and is only ever aged
 out by `favoriteRetentionDays`, counted from the last time it was saved or sent. Nothing is ever
@@ -900,7 +900,7 @@ type GifFavorite = {
   height: number | null;
   sourceUrl: string | null; // the link it was fetched from, if any
   createdAt: string;
-  usedAt: string;           // what favouriteRetentionDays counts from
+  usedAt: string;           // what favoriteRetentionDays counts from
 };
 ```
 
@@ -944,10 +944,12 @@ service's trending list, which is what the tab shows when it opens.
 | `q` | string, ≤100 | — | The search term; absent means trending |
 | `limit` | integer 1–50 | 30 | |
 
-Each result carries one address used for both the tile and the copy that is stored, so what somebody
-picks is what they were looking at. Nothing is stored until it is saved or picked. Returns
-`{ "gifs": [{ url, previewUrl, width, height, title }] }`, an empty list when no key is configured,
-and `502 gif_service_unavailable` when the service itself cannot be reached.
+`url` is the gif that gets kept when the result is saved or picked; `previewUrl` is a smaller one for
+the tile, which a client loads through `GET /api/v1/embeds/media` rather than from the service — both
+because this instance's own policy only lets a page load its own images, and because going through
+here keeps a browsing member's address away from the service. Nothing is stored until it is saved or
+picked. Returns `{ "gifs": [{ url, previewUrl, width, height, title }] }`, an empty list when no key
+is configured, and `502 gif_service_unavailable` when the service itself cannot be reached.
 
 #### `GET /api/v1/gifs/favorites` — `ViewChannels`
 
@@ -1065,7 +1067,7 @@ device making the change stays signed in. Returns `{ "ok": true }`.
 
 #### `PUT /api/v1/users/@me/avatar` — auth
 
-`multipart/form-data` with a single `file` field (an image). The picture is normalised server-side
+`multipart/form-data` with a single `file` field (an image). The picture is normalized server-side
 to a 256×256 WebP. Returns `MeResponse`.
 
 #### `DELETE /api/v1/users/@me/avatar` — auth
@@ -1116,7 +1118,7 @@ renamed (`403 immutable_role`). Returns the `Role` and fires `ROLE_UPDATE`.
 ```
 
 `direction` is `"up"` or `"down"`. Role positions affect only display, including which role's
-colour is shown for a user (the highest-positioned coloured role wins). The `@everyone` role cannot
+color is shown for a user (the highest-positioned colored role wins). The `@everyone` role cannot
 be reordered. Returns the full `{ "roles": [...] }` list.
 
 #### `DELETE /api/v1/roles/:id` — `ManageRoles`
@@ -1208,7 +1210,7 @@ and connection the member has, so they sign back in with the new one. Returns
 
 #### `PUT /api/v1/members/:userId/avatar` — `ManageMembers`
 
-`multipart/form-data` with a single `file` field. Normalised server-side to a 256×256 WebP. Returns
+`multipart/form-data` with a single `file` field. Normalized server-side to a 256×256 WebP. Returns
 `{ "user": { /* User */ } }`, fires `MEMBER_UPDATE`, and logs a `member_update`.
 
 #### `DELETE /api/v1/members/:userId/avatar` — `ManageMembers`
@@ -1360,7 +1362,7 @@ again makes the wizard greet them once more.
 
 `icon.padding` is a percentage of an installed app icon's tile to leave clear around the artwork,
 from 0 to 45. `null` works it out from the image: none for a picture with no transparent pixels,
-10% for a logo drawn on transparency. `icon.background` is a `#rrggbb` colour, or `null` to take it
+10% for a logo drawn on transparency. `icon.background` is a `#rrggbb` color, or `null` to take it
 from the artwork itself. Both only affect the renders described under
 [the icon endpoint](#get-apiv1iconssize--no-auth), and both change the URLs in the manifest, so a
 changed setting is never served from the long cache.
@@ -1399,7 +1401,7 @@ to edge, because that is how it was drawn and padding it would shrink it and rin
 A logo drawn on transparency is the case padding exists for: it is drawn at 80% on a tile, so the
 cropping that is coming takes the tile instead of the artwork. That tile is the average of the
 drawing's opaque pixels, not the app background, which is usually dark enough to read as a frame.
-Sharp's own dominant colour cannot be used for it, since a logo drawn on transparency mostly consists
+Sharp's own dominant color cannot be used for it, since a logo drawn on transparency mostly consists
 of that transparency, which averages out near black.
 
 Both variants come back opaque. A transparent icon is otherwise left to the platform to back, and
@@ -1410,14 +1412,14 @@ iOS fills those with black: the same frame, arrived at from the other direction.
 #### `GET /manifest.webmanifest` — no auth
 
 A web app manifest, built from the instance's settings so an installed app carries the server's own
-name, icon and colours. `display` is `standalone`, which is what lets it open on a phone home screen
+name, icon and colors. `display` is `standalone`, which is what lets it open on a phone home screen
 without browser chrome. It lists the icon sizes a launcher needs (`192x192` and `512x512`, from
 [the icon endpoint](#get-apiv1iconssize--no-auth)) plus a maskable one. Serving it over HTTPS is what
 makes it installable; see [Deploying Harmony](DEPLOYMENT.md).
 
 ### Theming
 
-An instance is themed with just two colours, both `#rrggbb` or `null` for the built-in default:
+An instance is themed with just two colors, both `#rrggbb` or `null` for the built-in default:
 
 ```ts
 type ThemeSettings = { background: string | null; accent: string | null };
@@ -1426,13 +1428,13 @@ type ThemeSettings = { background: string | null; accent: string | null };
 Everything else the client renders with is derived from those two, so an admin never has to reason
 about contrast. In short: the panel surfaces step away from the background, the text is mixed
 towards the opposite end so it stays readable on both dark and light backgrounds, the translucent
-hover and active overlays flip from white to black with the theme, and the colour placed on top of
+hover and active overlays flip from white to black with the theme, and the color placed on top of
 accent surfaces switches between black and white depending on how bright the accent is.
 
 The tokens a client should set are `--h-bg`, `--h-bg-elevated`, `--h-bg-deep`, `--h-text`,
 `--h-text-muted`, `--h-accent`, `--h-on-accent`, `--h-hover` and `--h-active`, each from the matching
 field of `deriveTheme`, plus `color-scheme` from its `scheme`. The server itself computes none of
-this: it stores the two colours and hands them to clients, which may use the exported `deriveTheme`
+this: it stores the two colors and hands them to clients, which may use the exported `deriveTheme`
 from this package or simply read the tokens a Harmony client already publishes.
 
 ### Retention
@@ -1539,7 +1541,7 @@ Returns `{ "ok": true }`, or `502 bridge_test_failed` with Discord's own error m
 Pulls the most recent Discord messages into a bridged channel, oldest first, keeping their original
 timestamps, authors, attachments, replies and mentions. Linking a channel already triggers this,
 and the bridge backfills every bridged channel when it connects, so this endpoint is for pulling
-history again on demand. `limit` defaults to 50 (1–100). Messages already imported are recognised
+history again on demand. `limit` defaults to 50 (1–100). Messages already imported are recognized
 by their Discord id and skipped, so it is safe to call repeatedly. Returns
 `{ "imported": 2 }` with how many new messages landed.
 

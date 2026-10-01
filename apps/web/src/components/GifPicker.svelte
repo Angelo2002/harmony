@@ -52,9 +52,14 @@
   function hostedTile(result: GifSearchResult): Tile {
     // A hosted gif has no hash here, so whether it is already saved is answered by
     // the address it was saved from.
+    //
+    // The tile is fetched through this server rather than from Klipy directly:
+    // the instance's own policy only lets the page load its own images, and going
+    // through here also keeps a browsing member's address away from the service.
+    // That is why the grid uses a smaller size than the copy that gets kept.
     return {
       key: `h-${result.url}`,
-      url: result.previewUrl,
+      url: `/api/v1/embeds/media?url=${encodeURIComponent(result.previewUrl)}`,
       label: result.title || 'gif',
       favoriteId: gifs.bySourceUrl.get(result.url)?.id ?? null,
       ref: { url: result.url },
@@ -145,7 +150,7 @@
         aria-pressed={tab === 'favorites'}
         onclick={() => (tab = 'favorites')}
       >
-        Favourites
+        Favorites
       </button>
       <button
         type="button"
@@ -195,7 +200,7 @@
               class="gif-heart"
               class:on={tile.favoriteId !== null}
               aria-pressed={tile.favoriteId !== null}
-              title={tile.favoriteId !== null ? 'Remove from favourites' : 'Add to favourites'}
+              title={tile.favoriteId !== null ? 'Remove from favorites' : 'Add to favorites'}
               disabled={busy === tile.key}
               onclick={() => toggleFavorite(tile)}
             >

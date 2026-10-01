@@ -494,7 +494,7 @@ class ChatStore {
       case 'ROLE_CREATE':
       case 'ROLE_UPDATE':
       case 'ROLE_DELETE':
-        // Roles decide username colours, member list grouping and which channels
+        // Roles decide username colors, member list grouping and which channels
         // are locked, so refresh the channel list, the open channel and the roster.
         void this.loadChannels();
         if (this.activeChannelId) void this.loadHistory(this.activeChannelId);

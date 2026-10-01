@@ -18,7 +18,7 @@ export interface ServerSettings {
   defaultChannelId: string | null;
   /** Whether the server unfurls link previews by fetching the linked pages. */
   embedsEnabled: boolean;
-  /** Instance colours; the rest of the palette is derived from these two. */
+  /** Instance colors; the rest of the palette is derived from these two. */
   theme: ThemeSettings;
   /** How the installed app icon is drawn; see `IconSettings`. */
   icon: IconSettings;
@@ -37,7 +37,7 @@ export interface ServerSettings {
   klipyConfigured: boolean;
 }
 
-/** A settings patch. `theme` is partial so one colour can be changed on its own. */
+/** A settings patch. `theme` is partial so one color can be changed on its own. */
 export interface ServerSettingsUpdate {
   serverName?: string;
   requireInvite?: boolean;
@@ -150,7 +150,7 @@ function parseStringOrNull(raw: string | undefined): string | null {
   }
 }
 
-/** A stored colour, or null when it is absent or not a `#rrggbb` value. */
+/** A stored color, or null when it is absent or not a `#rrggbb` value. */
 function parseHexOrNull(raw: string | undefined): string | null {
   const value = parseStringOrNull(raw);
   return value !== null && HEX_COLOR_PATTERN.test(value) ? value : null;

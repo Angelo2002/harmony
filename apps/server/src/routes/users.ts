@@ -103,7 +103,7 @@ export function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): v
       throw new HttpError(404, 'avatar_missing', 'That profile picture is missing from storage.');
     }
 
-    // Always WebP: avatars are normalised on upload.
+    // Always WebP: avatars are normalized on upload.
     reply
       .header('Content-Type', 'image/webp')
       .header('Cache-Control', 'private, max-age=31536000, immutable')

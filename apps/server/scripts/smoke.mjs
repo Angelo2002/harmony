@@ -39,7 +39,7 @@ const dataDir = mkdtempSync(join(tmpdir(), 'harmony-smoke-'));
 const webDir = mkdtempSync(join(tmpdir(), 'harmony-web-'));
 writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>Harmony test shell</title><div id="app"></div>');
 // A stand-in default icon, so the on-demand icon rendering has a source even
-// without a real client build. Deliberately a picture rather than a flat colour:
+// without a real client build. Deliberately a picture rather than a flat color:
 // it is fully opaque, and it reaches every edge, which is what the checks further
 // down use to tell a full bleed from a padded tile.
 const standInBlue = [20, 120, 200];
@@ -597,20 +597,20 @@ try {
   check('link previews can be turned off', embedsOff.json?.embedsEnabled === false);
   await req('/settings', { method: 'PATCH', token: ownerToken, body: { embedsEnabled: true } });
 
-  check('the instance starts on the built-in colours', settings.json?.theme?.background === null && settings.json?.theme?.accent === null);
+  check('the instance starts on the built-in colors', settings.json?.theme?.background === null && settings.json?.theme?.accent === null);
   const themed = await req('/settings', {
     method: 'PATCH',
     token: ownerToken,
     body: { theme: { background: '#101018', accent: '#ff8800' } },
   });
   check(
-    'owner sets the instance colours',
+    'owner sets the instance colors',
     themed.json?.theme?.background === '#101018' && themed.json?.theme?.accent === '#ff8800',
   );
-  check('public meta carries the colours', (await req('/meta')).json?.theme?.accent === '#ff8800');
+  check('public meta carries the colors', (await req('/meta')).json?.theme?.accent === '#ff8800');
 
   const badTheme = await req('/settings', { method: 'PATCH', token: ownerToken, body: { theme: { background: 'red' } } });
-  check('a colour that is not #rrggbb is rejected (400)', badTheme.status === 400, `status ${badTheme.status}`);
+  check('a color that is not #rrggbb is rejected (400)', badTheme.status === 400, `status ${badTheme.status}`);
   await req('/settings', { method: 'PATCH', token: ownerToken, body: { theme: { background: null, accent: null } } });
 
   // The default channel lives in settings and is echoed with the channel list so
@@ -675,7 +675,7 @@ try {
   });
   check('an empty category can be deleted', emptiedCategory.status === 204, `status ${emptiedCategory.status}`);
 
-  // --- Reordering and recategorising channels ---
+  // --- Reordering and recategorizing channels ---
   async function channelNamesIn(categoryId) {
     const res = await req('/channels', { token: ownerToken });
     return res.json.channels.filter((channel) => channel.categoryId === categoryId).map((channel) => channel.name);
@@ -704,7 +704,7 @@ try {
 
   await req(`/channels/${bravo.json.id}/move`, { method: 'POST', token: ownerToken, body: { direction: 'up' } });
   check(
-    'moving a channel up swaps it with its neighbour',
+    'moving a channel up swaps it with its neighbor',
     JSON.stringify((await channelNamesIn(textCategory.id)).slice(-2)) === JSON.stringify(['bravo', 'alpha']),
   );
 
@@ -719,7 +719,7 @@ try {
     JSON.stringify(await channelNamesIn(textCategory.id)) === JSON.stringify(noopBefore),
   );
 
-  // Recategorising moves the channel, and it lands at the end of its new home.
+  // Recategorizing moves the channel, and it lands at the end of its new home.
   const miscCategory = await req('/categories', {
     method: 'POST',
     token: ownerToken,
@@ -731,15 +731,15 @@ try {
     body: { categoryId: miscCategory.json.id },
   });
   check(
-    'recategorising moves the channel into the target category',
+    'recategorizing moves the channel into the target category',
     JSON.stringify(await channelNamesIn(miscCategory.json.id)) === JSON.stringify(['alpha']),
   );
   check(
-    'recategorising removes the channel from its old category',
+    'recategorizing removes the channel from its old category',
     !(await channelNamesIn(textCategory.id)).includes('alpha'),
   );
 
-  // Category reordering swaps with the neighbour, and is a no-op at the top.
+  // Category reordering swaps with the neighbor, and is a no-op at the top.
   const catsBefore = (await req('/channels', { token: ownerToken })).json.categories.map((topic) => topic.name);
   await req(`/categories/${miscCategory.json.id}/move`, { method: 'POST', token: ownerToken, body: { direction: 'up' } });
   const catsAfter = (await req('/channels', { token: ownerToken })).json.categories.map((topic) => topic.name);
@@ -899,7 +899,7 @@ try {
     'https://example.com/post',
   );
   check(
-    'a gif is recognised from its address even with a query on the end',
+    'a gif is recognized from its address even with a query on the end',
     gifLast.imageUrl === 'https://cdn.test/aa/loop.gif?cid=abc123',
     String(gifLast.imageUrl),
   );
@@ -929,7 +929,7 @@ try {
       .imageUrl === null,
   );
 
-  // Inline players are recognised from the link, never from og:video.
+  // Inline players are recognized from the link, never from og:video.
   check('a watch link yields its video id', youtubeVideoId(new URL('https://www.youtube.com/watch?v=dQw4w9WgXcQ')) === 'dQw4w9WgXcQ');
   check('a short link yields its video id', youtubeVideoId(new URL('https://youtu.be/dQw4w9WgXcQ')) === 'dQw4w9WgXcQ');
   check('a shorts link yields its video id', youtubeVideoId(new URL('https://www.youtube.com/shorts/dQw4w9WgXcQ')) === 'dQw4w9WgXcQ');
@@ -945,35 +945,35 @@ try {
   check('a lookalike host is not x', tweetStatusId(new URL('https://x.com.evil.test/jack/status/20')) === null);
 
   // A Giphy page is rewritten to the file behind it through their keyless
-  // endpoint, so only their page shapes are recognised. Their media addresses
+  // endpoint, so only their page shapes are recognized. Their media addresses
   // are already a link straight at a picture and are left alone.
-  check('a gifs page is recognised', isGiphyPage(new URL('https://giphy.com/gifs/cat-JIX9t2j0ZTN9S')));
-  check('a www gifs page is recognised', isGiphyPage(new URL('https://www.giphy.com/gifs/cat-JIX9t2j0ZTN9S')));
-  check('an embed page is recognised', isGiphyPage(new URL('https://giphy.com/embed/JIX9t2j0ZTN9S')));
+  check('a gifs page is recognized', isGiphyPage(new URL('https://giphy.com/gifs/cat-JIX9t2j0ZTN9S')));
+  check('a www gifs page is recognized', isGiphyPage(new URL('https://www.giphy.com/gifs/cat-JIX9t2j0ZTN9S')));
+  check('an embed page is recognized', isGiphyPage(new URL('https://giphy.com/embed/JIX9t2j0ZTN9S')));
   check('a plain media address is not a page', isGiphyPage(new URL('https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif')) === false);
   check('a channel page is not a gif', isGiphyPage(new URL('https://giphy.com/channel/kdy')) === false);
   check('a lookalike host is not giphy', isGiphyPage(new URL('https://giphy.com.evil.test/gifs/cat-JIX9t2j0ZTN9S')) === false);
 
   // A Tenor or Klipy page is read for the picture it names in its own metadata,
   // which is then kept like a file link. Their media hosts are not pages.
-  check('a tenor view page is recognised', isGifPage(new URL('https://tenor.com/view/x-gif-123')));
-  check('a www tenor view page is recognised', isGifPage(new URL('https://www.tenor.com/view/x-gif-123')));
+  check('a tenor view page is recognized', isGifPage(new URL('https://tenor.com/view/x-gif-123')));
+  check('a www tenor view page is recognized', isGifPage(new URL('https://www.tenor.com/view/x-gif-123')));
   check('a tenor search page is not a gif page', isGifPage(new URL('https://tenor.com/search/happy')) === false);
   check('a tenor media address is not a page', isGifPage(new URL('https://media1.tenor.com/m/abc/x.gif')) === false);
-  check('a klipy gifs page is recognised', isGifPage(new URL('https://klipy.com/gifs/name-id')));
+  check('a klipy gifs page is recognized', isGifPage(new URL('https://klipy.com/gifs/name-id')));
   check('a klipy media address is not a page', isGifPage(new URL('https://static2.klipy.com/ii/x/00/6e/y.gif')) === false);
   check('a lookalike host is not a gif page', isGifPage(new URL('https://tenor.com.evil.test/view/x-gif-123')) === false);
 
   // A pasted Discord CDN attachment is signed and expires, so it is renewed through
   // Discord's refresh endpoint before it is fetched.
   check(
-    'a discord attachment link is recognised',
+    'a discord attachment link is recognized',
     isDiscordAttachment(
       new URL('https://cdn.discordapp.com/attachments/1400576064547196989/1527627040914804798/x.gif?ex=1&is=2&hm=3'),
     ),
   );
   check(
-    'the discord proxy host is recognised too',
+    'the discord proxy host is recognized too',
     isDiscordAttachment(new URL('https://media.discordapp.net/attachments/1400576064547196989/1527627040914804798/x.gif')),
   );
   check('a discord emoji link is not an attachment', isDiscordAttachment(new URL('https://cdn.discordapp.com/emojis/123456789012345678.gif')) === false);
@@ -1010,10 +1010,15 @@ try {
     JSON.stringify(klipyResults),
   );
   check('a hosted result carries its size', klipyResults[0]?.width === 480 && klipyResults[0]?.height === 270);
+  check(
+    'and a smaller address for the grid',
+    klipyResults[0]?.previewUrl === 'https://static.klipy.com/x/sm.gif',
+    String(klipyResults[0]?.previewUrl),
+  );
   check('a result with no gif is left out', normalizeKlipySearch(klipyPayload).length === 1);
   check('an unreadable payload yields nothing', normalizeKlipySearch({ nonsense: true }).length === 0);
 
-  check('a hosted media address is recognised', isKlipyAddress(new URL('https://static.klipy.com/ii/x/y.gif')));
+  check('a hosted media address is recognized', isKlipyAddress(new URL('https://static.klipy.com/ii/x/y.gif')));
   check('a lookalike host is not the service', isKlipyAddress(new URL('https://klipy.com.evil.test/y.gif')) === false);
   check('and neither is an unrelated host', isKlipyAddress(new URL('https://example.com/y.gif')) === false);
   check(
@@ -1223,7 +1228,7 @@ try {
   check('dark themes keep a white overlay', defaults.hover.startsWith('rgb(255 255 255'));
   check('panels stay distinct from the background', light.bgElevated !== light.bg && light.bgDeep !== light.bg);
 
-  check('an unparseable colour falls back to the default', deriveTheme({ background: 'nonsense' }).bg === DEFAULT_BACKGROUND);
+  check('an unparseable color falls back to the default', deriveTheme({ background: 'nonsense' }).bg === DEFAULT_BACKGROUND);
   check('a bright accent takes dark text', deriveTheme({ accent: '#ffd700' }).onAccent === '#000000');
   check('a dark accent takes light text', deriveTheme({ accent: '#1a3ea8' }).onAccent === '#ffffff');
   check('a near black background still separates its panels', deriveTheme({ background: '#050505' }).bgElevated !== '#050505');
@@ -1419,19 +1424,19 @@ try {
     (await req(`/roles/${roleId}`, { method: 'DELETE', token: ownerToken })).status === 204,
   );
 
-  // --- Username colours and role ordering ---
+  // --- Username colors and role ordering ---
   const red = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Red', color: 0xff0000 } });
   const blue = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Blue', color: 0x0000ff } });
-  check('roles accept colours', red.json?.color === 0xff0000 && blue.json?.color === 0x0000ff);
+  check('roles accept colors', red.json?.color === 0xff0000 && blue.json?.color === 0x0000ff);
 
   await req(`/members/${bobId}/roles/${red.json?.id}`, { method: 'PUT', token: ownerToken });
   await req(`/members/${bobId}/roles/${blue.json?.id}`, { method: 'PUT', token: ownerToken });
 
-  const bobColoured = await req('/auth/me', { token: bobToken });
+  const bobColored = await req('/auth/me', { token: bobToken });
   check(
-    'the highest-positioned role decides the colour',
-    bobColoured.json?.user?.roleColor === 0x0000ff,
-    `got ${bobColoured.json?.user?.roleColor}`,
+    'the highest-positioned role decides the color',
+    bobColored.json?.user?.roleColor === 0x0000ff,
+    `got ${bobColored.json?.user?.roleColor}`,
   );
 
   const reordered = await req(`/roles/${red.json?.id}/move`, {
@@ -1443,7 +1448,7 @@ try {
 
   const bobAfterMove = await req('/auth/me', { token: bobToken });
   check(
-    'the colour follows the new order',
+    'the color follows the new order',
     bobAfterMove.json?.user?.roleColor === 0xff0000,
     `got ${bobAfterMove.json?.user?.roleColor}`,
   );
@@ -1455,18 +1460,18 @@ try {
     ).status === 403,
   );
 
-  const colourChannel = (await req('/channels', { token: bobToken })).json?.channels?.find(
+  const colorChannel = (await req('/channels', { token: bobToken })).json?.channels?.find(
     (channel) => channel.name === 'general',
   );
-  const colourMessage = await req(`/channels/${colourChannel.id}/messages`, {
+  const colorMessage = await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: bobToken,
-    body: { content: 'colour check' },
+    body: { content: 'color check' },
   });
   check(
-    'message authors carry their role colour',
-    colourMessage.json?.author?.roleColor === 0xff0000,
-    `got ${colourMessage.json?.author?.roleColor}`,
+    'message authors carry their role color',
+    colorMessage.json?.author?.roleColor === 0xff0000,
+    `got ${colorMessage.json?.author?.roleColor}`,
   );
 
   // --- Custom emoji ---
@@ -1636,7 +1641,7 @@ try {
       body: pruneUpload,
     })
   ).json();
-  await req(`/channels/${colourChannel.id}/messages`, {
+  await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: ownerToken,
     body: { content: 'will be pruned', attachmentIds: [pruneAttachment.id] },
@@ -1679,7 +1684,7 @@ try {
       body: ageUpload,
     })
   ).json();
-  await req(`/channels/${colourChannel.id}/messages`, {
+  await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: ownerToken,
     body: { content: 'aged image', attachmentIds: [ageAttachment.id] },
@@ -1707,7 +1712,7 @@ try {
       body: clipUpload,
     })
   ).json();
-  await req(`/channels/${colourChannel.id}/messages`, {
+  await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: ownerToken,
     body: { content: 'aged clip', attachmentIds: [agedClip.id] },
@@ -1725,7 +1730,7 @@ try {
   );
 
   // Age-based message retention.
-  await req(`/channels/${colourChannel.id}/messages`, {
+  await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: ownerToken,
     body: { content: 'aged text' },
@@ -1735,11 +1740,11 @@ try {
   check('message retention deletes old messages', msgPruned.json?.summary?.deletedMessages > 0);
   check(
     'channel is empty after message retention',
-    (await req(`/channels/${colourChannel.id}/messages`, { token: ownerToken })).json?.messages?.length === 0,
+    (await req(`/channels/${colorChannel.id}/messages`, { token: ownerToken })).json?.messages?.length === 0,
   );
 
   // --- Saved gifs ---
-  // Reset the age rules so this block is about the rule for favourites, not the
+  // Reset the age rules so this block is about the rule for favorites, not the
   // image and message ones that ran above.
   await req('/retention', {
     method: 'PATCH',
@@ -1764,7 +1769,7 @@ try {
     })
   ).json();
   const keeperBlobPath = join(dataDir, 'uploads', keeperAttachment.hash.slice(0, 2), keeperAttachment.hash);
-  const keeperMessage = await req(`/channels/${colourChannel.id}/messages`, {
+  const keeperMessage = await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: ownerToken,
     body: { content: 'a keeper', attachmentIds: [keeperAttachment.id] },
@@ -1932,7 +1937,7 @@ try {
       body: plainForm,
     })
   ).json();
-  await req(`/channels/${colourChannel.id}/messages`, {
+  await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: ownerToken,
     body: { content: 'just a picture', attachmentIds: [plainAttachment.id] },
@@ -1967,7 +1972,7 @@ try {
   );
   check(
     'the picked gif can be sent',
-    (await req(`/channels/${colourChannel.id}/messages`, {
+    (await req(`/channels/${colorChannel.id}/messages`, {
       method: 'POST',
       token: ownerToken,
       body: { content: '', attachmentIds: [picked.json.id] },
@@ -2058,7 +2063,7 @@ try {
     (await req('/auth/me', { token: ownerToken })).json?.user?.displayName === 'Alice the Great',
   );
 
-  const named = await req(`/channels/${colourChannel.id}/messages`, {
+  const named = await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: ownerToken,
     body: { content: 'named hello' },
@@ -2283,7 +2288,7 @@ try {
   );
   check(
     'a timed-out member cannot post (403)',
-    (await req(`/channels/${colourChannel.id}/messages`, {
+    (await req(`/channels/${colorChannel.id}/messages`, {
       method: 'POST',
       token: modToken,
       body: { content: 'nope' },
@@ -2291,7 +2296,7 @@ try {
   );
   check(
     'a timed-out member can still read',
-    (await req(`/channels/${colourChannel.id}/messages`, { token: modToken })).status === 200,
+    (await req(`/channels/${colorChannel.id}/messages`, { token: modToken })).status === 200,
   );
   check(
     'a timeout can be lifted',
@@ -2299,7 +2304,7 @@ try {
   );
   check(
     'posting works again after a timeout',
-    (await req(`/channels/${colourChannel.id}/messages`, {
+    (await req(`/channels/${colorChannel.id}/messages`, {
       method: 'POST',
       token: modToken,
       body: { content: 'back' },
@@ -2706,7 +2711,7 @@ try {
   await req(`/members/${modId}/ban`, { method: 'PUT', token: ownerToken, body: { reason: 'audit check' } });
   await req(`/members/${modId}/ban`, { method: 'DELETE', token: ownerToken });
 
-  const auditedMessage = await req(`/channels/${colourChannel.id}/messages`, {
+  const auditedMessage = await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: ownerToken,
     body: { content: 'original text' },
@@ -2729,7 +2734,7 @@ try {
       body: auditUpload,
     })
   ).json();
-  const imageMessage = await req(`/channels/${colourChannel.id}/messages`, {
+  const imageMessage = await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: ownerToken,
     body: { content: 'has an image', attachmentIds: [auditAttachment.id] },
@@ -2761,7 +2766,7 @@ try {
   );
   check(
     'an edit keeps the text either side',
-    editedEntry?.detail?.after === 'changed text' && editedEntry?.detail?.channelName === colourChannel.name,
+    editedEntry?.detail?.after === 'changed text' && editedEntry?.detail?.channelName === colorChannel.name,
   );
 
   const removedEntry = (audit?.entries ?? []).find(
@@ -2896,7 +2901,7 @@ try {
   );
 
   // Make a fresh entry, then let retention age it out.
-  const toPruneFromLog = await req(`/channels/${colourChannel.id}/messages`, {
+  const toPruneFromLog = await req(`/channels/${colorChannel.id}/messages`, {
     method: 'POST',
     token: ownerToken,
     body: { content: 'prune me from the log' },
@@ -2973,7 +2978,7 @@ try {
     return { raw, channels: channels ?? 4 };
   }
 
-  /** Where the first pixel of exactly this colour sits along a scanned row. */
+  /** Where the first pixel of exactly this color sits along a scanned row. */
   function firstOf(scanned, rgb) {
     for (let x = 0; x < 512; x++) {
       const i = x * scanned.channels;
@@ -2992,7 +2997,7 @@ try {
   );
 
   // A logo drawn on transparency is what the padding is for. It stays inset on a
-  // tile of its own colour, so the launcher's crop takes the tile and not the art.
+  // tile of its own color, so the launcher's crop takes the tile and not the art.
   const transparentLogo = await sharp({
     create: { width: 96, height: 96, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
   })
@@ -3041,7 +3046,7 @@ try {
   // under it should be. The app background would be 49,51,56.
   const tile = (await iconRow(logoMaskableBytes, 256)).raw;
   check(
-    "and that tile is the artwork's own colour, not the app background",
+    "and that tile is the artwork's own color, not the app background",
     Math.abs((tile[0] ?? 0) - 139) < 12 && Math.abs((tile[1] ?? 0) - 114) < 12 && Math.abs((tile[2] ?? 0) - 79) < 12,
     `the tile pixel was ${tile[0]},${tile[1]},${tile[2]}`,
   );

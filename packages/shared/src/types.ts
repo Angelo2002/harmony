@@ -8,8 +8,8 @@ export interface User {
   displayName: string | null;
   avatarHash: string | null;
   /**
-   * Colour of the user's highest-positioned coloured role, or null for the
-   * default text colour. Purely a display concern — it has no bearing on
+   * Color of the user's highest-positioned colored role, or null for the
+   * default text color. Purely a display concern — it has no bearing on
    * permissions.
    */
   roleColor: number | null;
@@ -48,7 +48,7 @@ export interface Ban {
 export interface Role {
   id: SnowflakeId;
   name: string;
-  /** Packed RGB integer, or null for the neutral default colour. */
+  /** Packed RGB integer, or null for the neutral default color. */
   color: number | null;
   position: number;
   /** Permission bitfield as a decimal string (JSON cannot carry a bigint). */

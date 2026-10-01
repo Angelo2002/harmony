@@ -104,7 +104,7 @@ export function countAttachments(sqlite: DatabaseSync): number {
 
 /**
  * Every blob hash still referenced by an attachment, an emoji, an avatar or a
- * saved gif. A favourite is here on purpose: it is kept by hash rather than by a
+ * saved gif. A favorite is here on purpose: it is kept by hash rather than by a
  * message, so it is what keeps a saved gif alive after the message it was found
  * in is gone.
  */

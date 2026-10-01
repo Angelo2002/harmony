@@ -177,7 +177,7 @@
         </label>
 
         <label>
-          Colour <span class="muted">(#rrggbb)</span>
+          Color <span class="muted">(#rrggbb)</span>
           <input bind:value={editColor} placeholder="#5865f2" disabled={selected.isDefault} />
         </label>
 

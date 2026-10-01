@@ -172,7 +172,7 @@ export function countChannelsInCategory(sqlite: DatabaseSync, categoryId: string
 }
 
 /**
- * Swaps a channel's position with its neighbour in the same category. Channels
+ * Swaps a channel's position with its neighbor in the same category. Channels
  * only reorder inside their own category, so moving across categories is done
  * with `PATCH /channels/:id` instead.
  */

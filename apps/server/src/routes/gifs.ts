@@ -11,7 +11,7 @@ export interface GifRouteDeps {
 }
 
 /**
- * The gif picker. Favourites are private to the member who kept them, and picking a
+ * The gif picker. Favorites are private to the member who kept them, and picking a
  * gif only ever makes an attachment row out of bytes the instance already has — the
  * message itself is sent through the normal message endpoint afterwards, with that
  * attachment id, exactly as an upload would be. A hosted search is answered from the

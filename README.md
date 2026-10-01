@@ -31,7 +31,7 @@ comfortably fits on a Raspberry Pi or the cheapest VPS, and there is no scaling 
 get wrong.
 
 **Because it feels like home.** A familiar, Discord-like interface, with the
-colours and icon you choose — and it installs to a phone or desktop home screen
+colors and icon you choose — and it installs to a phone or desktop home screen
 like a real app.
 
 ### What it isn't
@@ -50,7 +50,7 @@ npm run dev
 ```
 
 Open <http://127.0.0.1:5173> and register. **The first account you create becomes
-the owner**, and a short wizard greets you: name and colours, storage, and whether
+the owner**, and a short wizard greets you: name and colors, storage, and whether
 to bring anything over from Discord.
 
 That is already a working chat server. By default it listens on loopback only, so

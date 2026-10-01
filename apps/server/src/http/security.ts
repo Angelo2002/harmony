@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
  * A strict policy for the single-page client. It loads only its own bundle and
  * stylesheet, talks only to its own API and gateway, and frames only the YouTube
  * player the link preview renders. `style-src` has to allow inline styles
- * because the client paints role colours and the theme through style attributes
+ * because the client paints role colors and the theme through style attributes
  * and CSS custom properties.
  */
 export const DEFAULT_CSP = [

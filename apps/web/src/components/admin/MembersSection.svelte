@@ -347,7 +347,7 @@
       <summary>Discord accounts <span class="muted">({bridgeMembers.length})</span></summary>
       <p class="muted">
         Stand-in accounts the bridge creates for people on Discord. They are listed here only so
-        their roles and colours can be managed.
+        their roles and colors can be managed.
       </p>
       <ul class="rows">
         {#each bridgeMembers as member (member.user.id)}

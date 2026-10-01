@@ -36,7 +36,7 @@ export function toUser(row: UserRow, roleColor: number | null): User {
   };
 }
 
-/** A user DTO with their display colour resolved from their roles. */
+/** A user DTO with their display color resolved from their roles. */
 export function presentUser(sqlite: DatabaseSync, row: UserRow): User {
   return toUser(row, getHighestRoleColor(sqlite, row.id));
 }

@@ -172,11 +172,11 @@ export const updateSettingsSchema = z.object({
   defaultChannelId: z.string().nullable().optional(),
   /** Whether the server unfurls link previews by fetching the linked pages. */
   embedsEnabled: z.boolean().optional(),
-  /** Instance colours. Every other colour in the palette is derived from these. */
+  /** Instance colors. Every other color in the palette is derived from these. */
   theme: z
     .object({
-      background: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb colour').nullable(),
-      accent: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb colour').nullable(),
+      background: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb color').nullable(),
+      accent: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb color').nullable(),
     })
     .partial()
     .optional(),
@@ -185,8 +185,8 @@ export const updateSettingsSchema = z.object({
     .object({
       /** Null works the padding out from the image itself. */
       padding: z.number().int().min(0).max(MAX_ICON_PADDING).nullable(),
-      /** Null takes the colour from the artwork itself. */
-      background: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb colour').nullable(),
+      /** Null takes the color from the artwork itself. */
+      background: z.string().regex(HEX_COLOR_PATTERN, 'Must be a #rrggbb color').nullable(),
     })
     .partial()
     .optional(),
@@ -295,7 +295,7 @@ export type BridgeImportInput = z.infer<typeof bridgeImportSchema>;
 
 /**
  * Which Discord channels to import. Leaving `channelIds` out means "everything not
- * bridged yet", so the original all-at-once behaviour is unchanged.
+ * bridged yet", so the original all-at-once behavior is unchanged.
  */
 export const channelImportSchema = z.object({
   channelIds: z.array(z.string().min(1)).max(1000).optional(),

@@ -40,7 +40,7 @@ export interface UserService {
   ): Promise<UserRow>;
   updateAvatar(userId: string, file: { contentType: string; data: Buffer }): Promise<UserRow>;
   /**
-   * Stores a normalised avatar from raw bytes. Used by the bridge, where the
+   * Stores a normalized avatar from raw bytes. Used by the bridge, where the
    * bytes come from Discord with no declared content type. Returns null when
    * the data is unusable.
    */
@@ -71,7 +71,7 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
   }
 
   /**
-   * Avatars are small and always shown at a fixed size, so they are normalised
+   * Avatars are small and always shown at a fixed size, so they are normalized
    * to a square WebP. That keeps storage tiny and means we never have to store
    * a content type alongside them.
    */
@@ -79,7 +79,7 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
     if (data.length > DEFAULT_MAX_AVATAR_BYTES) return null;
     try {
       return await sharp(data)
-        .resize(AVATAR_SIZE, AVATAR_SIZE, { fit: 'cover', position: 'centre' })
+        .resize(AVATAR_SIZE, AVATAR_SIZE, { fit: 'cover', position: 'center' })
         .webp({ quality: 85 })
         .toBuffer();
     } catch {

@@ -318,10 +318,10 @@ export const migrations: Migration[] = [
     up(db) {
       /*
        * A gif somebody kept, held by content hash rather than by any message.
-       * That is the whole point: a favourite has to outlive the message it was
+       * That is the whole point: a favorite has to outlive the message it was
        * found in, so it cannot be a reference to an attachment row, which is
        * deleted along with its message. `used_at` is what the retention rule for
-       * favourites counts from, and it moves when the gif is favourited or sent.
+       * favorites counts from, and it moves when the gif is favorited or sent.
        */
       db.exec(`
         CREATE TABLE gif_favorites (

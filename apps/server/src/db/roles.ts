@@ -167,8 +167,8 @@ export function unassignRole(sqlite: DatabaseSync, userId: string, roleId: strin
 }
 
 /**
- * Colour of the highest-positioned role the user holds that defines a colour.
- * `@everyone` counts, so a coloured default role applies to everyone.
+ * Color of the highest-positioned role the user holds that defines a color.
+ * `@everyone` counts, so a colored default role applies to everyone.
  */
 export function getHighestRoleColor(sqlite: DatabaseSync, userId: string): number | null {
   const row = sqlite
@@ -185,8 +185,8 @@ export function getHighestRoleColor(sqlite: DatabaseSync, userId: string): numbe
 }
 
 /**
- * Swaps a role's position with its neighbour. Positions only order roles and
- * decide username colour — they grant nothing — so this is safe to expose.
+ * Swaps a role's position with its neighbor. Positions only order roles and
+ * decide username color — they grant nothing — so this is safe to expose.
  */
 export function moveRole(sqlite: DatabaseSync, id: string, direction: 'up' | 'down'): void {
   const ordered = listRoles(sqlite); // highest position first

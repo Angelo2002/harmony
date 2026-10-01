@@ -1827,6 +1827,50 @@ try {
     ).status === 404,
   );
 
+  // The same again for an age-gated section locked at the category, which is how
+  // a server with channels minors must not see tends to be arranged.
+  const gifCategory = await req('/categories', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Grown-up gifs', requiredRoleId: gifRole.json.id },
+  });
+  const behindCategory = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'behind-the-category', categoryId: gifCategory.json.id },
+  });
+  const adultPng = await sharp({
+    create: { width: 31, height: 17, channels: 4, background: { r: 120, g: 10, b: 60, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+  const adultForm = new FormData();
+  adultForm.append('file', new Blob([adultPng], { type: 'image/gif' }), 'grown-up.gif');
+  const adultAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: adultForm,
+    })
+  ).json();
+  await req(`/channels/${behindCategory.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'behind a category', attachmentIds: [adultAttachment.id] },
+  });
+  check(
+    'a gif in a category-locked channel is not in a member picker',
+    (await req('/gifs/local', { token: bobToken })).json?.gifs?.every(
+      (gif) => gif.hash !== adultAttachment.hash,
+    ) === true,
+  );
+  check(
+    'and an administrator sees it',
+    (await req('/gifs/local', { token: ownerToken })).json?.gifs?.some(
+      (gif) => gif.hash === adultAttachment.hash,
+    ) === true,
+  );
+
   // The picker is gif-only: a screenshot or a photo is not something anybody
   // browses a picker for, so it is neither offered nor savable.
   const plainPng = await sharp({

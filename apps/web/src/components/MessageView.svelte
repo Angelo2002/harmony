@@ -102,6 +102,28 @@
     return source != null && message.content.trim() === source;
   }
 
+  /** The largest a picture is drawn, matching the rules for `.attachments` in app.css. */
+  const PICTURE_MAX_WIDTH = 420;
+  const PICTURE_MAX_HEIGHT = 360;
+
+  /**
+   * The size a picture will be drawn at, as inline custom properties.
+   *
+   * A box left to work its own width out from the picture inside it gets it wrong
+   * whenever the picture is capped by its height: a browser measures the picture
+   * at full size and then caps the box by width alone, so a tall gif ends up in a
+   * box wider than it is and its heart lands beside the gif instead of on it.
+   * Saying the size outright, from the dimensions the attachment already carries,
+   * keeps the box and the picture the same shape whatever the proportions.
+   */
+  function pictureSize(attachment: Attachment): string | null {
+    const width = attachment.width;
+    const height = attachment.height;
+    if (!width || !height) return null;
+    const scale = Math.min(1, PICTURE_MAX_WIDTH / width, PICTURE_MAX_HEIGHT / height);
+    return `--picture-width: ${Math.round(width * scale)}px; --picture-ratio: ${width} / ${height}`;
+  }
+
   /**
    * Keeps or forgets a gif straight from the message it was posted in, the way
    * Discord's star does. Which way it goes depends on whether the gif is already
@@ -494,7 +516,11 @@
                       from, the way an embed does, so the original is one click or
                       one right-click away. An upload has nowhere else to point.
                     -->
-                    <div class="attachment-picture">
+                    <div
+                      class="attachment-picture"
+                      class:sized={pictureSize(attachment) !== null}
+                      style={pictureSize(attachment)}
+                    >
                       <a
                         href={attachment.sourceUrl ?? `/api/v1/attachments/${attachment.id}`}
                         target="_blank"

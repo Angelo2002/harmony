@@ -1515,7 +1515,25 @@ button.ghost {
 .attachment-picture {
   position: relative;
   align-self: flex-start;
-  max-width: 100%;
+  max-width: min(420px, 100%);
+}
+
+/*
+ * A picture whose size is known gets a box of exactly that size, from the custom
+ * properties the message sets. The ratio keeps the shape when a narrow screen
+ * caps the width, and the picture fills the box, so nothing is letterboxed and
+ * the heart sits on the picture whichever way round the picture is.
+ */
+.attachment-picture.sized {
+  width: var(--picture-width);
+  aspect-ratio: var(--picture-ratio);
+}
+
+.attachment-picture.sized img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 /* ---- Admin panel ---- */

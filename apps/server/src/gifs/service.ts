@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
-import { isGifContentType, type Attachment, type GifFavorite, type GifItem } from '@harmony/shared';
+import {
+  isGifContentType,
+  type Attachment,
+  type GifFavorite,
+  type GifItem,
+  type GifSearchResult,
+} from '@harmony/shared';
 import { canAccessChannel, channelAccessFor, visibleChannels } from '../access/service.ts';
+import type { AttachmentService, StoredImage } from '../attachments/service.ts';
 import type { AuthContext } from '../auth/service.ts';
 import type { Config } from '../config.ts';
 import {
@@ -22,21 +29,27 @@ import {
   upsertGifFavorite,
 } from '../db/gif_favorites.ts';
 import { findMessage } from '../db/messages.ts';
+import { fetchPublicImage } from '../embeds/media.ts';
 import { HttpError } from '../http/errors.ts';
+import type { SettingsService } from '../settings/service.ts';
 import { createBlobStore, type BlobStore } from '../storage/blobs.ts';
+import { isKlipyAddress, klipySearchUrl, normalizeKlipySearch } from './klipy.ts';
 
 export interface GifService {
   /** The gifs this member has kept, most recently used first. */
   listFavorites(auth: AuthContext): GifFavorite[];
-  /** Keeps a gif this instance already holds. The bytes are already here. */
-  addFavorite(auth: AuthContext, attachmentId: string): GifFavorite;
+  /**
+   * Keeps a gif: one this instance already holds, by attachment, or one from the
+   * hosted service, by address, which is fetched and stored on the way in.
+   */
+  addFavorite(auth: AuthContext, ref: { attachmentId?: string; url?: string }): Promise<GifFavorite>;
   removeFavorite(auth: AuthContext, favoriteId: string): void;
   /**
-   * Takes a gif into the message being written: a copy is made as an unattached
+   * Takes a gif into the message being written: it becomes an unattached
    * attachment owned by the caller, which the message then claims exactly as it
-   * would an upload. No bytes move, since the gif is already stored.
+   * would an upload. A gif already stored costs a row; a hosted one is fetched.
    */
-  pick(auth: AuthContext, ref: { attachmentId?: string; favoriteId?: string }): Attachment;
+  pick(auth: AuthContext, ref: { attachmentId?: string; favoriteId?: string; url?: string }): Promise<Attachment>;
   /** Absolute path of a kept gif's bytes, or null when they are gone. */
   filePathFor(favorite: { hash: string }): string | null;
   /**
@@ -44,13 +57,34 @@ export interface GifService {
    * newest first, and only from channels the member may see.
    */
   listLocal(auth: AuthContext, query: { q?: string; limit: number }): GifItem[];
+  /** Gifs from the configured hosted service, or an empty list when there is none. */
+  searchKlipy(query: { q?: string; limit: number }): Promise<GifSearchResult[]>;
+}
+
+export interface GifServiceDeps {
+  attachments: AttachmentService;
+  settings: SettingsService;
 }
 
 /** How many candidate rows to look at to fill a page once duplicates are dropped. */
 const LOCAL_SCAN_FACTOR = 4;
 const LOCAL_SCAN_LIMIT = 400;
+const KLIPY_TIMEOUT_MS = 6000;
+/** Klipy serves its media to any client, but naming ourselves is only polite. */
+const KLIPY_USER_AGENT = 'Harmony/1.0 gif-picker';
 
-export function createGifService(sqlite: DatabaseSync, config: Config): GifService {
+/** A name for a fetched gif: the last piece of its address, which a service supplies. */
+function nameForUrl(url: string): string {
+  const last = new URL(url).pathname.split('/').filter(Boolean).pop() ?? '';
+  if (last.length === 0 || last.length > 100) return 'gif.gif';
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
+}
+
+export function createGifService(sqlite: DatabaseSync, config: Config, deps: GifServiceDeps): GifService {
   const blobs: BlobStore = createBlobStore(config);
 
   function missing(): never {
@@ -76,31 +110,109 @@ export function createGifService(sqlite: DatabaseSync, config: Config): GifServi
     }
   }
 
+  /** One already-stored gif, in the shape everything below works with. */
+  function storedFromAttachment(attachment: AttachmentRow): StoredImage {
+    return {
+      hash: attachment.hash,
+      contentType: attachment.content_type,
+      size: attachment.size,
+      width: attachment.width,
+      height: attachment.height,
+    };
+  }
+
+  /**
+   * Fetches a hosted gif and keeps it, so that what a member saves or sends is
+   * ours from then on and cannot expire or disappear under us. Only Klipy's own
+   * addresses are accepted, since those are the only ones the picker is ever given.
+   */
+  async function storeFromUrl(url: string): Promise<StoredImage> {
+    let target: URL;
+    try {
+      target = new URL(url);
+    } catch {
+      throw new HttpError(400, 'invalid_gif_url', 'That is not a usable gif address.');
+    }
+    if (!isKlipyAddress(target)) {
+      throw new HttpError(400, 'invalid_gif_url', 'Only gifs from the configured service can be used.');
+    }
+
+    const media = await fetchPublicImage(target.toString(), KLIPY_USER_AGENT);
+    if (!media) throw new HttpError(415, 'invalid_gif', 'That gif could not be fetched.');
+
+    // The picker is gif-only, so a response that turns out to be something else is
+    // refused here rather than saved as a gif the picker would never show again.
+    if (!isGifContentType(media.contentType)) {
+      throw new HttpError(415, 'unsupported_gif', 'That address is not a gif.');
+    }
+
+    const stored = await deps.attachments.storeImageBytes(media.contentType, media.data);
+    if (!stored) {
+      throw new HttpError(413, 'gif_too_large', 'That gif is larger than this instance will store.');
+    }
+    return stored;
+  }
+
+  /** Writes the unattached attachment a picked gif travels to its message as. */
+  function draftFrom(source: StoredImage, auth: AuthContext, filename: string): Attachment {
+    const id = randomUUID();
+    insertAttachment(sqlite, {
+      id,
+      uploaderId: auth.user.id,
+      filename,
+      contentType: source.contentType,
+      size: source.size,
+      width: source.width,
+      height: source.height,
+      hash: source.hash,
+      createdAt: new Date().toISOString(),
+    });
+
+    const row = findAttachment(sqlite, id);
+    if (!row) throw new HttpError(500, 'internal_error', 'Failed to send that gif.');
+    return toAttachment(row);
+  }
+
   return {
     listFavorites(auth) {
       return listGifFavoritesForUser(sqlite, auth.user.id).map(toGifFavorite);
     },
 
-    addFavorite(auth, attachmentId) {
-      const attachment = findAttachment(sqlite, attachmentId);
-      if (!attachment) missing();
-      assertMayUseAttachment(auth, attachment);
-      if (!isGifContentType(attachment.content_type)) {
-        throw new HttpError(400, 'not_a_gif', 'Only gifs can be saved.');
+    async addFavorite(auth, ref) {
+      let source: StoredImage;
+      let filename: string;
+      let sourceUrl: string | null;
+
+      if (ref.attachmentId !== undefined) {
+        const attachment = findAttachment(sqlite, ref.attachmentId);
+        if (!attachment) missing();
+        assertMayUseAttachment(auth, attachment);
+        if (!isGifContentType(attachment.content_type)) {
+          throw new HttpError(400, 'not_a_gif', 'Only gifs can be saved.');
+        }
+        requireStoredBytes(attachment.hash);
+        source = storedFromAttachment(attachment);
+        filename = attachment.filename;
+        // Kept only as a note of where it came from; the bytes are what matter.
+        sourceUrl = attachment.source_url;
+      } else if (ref.url !== undefined) {
+        source = await storeFromUrl(ref.url);
+        filename = nameForUrl(ref.url);
+        sourceUrl = ref.url;
+      } else {
+        throw new HttpError(400, 'gif_reference_required', 'Name the gif to save.');
       }
-      requireStoredBytes(attachment.hash);
 
       return toGifFavorite(
         upsertGifFavorite(sqlite, {
           userId: auth.user.id,
-          hash: attachment.hash,
-          filename: attachment.filename,
-          contentType: attachment.content_type,
-          size: attachment.size,
-          width: attachment.width,
-          height: attachment.height,
-          // Kept only as a note of where it came from; the bytes are what matter.
-          sourceUrl: attachment.source_url,
+          hash: source.hash,
+          filename,
+          contentType: source.contentType,
+          size: source.size,
+          width: source.width,
+          height: source.height,
+          sourceUrl,
         }),
       );
     },
@@ -111,15 +223,14 @@ export function createGifService(sqlite: DatabaseSync, config: Config): GifServi
       deleteGifFavorite(sqlite, favorite.id);
     },
 
-    pick(auth, ref) {
-      let source: {
-        hash: string;
-        filename: string;
-        contentType: string;
-        size: number;
-        width: number | null;
-        height: number | null;
-      };
+    async pick(auth, ref) {
+      // A hosted gif arrives as bytes, and everything else is already stored.
+      if (ref.url !== undefined) {
+        return draftFrom(await storeFromUrl(ref.url), auth, nameForUrl(ref.url));
+      }
+
+      let source: StoredImage;
+      let filename: string;
 
       if (ref.favoriteId !== undefined) {
         const favorite = findGifFavorite(sqlite, ref.favoriteId);
@@ -129,12 +240,12 @@ export function createGifService(sqlite: DatabaseSync, config: Config): GifServi
         touchGifFavorite(sqlite, auth.user.id, favorite.hash);
         source = {
           hash: favorite.hash,
-          filename: favorite.filename,
           contentType: favorite.content_type,
           size: favorite.size,
           width: favorite.width,
           height: favorite.height,
         };
+        filename = favorite.filename;
       } else if (ref.attachmentId !== undefined) {
         const attachment = findAttachment(sqlite, ref.attachmentId);
         if (!attachment) missing();
@@ -143,14 +254,8 @@ export function createGifService(sqlite: DatabaseSync, config: Config): GifServi
           throw new HttpError(400, 'not_a_gif', 'Only gifs can be sent from the picker.');
         }
         requireStoredBytes(attachment.hash);
-        source = {
-          hash: attachment.hash,
-          filename: attachment.filename,
-          contentType: attachment.content_type,
-          size: attachment.size,
-          width: attachment.width,
-          height: attachment.height,
-        };
+        source = storedFromAttachment(attachment);
+        filename = attachment.filename;
       } else {
         throw new HttpError(400, 'gif_reference_required', 'Name the gif to send.');
       }
@@ -158,22 +263,7 @@ export function createGifService(sqlite: DatabaseSync, config: Config): GifServi
       // The bytes are already stored, so this is a row and nothing more. The source
       // link is deliberately left off: a picked gif belongs to its message the way
       // an upload does, and is not undone when the text around it changes.
-      const id = randomUUID();
-      insertAttachment(sqlite, {
-        id,
-        uploaderId: auth.user.id,
-        filename: source.filename,
-        contentType: source.contentType,
-        size: source.size,
-        width: source.width,
-        height: source.height,
-        hash: source.hash,
-        createdAt: new Date().toISOString(),
-      });
-
-      const row = findAttachment(sqlite, id);
-      if (!row) throw new HttpError(500, 'internal_error', 'Failed to send that gif.');
-      return toAttachment(row);
+      return draftFrom(source, auth, filename);
     },
 
     filePathFor(favorite) {
@@ -217,6 +307,21 @@ export function createGifService(sqlite: DatabaseSync, config: Config): GifServi
         if (gifs.length >= query.limit) break;
       }
       return gifs;
+    },
+
+    async searchKlipy(query) {
+      const key = deps.settings.getKlipyKey();
+      if (!key) return [];
+
+      const response = await fetch(klipySearchUrl(key, query), {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(KLIPY_TIMEOUT_MS),
+      }).catch(() => null);
+      if (!response?.ok) {
+        throw new HttpError(502, 'gif_service_unavailable', 'The gif service could not be reached.');
+      }
+
+      return normalizeKlipySearch(await response.json().catch(() => null));
     },
   };
 }

@@ -1,15 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { Attachment, GifFavorite, GifItem } from '@harmony/shared';
+  import type { Attachment, GifFavorite, GifItem, GifSearchResult } from '@harmony/shared';
   import { ApiError } from '../lib/api';
   import { favoriteUrl, gifs, localUrl } from '../lib/gifs.svelte';
+  import { meta } from '../lib/meta.svelte';
 
   let { onpick }: { onpick: (attachment: Attachment) => void } = $props();
 
-  /** How long typing settles before the local list is asked for. */
+  /** How long typing settles before a search is asked for. */
   const SEARCH_DEBOUNCE_MS = 250;
 
-  type Tab = 'favorites' | 'local';
+  type Tab = 'favorites' | 'local' | 'klipy';
   /** The gifs somebody kept come first, the way they do in Discord. */
   let tab = $state<Tab>('favorites');
   let query = $state('');
@@ -17,12 +18,15 @@
   /** The tile whose pick or heart is in flight, if any. */
   let busy = $state<string | null>(null);
 
+  /** The hosted tab only exists once an instance has a key for it. */
+  const hosted = $derived(meta.data?.klipyConfigured === true);
+
   interface Tile {
     key: string;
     url: string;
     label: string;
     favoriteId: string | null;
-    ref: { attachmentId: string } | { favoriteId: string };
+    ref: { attachmentId: string } | { favoriteId: string } | { url: string };
   }
 
   function favoriteTile(favorite: GifFavorite): Tile {
@@ -45,27 +49,54 @@
     };
   }
 
-  const tiles = $derived(tab === 'favorites' ? gifs.favorites.map(favoriteTile) : gifs.local.map(localTile));
+  function hostedTile(result: GifSearchResult): Tile {
+    // A hosted gif has no hash here, so whether it is already saved is answered by
+    // the address it was saved from.
+    return {
+      key: `h-${result.url}`,
+      url: result.previewUrl,
+      label: result.title || 'gif',
+      favoriteId: gifs.bySourceUrl.get(result.url)?.id ?? null,
+      ref: { url: result.url },
+    };
+  }
+
+  const tiles = $derived(
+    tab === 'favorites'
+      ? gifs.favorites.map(favoriteTile)
+      : tab === 'local'
+        ? gifs.local.map(localTile)
+        : gifs.remote.map(hostedTile),
+  );
   const searching = $derived(query.trim().length > 0);
   const emptyMessage = $derived(
     tab === 'favorites'
       ? searching
         ? 'No saved gif matches that.'
         : 'Nothing saved yet. Press the heart on a gif to keep it.'
-      : searching
-        ? 'No gif here matches that.'
-        : 'Nothing here yet. Gifs posted in channels you can see turn up here.',
+      : tab === 'local'
+        ? searching
+          ? 'No gif here matches that.'
+          : 'Nothing here yet. Gifs posted in channels you can see turn up here.'
+        : searching
+          ? 'Nothing on Klipy matches that.'
+          : 'Klipy returned nothing. Try a search.',
   );
 
   onMount(() => {
     void gifs.loadFavorites();
   });
 
-  // Waits for typing to settle before asking, since a search is a round trip. Runs
-  // once on open too, which is what fills the local tab the first time.
+  // Waits for typing to settle, and follows the tab: switching to a tab is what
+  // asks for that tab's gifs the first time and after a search, rather than three
+  // lists all being fetched when the picker opens.
   $effect(() => {
     const settled = query;
-    const timer = setTimeout(() => void gifs.searchLocal(settled), SEARCH_DEBOUNCE_MS);
+    const active = tab;
+    const timer = setTimeout(() => {
+      if (active === 'local') void gifs.searchLocal(settled);
+      else if (active === 'klipy') void gifs.searchRemote(settled);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   });
 
@@ -82,14 +113,12 @@
   }
 
   async function toggleFavorite(tile: Tile): Promise<void> {
-    // Only a gif this instance already holds can be kept, which is why the heart
-    // is the one thing on a tile that can decline to act.
-    if (tile.favoriteId === null && !('attachmentId' in tile.ref)) return;
     busy = tile.key;
     error = null;
     try {
       if (tile.favoriteId !== null) await gifs.forget(tile.favoriteId);
-      else if ('attachmentId' in tile.ref) await gifs.save(tile.ref.attachmentId);
+      else if ('attachmentId' in tile.ref) await gifs.save({ attachmentId: tile.ref.attachmentId });
+      else if ('url' in tile.ref) await gifs.save({ url: tile.ref.url });
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
     } finally {
@@ -127,13 +156,26 @@
       >
         This server
       </button>
+      {#if hosted}
+        <button
+          type="button"
+          class="emoji-tab"
+          class:active={tab === 'klipy'}
+          aria-pressed={tab === 'klipy'}
+          onclick={() => (tab = 'klipy')}
+        >
+          Klipy
+        </button>
+      {/if}
     </div>
   </div>
 
   <div class="gif-body">
     {#if error}<p class="form-error">{error}</p>{/if}
 
-    {#if tiles.length === 0}
+    {#if tab === 'klipy' && gifs.remoteLoading && tiles.length === 0}
+      <p class="muted emoji-empty">Searching…</p>
+    {:else if tiles.length === 0}
       <p class="muted emoji-empty">{emptyMessage}</p>
     {:else}
       <div class="gif-grid">

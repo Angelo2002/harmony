@@ -197,6 +197,8 @@ export const updateSettingsSchema = z.object({
   previewUserAgent: z.string().trim().max(200).nullable().optional(),
   /** Set true once the owner has finished or skipped the first-run wizard. */
   setupCompleted: z.boolean().optional(),
+  /** An empty string clears it, and the picker loses its hosted tab. */
+  klipyApiKey: z.string().trim().max(200).nullable().optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
@@ -231,9 +233,11 @@ export const updateRetentionSchema = z.object({
 export type UpdateRetentionInput = z.infer<typeof updateRetentionSchema>;
 
 /** Keeps an already-stored gif, so it survives the message it was found in. */
-export const addGifFavoriteSchema = z.object({
-  attachmentId: z.string().min(1),
-});
+export const addGifFavoriteSchema = z.union([
+  z.object({ attachmentId: z.string().min(1) }),
+  /** A hosted service's gif, which is fetched and kept at that moment. */
+  z.object({ url: z.string().min(1).max(2048) }),
+]);
 export type AddGifFavoriteInput = z.infer<typeof addGifFavoriteSchema>;
 
 /**
@@ -244,8 +248,17 @@ export type AddGifFavoriteInput = z.infer<typeof addGifFavoriteSchema>;
 export const pickGifSchema = z.union([
   z.object({ attachmentId: z.string().min(1) }),
   z.object({ favoriteId: z.string().min(1) }),
+  /** A hosted service's gif, fetched and kept on the way in. */
+  z.object({ url: z.string().min(1).max(2048) }),
 ]);
 export type PickGifInput = z.infer<typeof pickGifSchema>;
+
+/** The picker's hosted tab: a search term and a page size. */
+export const gifSearchQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(30),
+});
+export type GifSearchQuery = z.infer<typeof gifSearchQuerySchema>;
 
 export const updateBridgeSchema = z
   .object({

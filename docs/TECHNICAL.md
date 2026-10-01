@@ -310,6 +310,16 @@ pictures — a bounded scan still fills a page with distinct gifs. What counts a
 place, the shared package's GIF_CONTENT_TYPES, and decides the listing, the hearts and what may be
 saved alike; a screenshot is stored and shown like anything else but never turns up in a picker.
 
+The hosted tab is the one part of the picker that talks to somebody else, and it only appears when
+the instance has a key for it. Its search is asked for by the server and never by the browser,
+because the key is part of the request path and would otherwise be readable by anyone who opens
+their network tab. Nothing is stored until a gif is saved or picked, at which point the address is
+fetched through the same guarded path a link preview uses and kept like anything else — so a hosted
+gif becomes ours rather than a link that can expire under it. Only the service's own addresses are
+accepted, which keeps the picker from becoming a way to make the server fetch arbitrary pages, and
+one size is used for both the tile and the kept copy, so what somebody picks is what they were
+looking at.
+
 ## Versioning
 
 The release number lives in one place, `HARMONY_VERSION` in

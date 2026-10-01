@@ -1,6 +1,6 @@
 import { createReadStream, statSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
-import { Permission, addGifFavoriteSchema, gifQuerySchema, pickGifSchema, type GifFavoriteListResponse, type GifListResponse } from '@harmony/shared';
+import { Permission, addGifFavoriteSchema, gifQuerySchema, gifSearchQuerySchema, pickGifSchema, type GifFavoriteListResponse, type GifListResponse, type GifSearchResponse } from '@harmony/shared';
 import { requirePermission } from '../auth/plugin.ts';
 import type { GifService } from '../gifs/service.ts';
 import { HttpError } from '../http/errors.ts';
@@ -11,10 +11,12 @@ export interface GifRouteDeps {
 }
 
 /**
- * The gif picker. Favourites are private to the member who kept them, and picking
- * a gif only ever makes an attachment row out of bytes the instance already has —
- * the message itself is sent through the normal message endpoint afterwards, with
- * that attachment id, exactly as an upload would be.
+ * The gif picker. Favourites are private to the member who kept them, and picking a
+ * gif only ever makes an attachment row out of bytes the instance already has — the
+ * message itself is sent through the normal message endpoint afterwards, with that
+ * attachment id, exactly as an upload would be. A hosted search is answered from the
+ * server so the service's key, which sits in the request path, never reaches a
+ * browser.
  */
 export function registerGifRoutes(app: FastifyInstance, deps: GifRouteDeps): void {
   app.get('/api/v1/gifs/favorites', async (request) => {
@@ -26,7 +28,14 @@ export function registerGifRoutes(app: FastifyInstance, deps: GifRouteDeps): voi
   app.post('/api/v1/gifs/favorites', async (request) => {
     const auth = requirePermission(request, Permission.ViewChannels);
     const input = parseBody(addGifFavoriteSchema, request.body);
-    return deps.service.addFavorite(auth, input.attachmentId);
+    return deps.service.addFavorite(auth, input);
+  });
+
+  app.get('/api/v1/gifs/klipy', async (request) => {
+    requirePermission(request, Permission.ViewChannels);
+    const query = parseQuery(gifSearchQuerySchema, request.query);
+    const body: GifSearchResponse = { gifs: await deps.service.searchKlipy(query) };
+    return body;
   });
 
   app.get('/api/v1/gifs/local', async (request) => {

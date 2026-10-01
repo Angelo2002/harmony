@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { Permission } from '@harmony/shared';
 import { requirePermission } from '../auth/plugin.ts';
-import { fetchEmbedMedia } from '../embeds/media.ts';
+import { fetchPublicImage } from '../embeds/media.ts';
 import { HttpError } from '../http/errors.ts';
 import type { SettingsService } from '../settings/service.ts';
 
@@ -21,7 +21,7 @@ export function registerEmbedRoutes(app: FastifyInstance, deps: { settings: Sett
     if (!url) throw new HttpError(400, 'url_required', 'A url query parameter is required.');
 
     const userAgent = deps.settings.get().previewUserAgent ?? DEFAULT_USER_AGENT;
-    const media = await fetchEmbedMedia(url, userAgent);
+    const media = await fetchPublicImage(url, userAgent);
     if (!media) throw new HttpError(404, 'media_unavailable', 'That preview image could not be loaded.');
 
     reply

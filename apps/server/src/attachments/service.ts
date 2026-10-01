@@ -41,6 +41,15 @@ export interface LinkedImageInput {
   data: Buffer;
 }
 
+/** Image bytes that passed every check and are now in the blob store. */
+export interface StoredImage {
+  hash: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+}
+
 export interface AttachmentService {
   upload(auth: AuthContext, file: UploadInput): Promise<Attachment>;
   /**
@@ -52,6 +61,12 @@ export interface AttachmentService {
    * bytes are not a usable image, or are too large for this instance.
    */
   storeLinkedImage(input: LinkedImageInput): Promise<Attachment | null>;
+  /**
+   * Validates image bytes and puts them in the blob store, returning what is
+   * needed to refer to them. Nothing is recorded: what the bytes are for is the
+   * caller's to decide, whether that is a message, a saved gif or both.
+   */
+  storeImageBytes(contentType: string, data: Buffer): Promise<StoredImage | null>;
   /**
    * A picture already copied from this link and still on disk, so it does not have
    * to be fetched a second time. The same gif comes round again far more often
@@ -107,34 +122,53 @@ export function createAttachmentService(
     return id;
   }
 
+  /**
+   * The one place bytes become a blob: the type has to be one this instance
+   * keeps, the size has to be within what an upload of it would be allowed, and
+   * sharp has the last word on whether it is really an image. The dimensions it
+   * reports are kept with the attachment, so a picture renders without a jump.
+   */
+  async function storeImageBytes(contentType: string, data: Buffer): Promise<StoredImage | null> {
+    if (!ALLOWED_IMAGE_TYPES.includes(contentType as ImageContentType)) return null;
+    if (data.length > settings.get().maxImageBytes) return null;
+
+    let metadata: Metadata;
+    try {
+      metadata = await sharp(data).metadata();
+    } catch {
+      return null; // Not a real image, whatever the content type claimed.
+    }
+
+    return {
+      // Content-addressed, so the same gif posted twice costs the disk once.
+      hash: blobs.save(data),
+      contentType,
+      size: data.length,
+      width: metadata.width ?? null,
+      height: metadata.height ?? null,
+    };
+  }
+
   return {
     filePathFor: blobs.pathFor,
+    storeImageBytes,
 
     find(id) {
       return findAttachment(sqlite, id);
     },
 
     async storeLinkedImage(input) {
-      if (!ALLOWED_IMAGE_TYPES.includes(input.contentType as ImageContentType)) return null;
-      // The same ceiling an upload of the same image would meet.
-      if (input.data.length > settings.get().maxImageBytes) return null;
-
-      let metadata: Metadata;
-      try {
-        metadata = await sharp(input.data).metadata();
-      } catch {
-        return null; // Not a real image, whatever the content type claimed.
-      }
+      const stored = await storeImageBytes(input.contentType, input.data);
+      if (!stored) return null;
 
       const id = addRow({
         uploaderId: input.uploaderId,
         filename: input.filename,
-        contentType: input.contentType,
-        size: input.data.length,
-        width: metadata.width ?? null,
-        height: metadata.height ?? null,
-        // Content-addressed, so the same gif posted twice costs the disk once.
-        hash: blobs.save(input.data),
+        contentType: stored.contentType,
+        size: stored.size,
+        width: stored.width,
+        height: stored.height,
+        hash: stored.hash,
         sourceUrl: input.sourceUrl,
       });
       attachToMessage(sqlite, id, input.messageId);

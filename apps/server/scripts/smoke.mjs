@@ -17,6 +17,7 @@ import sharp from 'sharp';
 import { listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
 import { isDiscordAttachment, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
+import { isKlipyAddress, klipySearchUrl, normalizeKlipySearch } from '../src/gifs/klipy.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
 import { insertGhostUser, insertUser } from '../src/db/users.ts';
@@ -980,6 +981,50 @@ try {
   check(
     'a lookalike host is not discord',
     isDiscordAttachment(new URL('https://cdn.discordapp.com.evil.test/attachments/1400576064547196989/1527627040914798/x.gif')) === false,
+  );
+
+  // The hosted gif service: its envelope is walked rather than assumed, and only
+  // its own addresses are ever fetched.
+  const klipyPayload = {
+    result: true,
+    data: {
+      current_page: 1,
+      has_next: false,
+      data: [
+        {
+          id: 'a',
+          title: 'A cat',
+          file: {
+            hd: { gif: { url: 'https://static.klipy.com/x/hd.gif', width: 480, height: 270 } },
+            sm: { gif: { url: 'https://static.klipy.com/x/sm.gif', width: 220, height: 124 } },
+          },
+        },
+        { id: 'b', title: 'No gif at all', file: { hd: { webp: { url: 'https://static.klipy.com/x/hd.webp' } } } },
+      ],
+    },
+  };
+  const klipyResults = normalizeKlipySearch(klipyPayload);
+  check(
+    'a hosted result is read out of its envelope',
+    klipyResults.length === 1 && klipyResults[0]?.url === 'https://static.klipy.com/x/hd.gif',
+    JSON.stringify(klipyResults),
+  );
+  check('a hosted result carries its size', klipyResults[0]?.width === 480 && klipyResults[0]?.height === 270);
+  check('a result with no gif is left out', normalizeKlipySearch(klipyPayload).length === 1);
+  check('an unreadable payload yields nothing', normalizeKlipySearch({ nonsense: true }).length === 0);
+
+  check('a hosted media address is recognised', isKlipyAddress(new URL('https://static.klipy.com/ii/x/y.gif')));
+  check('a lookalike host is not the service', isKlipyAddress(new URL('https://klipy.com.evil.test/y.gif')) === false);
+  check('and neither is an unrelated host', isKlipyAddress(new URL('https://example.com/y.gif')) === false);
+  check(
+    'no search term asks for trending',
+    klipySearchUrl('KEY', { limit: 30 }).includes('/gifs/trending') &&
+      klipySearchUrl('KEY', { limit: 30 }).includes('per_page=30'),
+  );
+  check(
+    'a search term is passed through',
+    klipySearchUrl('KEY', { q: 'cat', limit: 10 }).includes('/gifs/search') &&
+      klipySearchUrl('KEY', { q: 'cat', limit: 10 }).includes('q=cat'),
   );
 
   const storedPlayer = parseMessageEmbed(
@@ -1960,6 +2005,46 @@ try {
     (await req('/gifs/favorites', { token: ownerToken })).json?.favorites?.length === 0,
   );
   await req('/retention', { method: 'PATCH', token: ownerToken, body: { favoriteRetentionDays: null } });
+
+  // --- Hosted gif service ---
+  check('the hosted tab is off by default', (await req('/meta')).json?.klipyConfigured === false);
+  check(
+    'and its search has nothing to offer',
+    (await req('/gifs/klipy', { token: ownerToken })).json?.gifs?.length === 0,
+  );
+  const withKey = await req('/settings', { method: 'PATCH', token: ownerToken, body: { klipyApiKey: 'test-key' } });
+  check('setting a key turns the hosted tab on', withKey.json?.klipyConfigured === true);
+  check('and the key itself is never sent back', withKey.json?.klipyApiKey === undefined);
+  check('the public meta agrees', (await req('/meta')).json?.klipyConfigured === true);
+  check(
+    'a member cannot set a key (403)',
+    (await req('/settings', { method: 'PATCH', token: bobToken, body: { klipyApiKey: 'nope' } })).status === 403,
+  );
+  const withoutKey = await req('/settings', { method: 'PATCH', token: ownerToken, body: { klipyApiKey: '' } });
+  check('clearing the key takes the tab away', withoutKey.json?.klipyConfigured === false);
+
+  // Only the service's own addresses are ever fetched, so the picker cannot be
+  // turned into a way to make the server fetch arbitrary pages.
+  check(
+    'a gif address outside the service is refused (400)',
+    (
+      await req('/gifs/pick', {
+        method: 'POST',
+        token: ownerToken,
+        body: { url: 'https://example.com/not-ours.gif' },
+      })
+    ).status === 400,
+  );
+  check(
+    'and so is saving one (400)',
+    (
+      await req('/gifs/favorites', {
+        method: 'POST',
+        token: ownerToken,
+        body: { url: 'https://example.com/not-ours.gif' },
+      })
+    ).status === 400,
+  );
 
   // --- Profile: display name and picture ---
   const renamed = await req('/users/@me', {

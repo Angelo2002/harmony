@@ -133,7 +133,7 @@
     const saved = gifs.byHash.get(attachment.hash);
     try {
       if (saved) await gifs.forget(saved.id);
-      else await gifs.save(attachment.id);
+      else await gifs.save({ attachmentId: attachment.id });
     } catch {
       // A heart that cannot act says nothing rather than interrupting the chat.
     }

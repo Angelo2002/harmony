@@ -86,7 +86,10 @@ const userService = createUserService(db.sqlite, config);
 const messageService = createMessageService(db.sqlite, hub, auditService);
 const moderationService = createModerationService({ sqlite: db.sqlite, hub, audit: auditService });
 const mediaService = createMediaService(db.sqlite, config);
-const gifService = createGifService(db.sqlite, config);
+const gifService = createGifService(db.sqlite, config, {
+  attachments: attachmentService,
+  settings: settingsService,
+});
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
 

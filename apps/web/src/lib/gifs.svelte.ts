@@ -1,4 +1,12 @@
-import type { Attachment, GifFavorite, GifFavoriteListResponse, GifItem, GifListResponse } from '@harmony/shared';
+import type {
+  Attachment,
+  GifFavorite,
+  GifFavoriteListResponse,
+  GifItem,
+  GifListResponse,
+  GifSearchResponse,
+  GifSearchResult,
+} from '@harmony/shared';
 import { api } from './api';
 
 /**
@@ -9,9 +17,22 @@ import { api } from './api';
 class GifState {
   favorites = $state<GifFavorite[]>([]);
   local = $state<GifItem[]>([]);
+  remote = $state<GifSearchResult[]>([]);
+  remoteLoading = $state(false);
   /** Saved gifs by content hash, so a heart anywhere can tell whether it is on. */
   byHash = $derived(new Map(this.favorites.map((favorite) => [favorite.hash, favorite])));
-  /** Raised with each local search, so a slower earlier one cannot overwrite it. */
+  /**
+   * Saved gifs by the address they came from. A hosted gif has no hash until it is
+   * fetched, so this is what tells whether one already saved is the one on screen.
+   */
+  bySourceUrl = $derived(
+    new Map(
+      this.favorites
+        .filter((favorite) => favorite.sourceUrl !== null)
+        .map((favorite) => [favorite.sourceUrl as string, favorite]),
+    ),
+  );
+  /** Raised with each search, so a slower earlier one cannot overwrite it. */
   #search = 0;
 
   async loadFavorites(): Promise<void> {
@@ -36,11 +57,29 @@ class GifState {
     }
   }
 
-  /** Keeps a gif, and marks it wherever it is already on show. */
-  async save(attachmentId: string): Promise<void> {
+  /** The hosted service's gifs, searched by the server so its key stays there. */
+  async searchRemote(query: string): Promise<void> {
+    const search = ++this.#search;
+    this.remoteLoading = true;
+    try {
+      const params = new URLSearchParams();
+      if (query.trim().length > 0) params.set('q', query.trim());
+      const suffix = params.size > 0 ? `?${params.toString()}` : '';
+      const body = await api<GifSearchResponse>(`/gifs/klipy${suffix}`);
+      if (search !== this.#search) return;
+      this.remote = body.gifs;
+    } catch {
+      // Leave whatever was there.
+    } finally {
+      if (search === this.#search) this.remoteLoading = false;
+    }
+  }
+
+  /** Keeps a gif, from this instance or from the hosted service, and marks it. */
+  async save(ref: { attachmentId: string } | { url: string }): Promise<void> {
     const favorite = await api<GifFavorite>('/gifs/favorites', {
       method: 'POST',
-      body: JSON.stringify({ attachmentId }),
+      body: JSON.stringify(ref),
     });
     this.favorites = [favorite, ...this.favorites.filter((entry) => entry.id !== favorite.id)];
     this.local = this.local.map((item) =>
@@ -55,7 +94,7 @@ class GifState {
   }
 
   /** Takes a gif into the message being written; returns the pending attachment. */
-  pick(ref: { attachmentId: string } | { favoriteId: string }): Promise<Attachment> {
+  pick(ref: { attachmentId: string } | { favoriteId: string } | { url: string }): Promise<Attachment> {
     return api<Attachment>('/gifs/pick', { method: 'POST', body: JSON.stringify(ref) });
   }
 }

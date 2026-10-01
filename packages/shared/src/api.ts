@@ -64,6 +64,11 @@ export interface InstanceMeta {
     usernameMax: number;
     passwordMin: number;
   };
+  /**
+   * Whether a hosted gif service is configured, and so whether the picker offers
+   * its tab. The key itself is never exposed to clients.
+   */
+  klipyConfigured: boolean;
 }
 
 /** Response for `PUT` / `DELETE /api/v1/icon`. */
@@ -96,6 +101,12 @@ export interface ServerSettingsResponse {
   previewUserAgent: string | null;
   /** True once the owner has been through the first-run setup wizard. */
   setupCompleted: boolean;
+  /**
+   * Whether a hosted gif service is configured, and so whether the picker offers
+   * its tab. The key itself is write-only: it goes in through the settings and is
+   * never sent back out.
+   */
+  klipyConfigured: boolean;
 }
 
 /** A user together with the roles assigned to them. */
@@ -291,6 +302,24 @@ export interface GifItem {
 
 export interface GifListResponse {
   gifs: GifItem[];
+}
+
+/**
+ * A gif offered by the hosted service the picker is configured with. Nothing is
+ * stored until one is picked or saved; these are the service's own addresses.
+ */
+export interface GifSearchResult {
+  /** The gif itself, which is what gets fetched if this is picked or saved. */
+  url: string;
+  /** A smaller one, for the grid. */
+  previewUrl: string;
+  width: number | null;
+  height: number | null;
+  title: string;
+}
+
+export interface GifSearchResponse {
+  gifs: GifSearchResult[];
 }
 
 export interface PruneSummary {

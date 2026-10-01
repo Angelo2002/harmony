@@ -869,7 +869,7 @@ message.
 
 ### Gifs and the picker
 
-The picker has two tabs. **Favourites** are private to the member who saved them, and a saved gif is
+The picker has three tabs. **Favourites** are private to the member who saved them, and a saved gif is
 held by **content hash** rather than by an attachment row, which is what lets it outlive the message
 it was found in: it is exempt from the image, video and message retention rules and is only ever aged
 out by `favoriteRetentionDays`, counted from the last time it was saved or sent. Nothing is ever
@@ -877,8 +877,12 @@ downloaded to save one — the bytes are already stored, and a saved gif shares 
 attachment of the same picture.
 
 **This server** lists what the instance already holds, one entry per picture however many times it
-was sent, and only from channels the caller may see. A third tab for a hosted service is planned and
-will appear only when a key for one is configured.
+was sent, and only from channels the caller may see.
+
+**Klipy** appears only when the instance has a key for it, and is answered entirely by the server so
+that key never reaches a browser. A gif saved or picked from there is downloaded and kept first, so
+what is stored is ours from then on rather than a link that can expire; only Klipy's own addresses
+are ever fetched, so the picker cannot be turned into a way to make the server fetch arbitrary pages.
 
 The picker is deliberately **gif-only**. A screenshot or a photo is stored and shown like anything
 else, but it is not something anybody browses a picker for: it is not listed here, it cannot be
@@ -930,17 +934,33 @@ Returns `{ "gifs": [GifItem] }`. Only channels the caller may see are searched, 
 [locked channel](#channel-locking) never turns up in somebody else's picker. Load a gif from
 `/api/v1/attachments/{id}`.
 
+#### `GET /api/v1/gifs/klipy` — `ViewChannels`
+
+The hosted service's gifs, answered through this server so the key stays here. With no `q` it is the
+service's trending list, which is what the tab shows when it opens.
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `q` | string, ≤100 | — | The search term; absent means trending |
+| `limit` | integer 1–50 | 30 | |
+
+Each result carries one address used for both the tile and the copy that is stored, so what somebody
+picks is what they were looking at. Nothing is stored until it is saved or picked. Returns
+`{ "gifs": [{ url, previewUrl, width, height, title }] }`, an empty list when no key is configured,
+and `502 gif_service_unavailable` when the service itself cannot be reached.
+
 #### `GET /api/v1/gifs/favorites` — `ViewChannels`
 
 This member's saved gifs, most recently used first. Returns `{ "favorites": [GifFavorite] }`.
 
 #### `POST /api/v1/gifs/favorites` — `ViewChannels`
 
-Body `{ "attachmentId": string }`. Keeps a gif this instance already holds and returns the
-`GifFavorite`. Saving the same gif twice only moves `usedAt` forward. A member may only save a gif
-they can see: anything from a channel they cannot view, or an unattached upload of somebody else's,
-answers `404 gif_not_found` rather than admitting it exists, and anything that is not a gif answers
-`400 not_a_gif`.
+Body `{ "attachmentId": string }` for a gif this instance already holds, or `{ "url": string }` for a
+hosted one, which is fetched and kept on the way in. Returns the `GifFavorite`. Saving the same gif
+twice only moves `usedAt` forward. A member may only save a gif they can see: anything from a channel
+they cannot view, or an unattached upload of somebody else's, answers `404 gif_not_found` rather than
+admitting it exists, anything that is not a gif answers `400 not_a_gif`, and an address outside the
+configured service answers `400 invalid_gif_url`.
 
 #### `DELETE /api/v1/gifs/favorites/:id` — `ViewChannels`
 
@@ -953,14 +973,15 @@ Serves the saved gif's bytes. Only the owner may fetch it, and it is cached immu
 
 #### `POST /api/v1/gifs/pick` — `AttachFiles`
 
-Takes a gif out of the picker and into the message being written. Body is either
-`{ "favoriteId": string }` or `{ "attachmentId": string }`; the answer is an `Attachment` that is
-**not yet attached to anything**. Send it with the message as usual — `POST /api/v1/channels/:id/messages`
-with `attachmentIds: [thatId]` — exactly as an upload would be.
+Takes a gif out of the picker and into the message being written. Body is one of
+`{ "favoriteId": string }`, `{ "attachmentId": string }` or `{ "url": string }` for a hosted gif; the
+answer is an `Attachment` that is **not yet attached to anything**. Send it with the message as usual
+— `POST /api/v1/channels/:id/messages` with `attachmentIds: [thatId]` — exactly as an upload would
+be.
 
-Nothing is fetched or copied: the picked attachment is a new row pointing at bytes the instance
-already has, so it costs a few hundred bytes and no bandwidth. Picking a **saved** gif also counts as
-using it, moving its `usedAt` forward.
+A gif this instance already holds costs nothing to pick: the attachment is a new row pointing at
+bytes that are already there, a few hundred bytes and no bandwidth. A hosted one is fetched and kept
+first. Picking a **saved** gif also counts as using it, moving its `usedAt` forward.
 
 ### Custom emoji
 
@@ -1323,7 +1344,7 @@ Returns `204`.
 
 `{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null,
 "embedsEnabled"?: boolean, "maxImageBytes"?: number, "maxVideoBytes"?: number,
-"previewUserAgent"?: string | null,
+"previewUserAgent"?: string | null, "klipyApiKey"?: string | null,
 "theme"?: { "background"?: string | null, "accent"?: string | null },
 "icon"?: { "padding"?: number | null, "background"?: string | null } }`.
 Returns the updated settings. `serverName` and `theme` changing also update `GET /api/v1/meta`.
@@ -1331,6 +1352,9 @@ Returns the updated settings. `serverName` and `theme` changing also update `GET
 clears the preference. `embedsEnabled` turns link previews on or off for the whole instance. The two
 upload limits are in bytes and may not exceed the server's hard ceiling of 100 MB. `previewUserAgent`
 sets the client name used when unfurling a link; an empty string or `null` means Harmony's own.
+`klipyApiKey` is the hosted gif service's key; an empty string or `null` clears it and takes the
+picker's hosted tab away. The key is **write-only** — it goes in through here and is never sent back
+out, the response carrying only `klipyConfigured` — and it is used server-side, never in a browser.
 `setupCompleted` records that the owner has been through the first-run setup; setting it `false`
 again makes the wizard greet them once more.
 

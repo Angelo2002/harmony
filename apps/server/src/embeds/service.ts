@@ -15,7 +15,7 @@ import type { SettingsService } from '../settings/service.ts';
 import { resolvesToPublicHost } from './guard.ts';
 import { readCappedBody } from './media.ts';
 import { parseEmbedMetadata } from './metadata.ts';
-import { discordAttachment, fetchGiphyMedia, fetchTweetEmbed, fetchYouTubeEmbed, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from './providers.ts';
+import { fetchGiphyMedia, fetchTweetEmbed, fetchYouTubeEmbed, isDiscordAttachment, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from './providers.ts';
 
 /** Outbound fetch limits, kept tight because the target is user-supplied. */
 const FETCH_TIMEOUT_MS = 6000;
@@ -42,10 +42,10 @@ export interface EmbedServiceDeps {
   /** Renders a message for a broadcast, or null when it is gone. */
   renderMessage: (messageId: string) => Message | null;
   /**
-   * Asks the bridge's bot for a live address for a pasted Discord attachment, since
-   * Discord's own is signed and expires. Absent while the bridge is not available.
+   * Renews a Discord CDN link through the bridge, since Discord signs those and the
+   * signature expires. Absent while the bridge is not available.
    */
-  resolveDiscordAttachment?: (channelId: string, attachmentId: string) => Promise<string | null>;
+  refreshDiscordAttachment?: (url: string) => Promise<string | null>;
   log?: (message: string, detail?: unknown) => void;
 }
 
@@ -117,13 +117,7 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
     const pending = inFlight.get(key);
     if (pending) return pending;
 
-    const job = fetchOutcome(
-      url,
-      userAgent,
-      deps.settings.get().maxImageBytes,
-      deps.resolveDiscordAttachment,
-      log,
-    )
+    const job = fetchOutcome(url, userAgent, deps.settings.get().maxImageBytes, deps.refreshDiscordAttachment, log)
       .catch((): Outcome => ({ kind: 'embed', embed: null }))
       .then((outcome) => {
         if (outcome.kind === 'embed') {
@@ -240,8 +234,8 @@ async function fetchOutcome(
   userAgent: string,
   /** Largest picture worth keeping, from the instance's own upload limit. */
   maxImageBytes: number,
-  /** Asks the bridge for a live Discord attachment address, when there is one. */
-  resolveDiscord: ((channelId: string, attachmentId: string) => Promise<string | null>) | undefined,
+  /** Renews a Discord CDN link through the bridge, when there is one. */
+  refreshDiscord: ((url: string) => Promise<string | null>) | undefined,
   log: (message: string, detail?: unknown) => void,
 ): Promise<Outcome> {
   let target: URL;
@@ -251,13 +245,13 @@ async function fetchOutcome(
     return { kind: 'embed', embed: null };
   }
 
-  // Discord signs its attachment addresses and they expire, so a link copied out
-  // of the client is often dead on arrival. The bridge's bot can ask Discord for
-  // the message the file belongs to and read a live address out of it. A link
+  // Discord signs the address of every attachment and the signature expires, so a
+  // link copied out of the client is usually dead on arrival. The bridge can renew
+  // it through Discord's own refresh endpoint, which signs any attachment address
+  // and needs neither the message nor access to the channel it came from. A link
   // that still carries an unexpired signature is used as it is.
-  const discord = discordAttachment(target);
-  if (discord && resolveDiscord && needsFreshSignature(target)) {
-    const signed = await resolveDiscord(discord.channelId, discord.attachmentId);
+  if (refreshDiscord && isDiscordAttachment(target) && needsFreshSignature(target)) {
+    const signed = await refreshDiscord(target.toString());
     if (signed) target = new URL(signed);
   }
 

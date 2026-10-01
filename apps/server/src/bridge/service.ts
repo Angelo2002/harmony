@@ -64,11 +64,10 @@ export interface BridgeService {
   /** Pulls recent Discord history into a bridged channel; returns how many. */
   importChannel(channelId: string, limit?: number): Promise<number>;
   /**
-   * A live, signed CDN address for a Discord attachment, found through the message
-   * it belongs to. Null when the bridge is down, the channel is not one the bot
-   * can read, or the message is gone.
+   * A live, signed address for a Discord CDN link, through Discord's own refresh
+   * endpoint. Null when the bridge is down or the address cannot be refreshed.
    */
-  resolveDiscordAttachment(channelId: string, attachmentId: string): Promise<string | null>;
+  refreshDiscordAttachment(url: string): Promise<string | null>;
   /** Sends a test message so an admin can verify a mapping and see any error. */
   testMirror(channelId: string): Promise<void>;
   /**
@@ -795,9 +794,9 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
 
     importChannel,
 
-    async resolveDiscordAttachment(channelId, attachmentId) {
+    async refreshDiscordAttachment(url) {
       if (!transport) return null;
-      return transport.resolveAttachmentUrl(channelId, attachmentId);
+      return transport.refreshAttachmentUrl(url);
     },
 
     onlineDiscordIds() {

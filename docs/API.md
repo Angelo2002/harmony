@@ -716,11 +716,11 @@ surrenders them only to a crawler name it recognises, which is what `previewUser
 
 **Discord attachments** are a case of their own. Discord signs every attachment address and it
 expires, so a link copied out of the client is usually dead by the time it is pasted here. When the
-bridge is connected, the server reads the channel and attachment ids out of the link, asks Discord
-through the bot for the message the file belongs to, and takes the live address from it; that is then
-fetched and kept like any other picture. A link the bot has no access to — a channel it cannot read,
-or a message that is gone — is left alone, and a link that still carries an unexpired signature is
-used as it is without asking.
+bridge is connected, the server asks Discord's own attachment refresh endpoint — the one its clients
+use — for a live address of the same file, which is then fetched and kept like any other picture.
+That endpoint signs any attachment address, even one in a channel or a whole server the bot cannot
+read, so a pasted Discord gif works wherever it came from. A link that still carries an unexpired
+signature is used as it is without asking.
 
 Everything else is scraped for OpenGraph metadata. Only the head is read: social tags always live
 there, and on a heavy page they can be hundreds of kilobytes in.

@@ -253,13 +253,11 @@ challenge and hands them over to a recognised crawler name alone. That is precis
 
 A Discord attachment link needs a different trick again, because the address itself is the problem:
 Discord signs it and the signature expires, so a link copied out of the client usually arrives already
-dead. The link still carries the channel and the attachment id, though, and those are enough to ask
-Discord for the message the file belongs to. When the bridge is connected its bot does exactly that —
-the attachment id is a snowflake, so it says roughly when the message was sent and the lookup starts
-there rather than walking the channel — and hands back a live address, which the ordinary guarded path
-then fetches and keeps. Nothing is stored when the bot cannot see that channel, or the message is
-gone, or the bridge is simply off, which is also why the feature costs an instance with no Discord
-presence nothing at all.
+dead. Discord has an endpoint of its own for exactly this — the one its clients call to renew an
+address — and when the bridge is connected the server asks it for a live address, which the ordinary
+guarded path then fetches and keeps. It signs any attachment address, including one in a channel or a
+server the bot has no access to, so nothing about where the file lives matters. Nothing is stored
+when the bridge is off, which is why the feature costs an instance with no Discord presence nothing.
 
 One detail is behind a surprising amount of the earlier unreliability: the fetch says it wants an
 image first and only falls back to a page (`Accept: image/*, text/html;q=0.9`), rather than the other

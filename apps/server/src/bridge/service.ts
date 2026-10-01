@@ -63,6 +63,11 @@ export interface BridgeService {
   downloadGuildEmoji(id: string, animated: boolean): Promise<{ data: Buffer; contentType: ImageContentType }>;
   /** Pulls recent Discord history into a bridged channel; returns how many. */
   importChannel(channelId: string, limit?: number): Promise<number>;
+  /**
+   * A live, signed address for a Discord CDN link, through Discord's own refresh
+   * endpoint. Null when the bridge is down or the address cannot be refreshed.
+   */
+  refreshDiscordAttachment(url: string): Promise<string | null>;
   /** Sends a test message so an admin can verify a mapping and see any error. */
   testMirror(channelId: string): Promise<void>;
   /**
@@ -334,6 +339,10 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   function collectMirrorFiles(message: Message): MirrorFile[] {
     const files: MirrorFile[] = [];
     for (const attachment of message.attachments) {
+      // A picture the server fetched out of the message's own text is not ours
+      // to send: the link is right there in the content, and Discord unfurls
+      // those itself, so uploading a copy would show the same gif twice.
+      if (attachment.sourceUrl !== null) continue;
       if (attachment.size > DISCORD_MAX_FILE_BYTES) {
         logger.debug('skipping an attachment too large for discord', {
           filename: attachment.filename,
@@ -784,6 +793,11 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     },
 
     importChannel,
+
+    async refreshDiscordAttachment(url) {
+      if (!transport) return null;
+      return transport.refreshAttachmentUrl(url);
+    },
 
     onlineDiscordIds() {
       return new Set(discordOnline);

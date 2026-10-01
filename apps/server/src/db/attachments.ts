@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { Attachment } from '@harmony/shared';
+import { GIF_CONTENT_TYPES, type Attachment } from '@harmony/shared';
 
 export interface AttachmentRow {
   id: string;
@@ -12,6 +12,8 @@ export interface AttachmentRow {
   height: number | null;
   hash: string;
   created_at: string;
+  /** The link this was copied from, or null for something that was uploaded. */
+  source_url: string | null;
 }
 
 export function toAttachment(row: AttachmentRow): Attachment {
@@ -25,6 +27,7 @@ export function toAttachment(row: AttachmentRow): Attachment {
     height: row.height,
     hash: row.hash,
     createdAt: row.created_at,
+    sourceUrl: row.source_url,
   };
 }
 
@@ -32,7 +35,7 @@ export function insertAttachment(
   sqlite: DatabaseSync,
   input: {
     id: string;
-    uploaderId: string;
+    uploaderId: string | null;
     filename: string;
     contentType: string;
     size: number;
@@ -40,12 +43,14 @@ export function insertAttachment(
     height: number | null;
     hash: string;
     createdAt: string;
+    /** Set when the bytes came from a link rather than an upload. */
+    sourceUrl?: string | null;
   },
 ): void {
   sqlite
     .prepare(
-      `INSERT INTO attachments (id, uploader_id, filename, content_type, size, width, height, hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO attachments (id, uploader_id, filename, content_type, size, width, height, hash, created_at, source_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.id,
@@ -57,7 +62,31 @@ export function insertAttachment(
       input.height,
       input.hash,
       input.createdAt,
+      input.sourceUrl ?? null,
     );
+}
+
+/**
+ * The attachments on a message that were copied from a link, so the one keeping
+ * a message in step with its own text can be found again.
+ */
+export function listLinkedAttachments(sqlite: DatabaseSync, messageId: string): AttachmentRow[] {
+  return sqlite
+    .prepare('SELECT * FROM attachments WHERE message_id = ? AND source_url IS NOT NULL')
+    .all(messageId) as unknown as AttachmentRow[];
+}
+
+/**
+ * Something already copied from this link, newest first, whoever posted it. Used
+ * to avoid fetching a file this instance is already holding: the same gif comes
+ * round again far more often than a community finds a new one.
+ */
+export function findAttachmentBySourceUrl(sqlite: DatabaseSync, url: string): AttachmentRow | null {
+  return (
+    (sqlite
+      .prepare('SELECT * FROM attachments WHERE source_url = ? ORDER BY created_at DESC, rowid DESC LIMIT 1')
+      .get(url) as AttachmentRow | undefined) ?? null
+  );
 }
 
 export function findAttachment(sqlite: DatabaseSync, id: string): AttachmentRow | null {
@@ -73,12 +102,18 @@ export function countAttachments(sqlite: DatabaseSync): number {
   return row.count;
 }
 
-/** Every blob hash still referenced by an attachment, an emoji or an avatar. */
+/**
+ * Every blob hash still referenced by an attachment, an emoji, an avatar or a
+ * saved gif. A favourite is here on purpose: it is kept by hash rather than by a
+ * message, so it is what keeps a saved gif alive after the message it was found
+ * in is gone.
+ */
 export function listReferencedHashes(sqlite: DatabaseSync): Set<string> {
   const rows = sqlite
     .prepare(
       `SELECT hash FROM attachments
        UNION SELECT hash FROM emojis
+       UNION SELECT hash FROM gif_favorites
        UNION SELECT avatar_hash FROM users WHERE avatar_hash IS NOT NULL`,
     )
     .all() as unknown as Array<{ hash: string }>;
@@ -196,4 +231,44 @@ export function listMedia(
 export function deleteAttachment(sqlite: DatabaseSync, id: string): boolean {
   const result = sqlite.prepare('DELETE FROM attachments WHERE id = ?').run(id);
   return Number(result.changes) > 0;
+}
+
+/**
+ * Recent gif attachments that could appear in the picker's local tab, newest first.
+ * `channelIds` limits it to the channels a member may see, and null means every
+ * channel, which is what an administrator gets. `q` matches the file name or the
+ * link it was fetched from. Rows are not deduplicated: the same bytes are stored
+ * once but sent many times, and which copy to keep is the caller's call.
+ */
+export function listRecentGifAttachments(
+  sqlite: DatabaseSync,
+  options: { channelIds: string[] | null; q: string | null; limit: number },
+): AttachmentRow[] {
+  if (options.channelIds && options.channelIds.length === 0) return [];
+
+  const types = GIF_CONTENT_TYPES.map(() => '?').join(', ');
+  const clauses = [`a.content_type IN (${types})`, 'a.message_id IS NOT NULL'];
+  const params: Array<string | number> = [...GIF_CONTENT_TYPES];
+
+  if (options.channelIds) {
+    clauses.push(`m.channel_id IN (${options.channelIds.map(() => '?').join(', ')})`);
+    params.push(...options.channelIds);
+  }
+  if (options.q) {
+    // A search term is text, not a pattern, so its own wildcards are escaped.
+    const like = `%${options.q.replace(/[\\%_]/g, '\\$&')}%`;
+    clauses.push("(a.filename LIKE ? ESCAPE '\\' OR a.source_url LIKE ? ESCAPE '\\')");
+    params.push(like, like);
+  }
+  params.push(options.limit);
+
+  return sqlite
+    .prepare(
+      `SELECT a.* FROM attachments a
+       JOIN messages m ON m.id = a.message_id
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY a.created_at DESC, a.rowid DESC
+       LIMIT ?`,
+    )
+    .all(...params) as unknown as AttachmentRow[];
 }

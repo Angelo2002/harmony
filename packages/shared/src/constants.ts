@@ -7,7 +7,7 @@ export const HARMONY_NAME = 'Harmony';
  * the major number is the owner's to raise. Kept here rather than in a
  * package.json so the client, the server and the bridge all read one value.
  */
-export const HARMONY_VERSION = '1.1.0';
+export const HARMONY_VERSION = '1.3.0';
 
 /** Where the project lives, linked from the About panel. */
 export const HARMONY_REPO_URL = 'https://github.com/YuukiEatsYou/harmony';
@@ -41,6 +41,18 @@ export type VideoContentType = (typeof ALLOWED_VIDEO_TYPES)[number];
 
 /** Everything the attachment upload endpoint accepts. */
 export const ALLOWED_ATTACHMENT_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_VIDEO_TYPES] as const;
+
+/**
+ * What the gif picker works with. It is deliberately gif-only: a screenshot or a
+ * photo is not something anybody browses a picker for, so the searchable library,
+ * the hearts and what can be saved are all limited to these.
+ */
+export const GIF_CONTENT_TYPES = ['image/gif'] as const;
+
+/** Whether an attachment is a gif, and so belongs in the picker. */
+export function isGifContentType(contentType: string): boolean {
+  return (GIF_CONTENT_TYPES as readonly string[]).includes(contentType);
+}
 
 /** Default maximum size of an image upload, in bytes (10 MiB). */
 export const DEFAULT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;

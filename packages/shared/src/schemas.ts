@@ -134,6 +134,13 @@ export type AuditQuery = z.infer<typeof auditQuerySchema>;
 export const mediaQuerySchema = cursorQuerySchema;
 export type MediaQuery = z.infer<typeof mediaQuerySchema>;
 
+/** The picker's local tab: a search term and a page size. */
+export const gifQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type GifQuery = z.infer<typeof gifQuerySchema>;
+
 /** Permission bitfields cross the wire as decimal strings. */
 const permissionString = z.string().regex(/^\d+$/, 'Must be a decimal permission bitfield');
 
@@ -190,6 +197,8 @@ export const updateSettingsSchema = z.object({
   previewUserAgent: z.string().trim().max(200).nullable().optional(),
   /** Set true once the owner has finished or skipped the first-run wizard. */
   setupCompleted: z.boolean().optional(),
+  /** An empty string clears it, and the picker loses its hosted tab. */
+  klipyApiKey: z.string().trim().max(200).nullable().optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
@@ -217,10 +226,39 @@ export const updateRetentionSchema = z.object({
   videoRetentionDays: retentionNumber,
   messageRetentionDays: retentionNumber,
   auditRetentionDays: retentionNumber,
+  favoriteRetentionDays: retentionNumber,
   storageLimitBytes: retentionNumber,
   storageTargetBytes: retentionNumber,
 });
 export type UpdateRetentionInput = z.infer<typeof updateRetentionSchema>;
+
+/** Keeps an already-stored gif, so it survives the message it was found in. */
+export const addGifFavoriteSchema = z.union([
+  z.object({ attachmentId: z.string().min(1) }),
+  /** A hosted service's gif, which is fetched and kept at that moment. */
+  z.object({ url: z.string().min(1).max(2048) }),
+]);
+export type AddGifFavoriteInput = z.infer<typeof addGifFavoriteSchema>;
+
+/**
+ * Takes a gif out of the picker and into the message being written. The server
+ * copies it into an unattached attachment owned by the caller, which the message
+ * then claims exactly as it would an upload.
+ */
+export const pickGifSchema = z.union([
+  z.object({ attachmentId: z.string().min(1) }),
+  z.object({ favoriteId: z.string().min(1) }),
+  /** A hosted service's gif, fetched and kept on the way in. */
+  z.object({ url: z.string().min(1).max(2048) }),
+]);
+export type PickGifInput = z.infer<typeof pickGifSchema>;
+
+/** The picker's hosted tab: a search term and a page size. */
+export const gifSearchQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(30),
+});
+export type GifSearchQuery = z.infer<typeof gifSearchQuerySchema>;
 
 export const updateBridgeSchema = z
   .object({

@@ -27,6 +27,9 @@
   let maxImageMb = $state('');
   let maxVideoMb = $state('');
   let previewUserAgent = $state('');
+  /** Written only: the server never sends a saved key back, so this starts blank. */
+  let klipyKey = $state('');
+  let klipyConfigured = $state(false);
   let iconPaddingAuto = $state(true);
   let iconPadding = $state(String(DEFAULT_ICON_PADDING));
   let iconBackgroundAuto = $state(true);
@@ -74,6 +77,7 @@
       maxImageMb = toMb(settings.maxImageBytes);
       maxVideoMb = toMb(settings.maxVideoBytes);
       previewUserAgent = settings.previewUserAgent ?? '';
+      klipyConfigured = settings.klipyConfigured;
       applyIcon(settings.icon);
       channels = channelData.channels;
     } catch (cause) {
@@ -165,6 +169,26 @@
     }
   }
 
+  async function clearKlipyKey(): Promise<void> {
+    busy = true;
+    error = null;
+    message = null;
+    try {
+      const updated = await api<ServerSettingsResponse>('/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ klipyApiKey: '' }),
+      });
+      klipyConfigured = updated.klipyConfigured;
+      klipyKey = '';
+      if (meta.data) meta.data = { ...meta.data, klipyConfigured: updated.klipyConfigured };
+      message = 'Gif key cleared.';
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
   async function save(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     busy = true;
@@ -188,6 +212,8 @@
       const videoBytes = toBytes(maxVideoMb);
       if (imageBytes !== undefined) body.maxImageBytes = imageBytes;
       if (videoBytes !== undefined) body.maxVideoBytes = videoBytes;
+      // Blank means "keep the saved key", which is why it is left out entirely.
+      if (klipyKey.trim()) body.klipyApiKey = klipyKey.trim();
 
       const updated = await api<ServerSettingsResponse>('/settings', {
         method: 'PATCH',
@@ -203,10 +229,12 @@
       maxImageMb = toMb(updated.maxImageBytes);
       maxVideoMb = toMb(updated.maxVideoBytes);
       previewUserAgent = updated.previewUserAgent ?? '';
+      klipyConfigured = updated.klipyConfigured;
+      klipyKey = '';
       // Remember the saved palette, and keep the public meta in step, so the
       // restore above falls back to what is actually stored.
       setSavedTheme(updated.theme);
-      if (meta.data) meta.data = { ...meta.data, theme: updated.theme };
+      if (meta.data) meta.data = { ...meta.data, theme: updated.theme, klipyConfigured: updated.klipyConfigured };
       message = 'Settings saved.';
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
@@ -358,6 +386,31 @@
         <input type="color" bind:value={iconBackground} disabled={iconBackgroundAuto} />
         <span class="muted">Only ever seen where the padding leaves a gap.</span>
       </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Gifs</legend>
+      <label>
+        Klipy API key
+        {#if klipyConfigured}<span class="muted">(saved — leave blank to keep it)</span>{/if}
+        <input
+          type="password"
+          bind:value={klipyKey}
+          placeholder={klipyConfigured ? '••••••••••••' : 'Optional'}
+          maxlength="200"
+          autocomplete="off"
+        />
+      </label>
+      <p class="muted">
+        Adds a Klipy tab to the gif picker, searched through your server so the key is never sent to a
+        browser. A free key can be made at <code>partner.klipy.com</code>. Leave blank to run the
+        picker on saved and locally posted gifs alone.
+      </p>
+      {#if klipyConfigured}
+        <div class="editor-actions">
+          <button type="button" class="danger" onclick={clearKlipyKey} disabled={busy}>Clear key</button>
+        </div>
+      {/if}
     </fieldset>
 
     {#if error}<p class="form-error">{error}</p>{/if}

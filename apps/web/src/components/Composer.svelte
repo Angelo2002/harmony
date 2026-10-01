@@ -19,6 +19,7 @@
   import { session } from '../lib/session.svelte';
   import { uploads } from '../lib/upload-queue.svelte';
   import EmojiPicker from './EmojiPicker.svelte';
+  import GifPicker from './GifPicker.svelte';
 
   const acceptAttribute = ALLOWED_ATTACHMENT_TYPES.join(',');
   const maxAttachments = LIMITS.attachmentsPerMessage;
@@ -35,6 +36,7 @@
   let fileInput = $state<HTMLInputElement | null>(null);
   let textInput = $state<HTMLInputElement | null>(null);
   let showPicker = $state(false);
+  let showGifs = $state(false);
 
   /** The `:emoji` or `@mention` fragment being typed at the caret, if any. */
   let activeTrigger = $state<Trigger | null>(null);
@@ -117,6 +119,21 @@
 
   function removePending(id: string): void {
     pending = pending.filter((attachment) => attachment.id !== id);
+  }
+
+  /**
+   * Queues whatever the gif picker chose. Picking already stored the gif as an
+   * unattached attachment of this member's, so from here it is no different from
+   * an upload that has just finished.
+   */
+  function addGif(attachment: Attachment): void {
+    showGifs = false;
+    if (pending.length >= maxAttachments) {
+      error = `You can attach at most ${maxAttachments} files per message.`;
+      return;
+    }
+    error = null;
+    pending = [...pending, attachment];
   }
 
   /**
@@ -408,6 +425,10 @@
     <EmojiPicker onpick={(emoji) => insertEmoji(emoji)} />
   {/if}
 
+  {#if showGifs}
+    <GifPicker onpick={addGif} />
+  {/if}
+
   {#if pending.length > 0}
     <div class="pending">
       {#each pending as attachment (attachment.id)}
@@ -460,7 +481,23 @@
   {/if}
 
   <form onsubmit={submit}>
-    <button type="button" class="attach" title="Add emoji" onclick={() => (showPicker = !showPicker)}>☺</button>
+    <button
+      type="button"
+      class="attach"
+      title="Add emoji"
+      onclick={() => {
+        showPicker = !showPicker;
+        showGifs = false;
+      }}>☺</button
+    >
+    <button
+      type="button"
+      class="attach attach-gif"
+      title="Add gif"
+      onclick={() => {
+        showGifs = !showGifs;
+        showPicker = false;
+      }}>GIF</button>
     <button
       type="button"
       class="attach"

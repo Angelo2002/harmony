@@ -17,6 +17,7 @@ export function registerMetaRoutes(app: FastifyInstance, deps: { config: Config;
       maxVideoBytes: settings.maxVideoBytes,
       allowedImageTypes: ALLOWED_IMAGE_TYPES,
       allowedVideoTypes: ALLOWED_VIDEO_TYPES,
+      klipyConfigured: settings.klipyConfigured,
       limits: {
         messageLength: LIMITS.messageLength,
         attachmentsPerMessage: LIMITS.attachmentsPerMessage,

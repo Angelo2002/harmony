@@ -13,6 +13,7 @@ import type {
 } from '@harmony/shared';
 import { ApiError, api } from './api';
 import { emojis } from './emojis.svelte';
+import { gifs } from './gifs.svelte';
 import { mentionsUser, mergeLatest } from './messages';
 import { members } from './members.svelte';
 import { roster } from './roster.svelte';
@@ -103,6 +104,7 @@ class ChatStore {
     this.#gateway.onEvent((frame) => this.#handleEvent(frame));
     await this.loadChannels();
     await emojis.load();
+    await gifs.loadFavorites();
     await members.load();
     await roster.load();
     this.#gateway.connect();
@@ -145,6 +147,7 @@ class ChatStore {
     void roster.load();
     void members.load();
     void emojis.load();
+    void gifs.loadFavorites();
     void this.#refreshSession();
 
     const channelId = this.activeChannelId;

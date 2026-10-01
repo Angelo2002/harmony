@@ -47,6 +47,79 @@ const TWITTER_HOSTS = new Set([
   'mobile.twitter.com',
 ]);
 
+const GIPHY_HOSTS = new Set(['giphy.com', 'www.giphy.com']);
+
+/**
+ * Whether a link is one of Giphy's pages for a gif, rather than a file of theirs
+ * already. Their media addresses are handled as what they are, a link straight
+ * at a picture.
+ */
+export function isGiphyPage(url: URL): boolean {
+  if (!GIPHY_HOSTS.has(url.hostname.toLowerCase())) return false;
+  return /^\/(?:gifs|embed)\//.test(url.pathname);
+}
+
+/**
+ * The file behind one of Giphy's pages, through an endpoint of theirs that needs
+ * no account and no key.
+ *
+ * The page itself is no help: it offers a still WebP and an animated GIF as two
+ * preview images, and a page rewritten to a file address is the same thing as a
+ * link straight at a gif, which is what a chat client should show. The address
+ * asked is fixed, so the caller's URL cannot steer the request anywhere; where
+ * Giphy points afterwards is checked by the caller like any other address.
+ */
+export async function fetchGiphyMedia(pageUrl: string, userAgent: string): Promise<string | null> {
+  const endpoint = `https://giphy.com/services/oembed?url=${encodeURIComponent(pageUrl)}`;
+  const response = await fetch(endpoint, {
+    headers: { 'user-agent': userAgent, accept: 'application/json' },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  }).catch(() => null);
+  if (!response?.ok) return null;
+
+  const data = (await response.json().catch(() => null)) as { url?: unknown; type?: unknown } | null;
+  if (!data || typeof data.url !== 'string') return null;
+
+  try {
+    const media = new URL(data.url);
+    return media.protocol === 'http:' || media.protocol === 'https:' ? media.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Gif services whose page shows one gif, keyed by host with its page shape. */
+const GIF_PAGE_HOSTS = new Map<string, RegExp>([
+  ['tenor.com', /^\/view\//],
+  ['klipy.com', /^\/gifs\//],
+]);
+
+/**
+ * Whether a link is a page of a gif service that shows a single gif, rather than
+ * a file of theirs already. These pages serve no file at their own address; they
+ * name one in their preview metadata, so the picture is picked up from there
+ * once the page has been read.
+ *
+ * Giphy is deliberately absent: it answers through an endpoint of its own, so it
+ * is asked before a page is ever fetched.
+ */
+export function isGifPage(url: URL): boolean {
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  const path = GIF_PAGE_HOSTS.get(host);
+  return path !== undefined && path.test(url.pathname);
+}
+
+const DISCORD_CDN_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
+const DISCORD_ATTACHMENT_PATH = /^\/(?:attachments|ephemeral-attachments)\/\d{15,25}\/\d{15,25}\//;
+
+/**
+ * Whether a link is a Discord CDN attachment, which is signed with an expiry and
+ * cannot be fetched without a fresh signature.
+ */
+export function isDiscordAttachment(url: URL): boolean {
+  return DISCORD_CDN_HOSTS.has(url.hostname.toLowerCase()) && DISCORD_ATTACHMENT_PATH.test(url.pathname);
+}
+
 /** The numeric status id in an X/Twitter link, or null when it is not one. */
 export function tweetStatusId(url: URL): string | null {
   if (!TWITTER_HOSTS.has(url.hostname.toLowerCase())) return null;

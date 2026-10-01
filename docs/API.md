@@ -27,6 +27,8 @@ code wins — please open an issue.
   - [Search](#search)
   - [Reactions](#reactions)
   - [Attachments](#attachments)
+  - [Media gallery](#media-gallery)
+  - [Gifs and the picker](#gifs-and-the-picker)
   - [Custom emoji](#custom-emoji)
   - [Users and avatars](#users-and-avatars)
   - [Roles](#roles)
@@ -191,6 +193,7 @@ type Attachment = {
   height: number | null;
   hash: string;                 // content hash; blob is immutable
   createdAt: string;
+  sourceUrl: string | null;     // the link this was fetched from, null for an upload
 };
 
 type Reaction = {
@@ -656,17 +659,44 @@ stub, and the bridge mirrors the removal to Discord.
 #### Link previews
 
 When `embedsEnabled` is on, the server takes the first link a message contains and, if it can reach
-it, attaches a small `embed` and fires a second `MESSAGE_UPDATE` carrying it. Only the first link is
-used. As well as the text, the page's preview image (`og:image` or `twitter:image`) is recorded in
-`imageUrl`; a link that points straight at an image is its own preview.
+it, resolves it. Only the first link is used. What comes back depends on what the link is:
+
+- **A picture** — anything served as one of the instance's accepted image types — is **downloaded
+  and kept as an attachment of that message**, and the message carries no `embed` at all. A link to
+  somebody else's file cannot be relied on to still be there: those addresses are often signed and
+  expire, and a preview that merely points at one goes dead within a day. A copy of our own keeps
+  working, appears in the media gallery, answers to retention, and needs no card around it. Which
+  attachment came from a link is recorded in its `sourceUrl`.
+- **A page** becomes a small `embed`: its title, description, site name, and preview image
+  (`og:image` or `twitter:image`) in `imageUrl`. Where a page offers several preview images, the
+  animated one is preferred: Giphy and Klipy both list a still WebP first and the GIF second, so
+  taking the first is what makes those links preview as frozen pictures.
+- **A gif service's page** — Tenor (`tenor.com/view/…`) and Klipy (`klipy.com/gifs/…`) — is read for
+  the picture it names in its own preview metadata, and that picture is then fetched and kept exactly
+  like a picture link: an attachment, no card, the page's address in `sourceUrl`. Giphy's pages come
+  out the same way, except Giphy names the file through a keyless endpoint, so its page is never
+  fetched at all.
+
+Only a picture is ever kept, and only its own bytes: a page's `imageUrl` stays a reference that a
+client loads through the proxy below. A picture larger than the instance's `maxImageBytes` is left as
+an old-style card instead, since keeping it would mean storing something an upload of the same file
+would have been refused.
+
+A link the instance has already fetched is not fetched again. A community posts the same handful of
+gifs over and over, so the first message to arrive with a given link downloads it and every later one
+is given a record of its own pointing at those same bytes. Two messages, one file on disk, no second
+request. A link is assumed to keep pointing at what it pointed at the first time.
 
 Links inside code, masked links (`[text](url)`) and angle-bracket links (`<url>`) are never
 unfurled. The fetch is guarded: `http` and `https` only, the host must resolve to a public address,
-and redirects are limited and re-checked at each hop. Editing a message drops its old preview and
-resolves the new text, and a message the Discord bridge imports resolves a preview as if it had been
-typed here. Turn previews off instance-wide with `embedsEnabled` in the server settings.
+and redirects are limited and re-checked at each hop. Editing a message drops what it previously
+resolved — a preview card and any picture it had fetched — and resolves the new text, so removing a
+link takes the picture with it. Resolving is skipped when the link has not changed, so an edit
+elsewhere in the text does not download the same file twice. A message the Discord bridge imports
+resolves the same way it would if it had been typed here. Turn the whole thing off instance-wide
+with `embedsEnabled` in the server settings.
 
-Two providers are recognised from the link itself and asked for a small JSON summary instead of a
+Three providers are recognised from the link itself and asked for a small JSON summary instead of a
 page, because their pages are heavy, script-driven or both:
 
 - **YouTube** (`watch?v=`, `youtu.be`, `/shorts/`, `/embed/`) resolves through YouTube's oEmbed
@@ -675,9 +705,33 @@ page, because their pages are heavy, script-driven or both:
 - **X/Twitter** status links (`x.com`, `twitter.com`, including `/i/status/`) resolve through X's
   embed endpoint, which gives the author and handle, the text without its trailing media link, and
   the media image. A tweet with no media carries no image rather than its avatar.
+- **Giphy** gif pages (`giphy.com/gifs/…`, `giphy.com/embed/…`) resolve through Giphy's keyless
+  oEmbed endpoint, which names the file behind the page. That address is then fetched like any other
+  link straight at a picture, so the gif is kept as an attachment and the message carries no card.
+  The page itself is no help here: it offers a still WebP and the animated GIF as two previews, and
+  a page rewritten to a file is exactly what a chat client should show.
+
+Tenor and Klipy have no endpoint of their own, so their pages are read instead: each names the gif in
+its preview metadata and that address is fetched the same way. The only difference between them is
+access — Tenor serves its pages to anyone, while Klipy hides them behind a Cloudflare challenge and
+surrenders them only to a crawler name it recognises, which is what `previewUserAgent` is for.
+
+**Discord attachments** are a case of their own. Discord signs every attachment address and it
+expires, so a link copied out of the client is usually dead by the time it is pasted here. When the
+bridge is connected, the server asks Discord's own attachment refresh endpoint — the one its clients
+use — for a live address of the same file, which is then fetched and kept like any other picture.
+That endpoint signs any attachment address, even one in a channel or a whole server the bot cannot
+read, so a pasted Discord gif works wherever it came from. A link that still carries an unexpired
+signature is used as it is without asking.
 
 Everything else is scraped for OpenGraph metadata. Only the head is read: social tags always live
 there, and on a heavy page they can be hundreds of kilobytes in.
+
+The fetch asks for an image first and a page only as a fallback (`Accept: image/*, text/html;q=0.9`),
+because some hosts serve both for the same address and choose by what the client says it wants.
+Asking for HTML first is how a media address that answers with a web page — Giphy's do — ends up as a
+card pointing at a perfectly good gif instead of the gif itself. A response that really is HTML is
+still read as a page exactly as before.
 
 The unfurler names itself `Harmony/1.0 link-preview`. Sites protected by a managed bot challenge —
 Cloudflare, and so Klipy, among others — refuse that name and the preview never appears; the server
@@ -686,9 +740,11 @@ is the only way to preview them.
 
 #### `GET /api/v1/embeds/media` — `ViewChannels`
 
-Serves a preview image, given the embed's `imageUrl` as a `url` query parameter. A client should
-load `imageUrl` through this rather than from the third party: the viewer's address stays private,
-and an `http`-only image still shows on an `https` page.
+Serves a preview image for a card, given the embed's `imageUrl` as a `url` query parameter. A client
+should load `imageUrl` through this rather than from the third party: the viewer's address stays
+private, and an `http`-only image still shows on an `https` page. A picture a message linked to
+directly does not go through here: it was kept as an attachment, and is served from `/attachments`
+like any other.
 
 The URL is treated as hostile exactly like the metadata fetch — public hosts only, redirects
 re-checked — the response must be an `image/*` type of at most 8 MB, and SVG is refused because it
@@ -810,6 +866,122 @@ together.
 
 `uploader`, `channelId` and `channelName` are `null` for an upload that was never attached to a
 message.
+
+### Gifs and the picker
+
+The picker has three tabs. **Favourites** are private to the member who saved them, and a saved gif is
+held by **content hash** rather than by an attachment row, which is what lets it outlive the message
+it was found in: it is exempt from the image, video and message retention rules and is only ever aged
+out by `favoriteRetentionDays`, counted from the last time it was saved or sent. Nothing is ever
+downloaded to save one — the bytes are already stored, and a saved gif shares its blob with every
+attachment of the same picture.
+
+**This server** lists what the instance already holds, one entry per picture however many times it
+was sent, and only from channels the caller may see.
+
+**Klipy** appears only when the instance has a key for it, and is answered entirely by the server so
+that key never reaches a browser. A gif saved or picked from there is downloaded and kept first, so
+what is stored is ours from then on rather than a link that can expire; only Klipy's own addresses
+are ever fetched, so the picker cannot be turned into a way to make the server fetch arbitrary pages.
+
+The picker is deliberately **gif-only**. A screenshot or a photo is stored and shown like anything
+else, but it is not something anybody browses a picker for: it is not listed here, it cannot be
+saved, and it cannot be picked. `GIF_CONTENT_TYPES` in the shared package is the one place that
+decides what counts.
+
+```ts
+type GifFavorite = {
+  id: string;
+  hash: string;             // content hash of the bytes
+  filename: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  sourceUrl: string | null; // the link it was fetched from, if any
+  createdAt: string;
+  usedAt: string;           // what favouriteRetentionDays counts from
+};
+```
+
+#### `GET /api/v1/gifs/local` — `ViewChannels`
+
+Gifs this instance already holds, **newest first**, for the picker's second tab. One entry per
+picture: identical bytes are stored once but sent many times, so only the most recent copy of each is
+listed.
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `q` | string, ≤100 | — | Matches the file name or the link it came from |
+| `limit` | integer 1–100 | 50 | |
+
+```ts
+type GifItem = {
+  id: string;               // the attachment serving the bytes
+  hash: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  sourceUrl: string | null;
+  createdAt: string;
+  favoriteId: string | null; // the caller's saved copy, if they have one
+};
+```
+
+Returns `{ "gifs": [GifItem] }`. Only channels the caller may see are searched, so a gif in a
+[locked channel](#channel-locking) never turns up in somebody else's picker. Load a gif from
+`/api/v1/attachments/{id}`.
+
+#### `GET /api/v1/gifs/klipy` — `ViewChannels`
+
+The hosted service's gifs, answered through this server so the key stays here. With no `q` it is the
+service's trending list, which is what the tab shows when it opens.
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `q` | string, ≤100 | — | The search term; absent means trending |
+| `limit` | integer 1–50 | 30 | |
+
+Each result carries one address used for both the tile and the copy that is stored, so what somebody
+picks is what they were looking at. Nothing is stored until it is saved or picked. Returns
+`{ "gifs": [{ url, previewUrl, width, height, title }] }`, an empty list when no key is configured,
+and `502 gif_service_unavailable` when the service itself cannot be reached.
+
+#### `GET /api/v1/gifs/favorites` — `ViewChannels`
+
+This member's saved gifs, most recently used first. Returns `{ "favorites": [GifFavorite] }`.
+
+#### `POST /api/v1/gifs/favorites` — `ViewChannels`
+
+Body `{ "attachmentId": string }` for a gif this instance already holds, or `{ "url": string }` for a
+hosted one, which is fetched and kept on the way in. Returns the `GifFavorite`. Saving the same gif
+twice only moves `usedAt` forward. A member may only save a gif they can see: anything from a channel
+they cannot view, or an unattached upload of somebody else's, answers `404 gif_not_found` rather than
+admitting it exists, anything that is not a gif answers `400 not_a_gif`, and an address outside the
+configured service answers `400 invalid_gif_url`.
+
+#### `DELETE /api/v1/gifs/favorites/:id` — `ViewChannels`
+
+Forgets one of the caller's own saved gifs. `204` on success; `404` for anybody else's.
+
+#### `GET /api/v1/gifs/favorites/:id/image` — `ViewChannels`
+
+Serves the saved gif's bytes. Only the owner may fetch it, and it is cached immutably by hash, like
+`/attachments/:id`.
+
+#### `POST /api/v1/gifs/pick` — `AttachFiles`
+
+Takes a gif out of the picker and into the message being written. Body is one of
+`{ "favoriteId": string }`, `{ "attachmentId": string }` or `{ "url": string }` for a hosted gif; the
+answer is an `Attachment` that is **not yet attached to anything**. Send it with the message as usual
+— `POST /api/v1/channels/:id/messages` with `attachmentIds: [thatId]` — exactly as an upload would
+be.
+
+A gif this instance already holds costs nothing to pick: the attachment is a new row pointing at
+bytes that are already there, a few hundred bytes and no bandwidth. A hosted one is fetched and kept
+first. Picking a **saved** gif also counts as using it, moving its `usedAt` forward.
 
 ### Custom emoji
 
@@ -1172,7 +1344,7 @@ Returns `204`.
 
 `{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null,
 "embedsEnabled"?: boolean, "maxImageBytes"?: number, "maxVideoBytes"?: number,
-"previewUserAgent"?: string | null,
+"previewUserAgent"?: string | null, "klipyApiKey"?: string | null,
 "theme"?: { "background"?: string | null, "accent"?: string | null },
 "icon"?: { "padding"?: number | null, "background"?: string | null } }`.
 Returns the updated settings. `serverName` and `theme` changing also update `GET /api/v1/meta`.
@@ -1180,6 +1352,9 @@ Returns the updated settings. `serverName` and `theme` changing also update `GET
 clears the preference. `embedsEnabled` turns link previews on or off for the whole instance. The two
 upload limits are in bytes and may not exceed the server's hard ceiling of 100 MB. `previewUserAgent`
 sets the client name used when unfurling a link; an empty string or `null` means Harmony's own.
+`klipyApiKey` is the hosted gif service's key; an empty string or `null` clears it and takes the
+picker's hosted tab away. The key is **write-only** — it goes in through here and is never sent back
+out, the response carrying only `klipyConfigured` — and it is used server-side, never in a browser.
 `setupCompleted` records that the owner has been through the first-run setup; setting it `false`
 again makes the wizard greet them once more.
 
@@ -1266,12 +1441,16 @@ Retention automatically prunes old content and can cap total storage. Any rule s
 switched off. Image, video, message and audit-log age limits are independent: each is deleted once
 it is older than its own limit, and the log can be cleared outright with `DELETE /api/v1/audit`.
 
+[Saved gifs](#gifs-and-the-picker) are deliberately outside all of those. `favoriteRetentionDays` is
+the only rule that ages one out, counted from the last time it was saved or sent.
+
 ```ts
 type RetentionSettings = {
   imageRetentionDays: number | null;
   videoRetentionDays: number | null;
   messageRetentionDays: number | null;
   auditRetentionDays: number | null;
+  favoriteRetentionDays: number | null;
   storageLimitBytes: number | null;
   storageTargetBytes: number | null;
 };
@@ -1283,6 +1462,7 @@ type PruneSummary = {
   deletedAttachments: number;
   deletedMessages: number;
   deletedAuditEntries: number;
+  deletedFavorites: number;
   deletedBlobs: number;
   freedBytes: number;
 };
@@ -1295,8 +1475,8 @@ Returns `{ settings, usage, lastRun }`, where `lastRun` is a `PruneSummary` or `
 #### `PATCH /api/v1/retention` — `ManageServer`
 
 Any subset of `imageRetentionDays`, `videoRetentionDays`, `messageRetentionDays`,
-`auditRetentionDays`, `storageLimitBytes`, `storageTargetBytes`; `null` disables a rule. Returns the
-same shape as `GET`.
+`auditRetentionDays`, `favoriteRetentionDays`, `storageLimitBytes`, `storageTargetBytes`; `null`
+disables a rule. Returns the same shape as `GET`.
 
 #### `POST /api/v1/retention/run` — `ManageServer`
 

@@ -167,6 +167,12 @@ export interface DiscordTransport {
   /** Fetches an attachment's bytes from the Discord CDN. */
   download(url: string): Promise<Buffer>;
   /**
+   * A live, signed address for a Discord CDN link, through Discord's own refresh
+   * endpoint, which signs any attachment address the bot may not otherwise be
+   * able to reach. Null when the address cannot be refreshed.
+   */
+  refreshAttachmentUrl(url: string): Promise<string | null>;
+  /**
    * The most recent messages in a Discord channel, oldest first, for backfilling
    * a newly linked channel. Bots and webhooks are included; the caller filters.
    */

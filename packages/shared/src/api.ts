@@ -64,6 +64,11 @@ export interface InstanceMeta {
     usernameMax: number;
     passwordMin: number;
   };
+  /**
+   * Whether a hosted gif service is configured, and so whether the picker offers
+   * its tab. The key itself is never exposed to clients.
+   */
+  klipyConfigured: boolean;
 }
 
 /** Response for `PUT` / `DELETE /api/v1/icon`. */
@@ -96,6 +101,12 @@ export interface ServerSettingsResponse {
   previewUserAgent: string | null;
   /** True once the owner has been through the first-run setup wizard. */
   setupCompleted: boolean;
+  /**
+   * Whether a hosted gif service is configured, and so whether the picker offers
+   * its tab. The key itself is write-only: it goes in through the settings and is
+   * never sent back out.
+   */
+  klipyConfigured: boolean;
 }
 
 /** A user together with the roles assigned to them. */
@@ -225,6 +236,12 @@ export interface RetentionSettings {
   messageRetentionDays: number | null;
   /** Delete audit log entries older than this many days. */
   auditRetentionDays: number | null;
+  /**
+   * Delete a saved gif this many days after it was last favourited or sent.
+   * Favourites are exempt from the image and message rules, so this is the only
+   * thing that ever ages them out; null keeps them forever.
+   */
+  favoriteRetentionDays: number | null;
   /** Start emergency pruning once stored media exceeds this many bytes. */
   storageLimitBytes: number | null;
   /** Emergency pruning deletes oldest content until usage is back under this. */
@@ -238,11 +255,79 @@ export interface RetentionUsage {
   messageCount: number;
 }
 
+/**
+ * A gif somebody kept. It is held by content hash, not by any message, so it
+ * outlives the message it was found in and is only ever aged out by the rule for
+ * favourites.
+ */
+export interface GifFavorite {
+  id: string;
+  /** Content hash of the stored bytes; the same gif is stored once. */
+  hash: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  /** The link it was fetched from, or null for something uploaded here. */
+  sourceUrl: string | null;
+  createdAt: string;
+  /** When it was last favourited or sent, which its retention counts from. */
+  usedAt: string;
+}
+
+export interface GifFavoriteListResponse {
+  favorites: GifFavorite[];
+}
+
+/**
+ * A gif this instance already holds, for the picker's local tab. One per picture:
+ * the same bytes are stored once however many times they were sent, so the newest
+ * copy of each is what is listed.
+ */
+export interface GifItem {
+  /** The attachment serving the bytes. */
+  id: string;
+  hash: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  sourceUrl: string | null;
+  createdAt: string;
+  /** The caller's own saved copy of it, when they have one. */
+  favoriteId: string | null;
+}
+
+export interface GifListResponse {
+  gifs: GifItem[];
+}
+
+/**
+ * A gif offered by the hosted service the picker is configured with. Nothing is
+ * stored until one is picked or saved; these are the service's own addresses.
+ */
+export interface GifSearchResult {
+  /** The gif itself, which is what gets fetched if this is picked or saved. */
+  url: string;
+  /** A smaller one, for the grid. */
+  previewUrl: string;
+  width: number | null;
+  height: number | null;
+  title: string;
+}
+
+export interface GifSearchResponse {
+  gifs: GifSearchResult[];
+}
+
 export interface PruneSummary {
   ranAt: string;
   deletedAttachments: number;
   deletedMessages: number;
   deletedAuditEntries: number;
+  deletedFavorites: number;
   deletedBlobs: number;
   freedBytes: number;
 }

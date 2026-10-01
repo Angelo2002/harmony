@@ -60,6 +60,10 @@ function createFakeTransport() {
     recentMessages: [],
     downloadBytes: null,
     downloads: [],
+    // Attachment addresses the fake bot can renew, keyed by the original.
+    refreshedUrls: new Map([
+      ['https://cdn.discordapp.com/attachments/111/900/x.gif', 'https://cdn.discordapp.com/attachments/111/900/x.gif?ex=ff&is=1&hm=abc'],
+    ]),
   };
   return {
     state,
@@ -126,6 +130,9 @@ function createFakeTransport() {
     async download(url) {
       state.downloads.push(url);
       return state.downloadBytes;
+    },
+    async refreshAttachmentUrl(url) {
+      return state.refreshedUrls.get(url) ?? null;
     },
     emit(message) {
       // Message fields the tests omit default to sensible values.
@@ -209,6 +216,15 @@ try {
   check('bot identity is exposed', bridge.status().status.botTag === 'fake#0001');
   check('discord channels are listable', (await bridge.listDiscordChannels()).channels.length === 3);
   check('discord categories are listable', (await bridge.listDiscordChannels()).categories.length === 1);
+  check(
+    'a pasted discord link is renewed through the bridge',
+    (await bridge.refreshDiscordAttachment('https://cdn.discordapp.com/attachments/111/900/x.gif'))?.includes('hm=abc') ===
+      true,
+  );
+  check(
+    'a link the bridge cannot renew resolves to nothing',
+    (await bridge.refreshDiscordAttachment('https://cdn.discordapp.com/attachments/111/901/y.gif')) === null,
+  );
 
   const userId = randomUUID();
   insertUser(db.sqlite, { id: userId, username: 'alice', passwordHash: 'scrypt$x$y$z', isOwner: true });

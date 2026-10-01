@@ -215,6 +215,111 @@ what the sound actually is, and when it plays, is the client's business.
 Which messages count as a mention is decided by the same parser that renders them,
 so a name inside a backtick block is a quotation rather than a summons.
 
+## Links and media
+
+A message's first link is resolved, and a small card is stored on the message. A link that points
+straight at a picture is different: the bytes are fetched once and kept as an attachment of that
+message, with the link it came from in the attachment's `source_url` column.
+
+That column is what makes the rest work. It marks the attachment as having come from the text rather
+than from the sender, which is how an edit knows to take the picture away again when the link goes,
+how the bridge knows not to hand Discord a file for a link Discord can unfurl itself, and how a
+resolution is skipped when the link has not actually changed. Anything with a null `source_url` was
+uploaded by a person and belongs to the message; anything else is a copy of somebody else's file and
+follows the text.
+
+A message whose whole text is that link shows the picture and nothing else, the way Discord does: the
+address is behind the picture for anyone who wants it, and printing it above would only be noise. A
+message with anything else in it keeps its text, link and all. The picture itself links back to where
+it came from, so the original is one right-click away.
+
+The page half of this has one wrinkle worth knowing. A page may offer several preview images and they
+are not equal — Giphy and Klipy both list a still WebP first and the animated GIF second — so the
+animated one is preferred, recognised either from the `og:image:type` that follows it or from the
+address itself. A reader that takes the first one gets a frozen picture, which is most of why a gif
+link used to preview badly.
+
+Giphy is handled a step earlier still. Its pages are not scraped at all: `giphy.com/gifs/…` and
+`giphy.com/embed/…` are handed to Giphy's keyless oEmbed endpoint, which answers with the address of
+the file itself. That address is then fetched by the ordinary guarded path, so a gif page behaves
+exactly like a link straight at a gif and is kept as an attachment with no card. No account and no
+key is involved, which is the rule this project holds to for every provider it recognises.
+
+Tenor and Klipy have no such endpoint, so their pages are read instead: both name the gif in their own
+preview metadata, and that address is fetched by the same guarded path and kept the same way. The two
+differ only in access — Tenor serves its pages to anyone, while Klipy puts them behind a Cloudflare
+challenge and hands them over to a recognised crawler name alone. That is precisely what the opt-in
+`previewUserAgent` setting is for, and why Klipy page links preview only once it is set.
+
+A Discord attachment link needs a different trick again, because the address itself is the problem:
+Discord signs it and the signature expires, so a link copied out of the client usually arrives already
+dead. Discord has an endpoint of its own for exactly this — the one its clients call to renew an
+address — and when the bridge is connected the server asks it for a live address, which the ordinary
+guarded path then fetches and keeps. It signs any attachment address, including one in a channel or a
+server the bot has no access to, so nothing about where the file lives matters. Nothing is stored
+when the bridge is off, which is why the feature costs an instance with no Discord presence nothing.
+
+One detail is behind a surprising amount of the earlier unreliability: the fetch says it wants an
+image first and only falls back to a page (`Accept: image/*, text/html;q=0.9`), rather than the other
+way round. Giphy serves its media host by content negotiation on a single address — ask for `image/*`
+and it returns the gif, ask for HTML and it returns a web page — so a client that asks for HTML first
+is told about the gif it wanted and then wraps it in a card instead of showing it. Asking for the
+picture first costs nothing when the answer really is a page, since that is still read exactly as
+before.
+
+It also makes the second and later postings of the same link free. Blobs are content-addressed, so
+the bytes were only ever stored once; the row is what is per-message, and a row is a few hundred
+bytes. What the column adds is the ability to notice before fetching that this instance already holds
+the file, so a gif posted every morning is downloaded on the first morning and copied from the shelf
+on every morning after. The trade is that a link is assumed to keep pointing at what it pointed at
+the first time, which is how Discord, Slack and every other client treats them too.
+
+The two also differ in what happens when they cannot be had. An image too large for the instance's
+owner-configured upload limit is left as a card pointing at it through the proxy, rather than being
+stored; a page's preview image is always only a reference. Nothing is kept that an upload of the same
+file would have been refused.
+
+## Saved gifs
+
+A saved gif is held by content hash, in its own table, rather than by an attachment row. That is the
+whole point: an attachment belongs to its message and is deleted along with it, and a saved gif has to
+outlive the message it was found in. Keeping the hash instead means the bytes are shared with every
+other copy of the same gif on the instance — saving one costs a row and nothing else.
+
+It is also what keeps the bytes alive. The sweep deletes a blob only once nothing references it, and
+that list of references now includes saved gifs alongside attachments, emoji, avatars and the
+instance icon. So the image and message rules can take the attachment and the message away and the
+blob stays, because a saved gif is still pointing at it.
+
+That leaves the question of what eventually clears a saved gif up, and the answer is deliberately
+one rule and no other: `favoriteRetentionDays`, counted from `used_at`, which moves whenever the gif
+is saved or sent. `null` keeps them forever, which is the default — an instance that never turns the
+rule on never loses one. Everything else the owner might set, including emergency pruning, leaves
+them alone.
+
+Picking a gif out of the picker is not a copy and not a fetch. It writes one attachment row pointing
+at bytes that are already stored, owned by the person picking, and the message then claims it exactly
+as it would an upload. That keeps a picked gif the same kind of thing as everything else in a message
+— retention, the media gallery and the bridge already understand it — and makes picking instant.
+
+The picker's other tab, This server, is a listing rather than a store: it reads recent gif
+attachments, keeps one per content hash, and drops any channel the caller cannot see, through the
+same role-aware helper the sidebar uses. The read is deliberately bounded to a few times the page
+size, because the same handful of gifs get sent again and again and the rows far outnumber the
+pictures — a bounded scan still fills a page with distinct gifs. What counts as a gif lives in one
+place, the shared package's GIF_CONTENT_TYPES, and decides the listing, the hearts and what may be
+saved alike; a screenshot is stored and shown like anything else but never turns up in a picker.
+
+The hosted tab is the one part of the picker that talks to somebody else, and it only appears when
+the instance has a key for it. Its search is asked for by the server and never by the browser,
+because the key is part of the request path and would otherwise be readable by anyone who opens
+their network tab. Nothing is stored until a gif is saved or picked, at which point the address is
+fetched through the same guarded path a link preview uses and kept like anything else — so a hosted
+gif becomes ours rather than a link that can expire under it. Only the service's own addresses are
+accepted, which keeps the picker from becoming a way to make the server fetch arbitrary pages, and
+one size is used for both the tile and the kept copy, so what somebody picks is what they were
+looking at.
+
 ## Versioning
 
 The release number lives in one place, `HARMONY_VERSION` in

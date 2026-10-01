@@ -299,4 +299,48 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 14,
+    name: 'attachment_source_url',
+    up(db) {
+      /*
+       * The link an attachment was copied from, when it was fetched rather than
+       * uploaded. NULL for anything someone actually attached themselves, which
+       * is how the two are told apart: a linked image is kept in step with the
+       * message's text, while an upload belongs to the message and stays.
+       */
+      db.exec(`ALTER TABLE attachments ADD COLUMN source_url TEXT`);
+    },
+  },
+  {
+    version: 15,
+    name: 'gif_favorites',
+    up(db) {
+      /*
+       * A gif somebody kept, held by content hash rather than by any message.
+       * That is the whole point: a favourite has to outlive the message it was
+       * found in, so it cannot be a reference to an attachment row, which is
+       * deleted along with its message. `used_at` is what the retention rule for
+       * favourites counts from, and it moves when the gif is favourited or sent.
+       */
+      db.exec(`
+        CREATE TABLE gif_favorites (
+          id           TEXT PRIMARY KEY,
+          user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          hash         TEXT NOT NULL,
+          filename     TEXT NOT NULL,
+          content_type TEXT NOT NULL,
+          size         INTEGER NOT NULL,
+          width        INTEGER,
+          height       INTEGER,
+          source_url   TEXT,
+          created_at   TEXT NOT NULL,
+          used_at      TEXT NOT NULL,
+          UNIQUE(user_id, hash)
+        );
+        CREATE INDEX idx_gif_favorites_user ON gif_favorites(user_id, used_at DESC);
+        CREATE INDEX idx_gif_favorites_hash ON gif_favorites(hash);
+      `);
+    },
+  },
 ];

@@ -5,19 +5,21 @@ const FETCH_TIMEOUT_MS = 8000;
 const MAX_REDIRECTS = 3;
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 
-export interface EmbedMedia {
+export interface PublicImage {
   data: Buffer;
   contentType: string;
 }
 
 /**
- * Fetches a preview image for a client, so the browser never contacts the third
- * party itself: the viewer's address stays private, and an http-only image still
- * loads on an https page. The URL comes from message text, so every hop is
- * checked with the same guard the metadata fetch uses, the response must be an
- * image, and its size is capped.
+ * Fetches an image from somebody else's server, safely enough to be trusted with a
+ * URL that came from a message or from the gif picker.
+ *
+ * It exists so the browser never has to contact the third party itself: a preview
+ * image stays private to the viewer and an http-only image still loads on an
+ * https page. Every hop is checked with the same guard the metadata fetch uses,
+ * the response has to be an image, and its size is capped.
  */
-export async function fetchEmbedMedia(url: string, userAgent: string): Promise<EmbedMedia | null> {
+export async function fetchPublicImage(url: string, userAgent: string): Promise<PublicImage | null> {
   let target: URL;
   try {
     target = new URL(url);
@@ -52,7 +54,7 @@ export async function fetchEmbedMedia(url: string, userAgent: string): Promise<E
       // directly, so it is refused rather than served from our origin.
       if (contentType.includes('svg') || contentType.includes('+xml')) return null;
 
-      const data = await readCapped(response, MAX_MEDIA_BYTES);
+      const data = await readCappedBody(response, MAX_MEDIA_BYTES);
       if (!data || data.length === 0) return null;
       return { data, contentType };
     } catch {
@@ -65,7 +67,7 @@ export async function fetchEmbedMedia(url: string, userAgent: string): Promise<E
 }
 
 /** Reads a body up to a byte cap, or null when it is empty or over the cap. */
-async function readCapped(response: Response, limit: number): Promise<Buffer | null> {
+export async function readCappedBody(response: Response, limit: number): Promise<Buffer | null> {
   const body = response.body;
   if (!body) return null;
 

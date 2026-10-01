@@ -30,6 +30,7 @@ import { createChannelImportService } from './channels/import.ts';
 import { createEmbedService } from './embeds/service.ts';
 import { createModerationService } from './moderation/service.ts';
 import { createMediaService } from './media/service.ts';
+import { createGifService } from './gifs/service.ts';
 import { registerErrorHandler } from './http/errors.ts';
 import { registerSecurityHeaders, warnAboutExposure } from './http/security.ts';
 import { registerWebClient, webClientIndex } from './http/webclient.ts';
@@ -49,6 +50,7 @@ import { registerAttachmentRoutes } from './routes/attachments.ts';
 import { registerEmbedRoutes } from './routes/embeds.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
 import { registerMediaRoutes } from './routes/media.ts';
+import { registerGifRoutes } from './routes/gifs.ts';
 import { registerUserRoutes } from './routes/users.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
 import { registerBridgeRoutes } from './routes/bridge.ts';
@@ -84,6 +86,10 @@ const userService = createUserService(db.sqlite, config);
 const messageService = createMessageService(db.sqlite, hub, auditService);
 const moderationService = createModerationService({ sqlite: db.sqlite, hub, audit: auditService });
 const mediaService = createMediaService(db.sqlite, config);
+const gifService = createGifService(db.sqlite, config, {
+  attachments: attachmentService,
+  settings: settingsService,
+});
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
 
@@ -95,6 +101,10 @@ const pruner = createPruner({
   log: (message, detail) => app.log.info(detail ?? {}, message),
 });
 
+// Set once the bridge exists, so a pasted Discord attachment link can be renewed
+// through Discord. Null until then, and while the bridge is offline.
+let refreshDiscordAttachment: ((url: string) => Promise<string | null>) | null = null;
+
 // Unfurls one link per message into a small preview. It listens for local
 // messages only and pushes updates straight to the gateway, so the bridge never
 // mistakes a preview for a user edit.
@@ -102,7 +112,9 @@ const embedService = createEmbedService({
   sqlite: db.sqlite,
   settings: settingsService,
   hub,
+  attachments: attachmentService,
   renderMessage: (messageId) => messageService.byId(messageId),
+  refreshDiscordAttachment: (url) => refreshDiscordAttachment?.(url) ?? Promise.resolve(null),
   log: (message, detail) => app.log.debug(detail ?? {}, message),
 });
 messageService.onMessageCreated((message) => embedService.resolve(message.id, message.content));
@@ -126,6 +138,9 @@ const bridge = createBridgeService({
   // straight to the gateway, so this never mirrors itself back out.
   resolvePreview: (messageId, content) => embedService.resolve(messageId, content),
 });
+
+// Hand the embed service the bridge it can renew Discord attachment links through.
+refreshDiscordAttachment = (url) => bridge.refreshDiscordAttachment(url);
 
 // Copies the linked guild's custom emoji in on demand from the emoji panel.
 const emojiImport = createEmojiImportService({
@@ -190,6 +205,7 @@ registerSearchRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
 registerEmbedRoutes(app, { settings: settingsService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
+registerGifRoutes(app, { service: gifService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
 registerUserRoutes(app, { db, users: userService, hub });
 registerGateway(app, {

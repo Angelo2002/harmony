@@ -30,6 +30,11 @@ import type {
 const MAX_DISCORD_CONTENT = 2000;
 const MAX_DISCORD_USERNAME = 80;
 
+/** What Discord's attachment refresh endpoint answers with. */
+interface RefreshUrlsResponse {
+  refreshed_urls?: Array<{ original?: unknown; refreshed?: unknown }>;
+}
+
 export function createDiscordTransport(token: string, logger: BridgeLogger): DiscordTransport {
   const client = new Client({
     intents: [
@@ -417,6 +422,22 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Discord returned ${response.status} for an attachment`);
       return Buffer.from(await response.arrayBuffer());
+    },
+
+    async refreshAttachmentUrl(url: string) {
+      // Discord signs every attachment address and the signature expires, which is
+      // why a link copied out of the client is usually dead on arrival. This is the
+      // endpoint its own clients use to renew one, and it signs any attachment
+      // address, including one in a channel or guild the bot cannot otherwise read.
+      const response = (await client.rest
+        .post('/attachments/refresh-urls', { body: { attachment_urls: [url] } })
+        .catch((error: unknown) => {
+          logger.debug('discord attachment refresh failed', { url, error: String(error) });
+          return null;
+        })) as RefreshUrlsResponse | null;
+
+      const refreshed = response?.refreshed_urls?.[0]?.refreshed;
+      return typeof refreshed === 'string' ? refreshed : null;
     },
 
     async fetchRecentMessages(channelId, limit) {

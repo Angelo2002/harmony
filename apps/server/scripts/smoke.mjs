@@ -16,10 +16,16 @@ import WebSocket from 'ws';
 import sharp from 'sharp';
 import { listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
-import { tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
+import { isDiscordAttachment, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
+import { isKlipyAddress, klipySearchUrl, normalizeKlipySearch } from '../src/gifs/klipy.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
-import { insertGhostUser } from '../src/db/users.ts';
+import { insertGhostUser, insertUser } from '../src/db/users.ts';
+import { insertChannel } from '../src/db/channels.ts';
+import { insertMessage } from '../src/db/messages.ts';
+import { listLinkedAttachments } from '../src/db/attachments.ts';
+import { createAttachmentService } from '../src/attachments/service.ts';
+import { createSettingsService } from '../src/settings/service.ts';
 import { createUserService } from '../src/users/service.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -870,6 +876,53 @@ try {
     'https://example.com/post',
   );
   check('an og:image is resolved against the page', gifPage.imageUrl === 'https://example.com/img/cat.gif');
+
+  // Giphy and Klipy both list a still WebP first and the animated GIF second, so
+  // taking the first one is exactly why those links preview as frozen pictures.
+  const twoImages = parseEmbedMetadata(
+    '<meta property="og:image" content="https://cdn.test/aa/1.webp">' +
+      '<meta property="og:image:type" content="image/webp">' +
+      '<meta property="og:image:width" content="480">' +
+      '<meta property="og:image" content="https://cdn.test/aa/1.gif">' +
+      '<meta property="og:image:type" content="image/gif">',
+    'https://example.com/post',
+  );
+  check(
+    'the animated image wins when a page offers both',
+    twoImages.imageUrl === 'https://cdn.test/aa/1.gif',
+    String(twoImages.imageUrl),
+  );
+
+  const gifLast = parseEmbedMetadata(
+    '<meta property="og:image" content="https://cdn.test/aa/still.png">' +
+      '<meta property="og:image" content="https://cdn.test/aa/loop.gif?cid=abc123">',
+    'https://example.com/post',
+  );
+  check(
+    'a gif is recognised from its address even with a query on the end',
+    gifLast.imageUrl === 'https://cdn.test/aa/loop.gif?cid=abc123',
+    String(gifLast.imageUrl),
+  );
+
+  const stillOnly = parseEmbedMetadata(
+    '<meta property="og:image" content="https://cdn.test/aa/one.png">' +
+      '<meta property="og:image" content="https://cdn.test/aa/two.jpg">',
+    'https://example.com/post',
+  );
+  check('with no animated image the first is still used', stillOnly.imageUrl === 'https://cdn.test/aa/one.png');
+  check(
+    "a still that merely says gif is not taken as one",
+    parseEmbedMetadata(
+      '<meta property="og:image" content="https://cdn.test/aa/a.png">' +
+        '<meta property="og:image:type" content="image/png">',
+      'https://example.com/',
+    ).imageUrl === 'https://cdn.test/aa/a.png',
+  );
+  check(
+    'a twitter image is still a fallback',
+    parseEmbedMetadata('<meta name="twitter:image" content="https://cdn.test/t.png">', 'https://example.com/')
+      .imageUrl === 'https://cdn.test/t.png',
+  );
   check(
     'a data: image is refused',
     parseEmbedMetadata('<meta property="og:image" content="data:image/gif;base64,R0lGOD">', 'https://example.com/')
@@ -890,6 +943,89 @@ try {
   check('an i/status link yields its tweet id', tweetStatusId(new URL('https://x.com/i/status/20')) === '20');
   check('a profile link is not a tweet', tweetStatusId(new URL('https://x.com/jack')) === null);
   check('a lookalike host is not x', tweetStatusId(new URL('https://x.com.evil.test/jack/status/20')) === null);
+
+  // A Giphy page is rewritten to the file behind it through their keyless
+  // endpoint, so only their page shapes are recognised. Their media addresses
+  // are already a link straight at a picture and are left alone.
+  check('a gifs page is recognised', isGiphyPage(new URL('https://giphy.com/gifs/cat-JIX9t2j0ZTN9S')));
+  check('a www gifs page is recognised', isGiphyPage(new URL('https://www.giphy.com/gifs/cat-JIX9t2j0ZTN9S')));
+  check('an embed page is recognised', isGiphyPage(new URL('https://giphy.com/embed/JIX9t2j0ZTN9S')));
+  check('a plain media address is not a page', isGiphyPage(new URL('https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif')) === false);
+  check('a channel page is not a gif', isGiphyPage(new URL('https://giphy.com/channel/kdy')) === false);
+  check('a lookalike host is not giphy', isGiphyPage(new URL('https://giphy.com.evil.test/gifs/cat-JIX9t2j0ZTN9S')) === false);
+
+  // A Tenor or Klipy page is read for the picture it names in its own metadata,
+  // which is then kept like a file link. Their media hosts are not pages.
+  check('a tenor view page is recognised', isGifPage(new URL('https://tenor.com/view/x-gif-123')));
+  check('a www tenor view page is recognised', isGifPage(new URL('https://www.tenor.com/view/x-gif-123')));
+  check('a tenor search page is not a gif page', isGifPage(new URL('https://tenor.com/search/happy')) === false);
+  check('a tenor media address is not a page', isGifPage(new URL('https://media1.tenor.com/m/abc/x.gif')) === false);
+  check('a klipy gifs page is recognised', isGifPage(new URL('https://klipy.com/gifs/name-id')));
+  check('a klipy media address is not a page', isGifPage(new URL('https://static2.klipy.com/ii/x/00/6e/y.gif')) === false);
+  check('a lookalike host is not a gif page', isGifPage(new URL('https://tenor.com.evil.test/view/x-gif-123')) === false);
+
+  // A pasted Discord CDN attachment is signed and expires, so it is renewed through
+  // Discord's refresh endpoint before it is fetched.
+  check(
+    'a discord attachment link is recognised',
+    isDiscordAttachment(
+      new URL('https://cdn.discordapp.com/attachments/1400576064547196989/1527627040914804798/x.gif?ex=1&is=2&hm=3'),
+    ),
+  );
+  check(
+    'the discord proxy host is recognised too',
+    isDiscordAttachment(new URL('https://media.discordapp.net/attachments/1400576064547196989/1527627040914804798/x.gif')),
+  );
+  check('a discord emoji link is not an attachment', isDiscordAttachment(new URL('https://cdn.discordapp.com/emojis/123456789012345678.gif')) === false);
+  check('a plain discord cdn link is not an attachment', isDiscordAttachment(new URL('https://cdn.discordapp.com/icons/123456789012345678/abc.png')) === false);
+  check(
+    'a lookalike host is not discord',
+    isDiscordAttachment(new URL('https://cdn.discordapp.com.evil.test/attachments/1400576064547196989/1527627040914798/x.gif')) === false,
+  );
+
+  // The hosted gif service: its envelope is walked rather than assumed, and only
+  // its own addresses are ever fetched.
+  const klipyPayload = {
+    result: true,
+    data: {
+      current_page: 1,
+      has_next: false,
+      data: [
+        {
+          id: 'a',
+          title: 'A cat',
+          file: {
+            hd: { gif: { url: 'https://static.klipy.com/x/hd.gif', width: 480, height: 270 } },
+            sm: { gif: { url: 'https://static.klipy.com/x/sm.gif', width: 220, height: 124 } },
+          },
+        },
+        { id: 'b', title: 'No gif at all', file: { hd: { webp: { url: 'https://static.klipy.com/x/hd.webp' } } } },
+      ],
+    },
+  };
+  const klipyResults = normalizeKlipySearch(klipyPayload);
+  check(
+    'a hosted result is read out of its envelope',
+    klipyResults.length === 1 && klipyResults[0]?.url === 'https://static.klipy.com/x/hd.gif',
+    JSON.stringify(klipyResults),
+  );
+  check('a hosted result carries its size', klipyResults[0]?.width === 480 && klipyResults[0]?.height === 270);
+  check('a result with no gif is left out', normalizeKlipySearch(klipyPayload).length === 1);
+  check('an unreadable payload yields nothing', normalizeKlipySearch({ nonsense: true }).length === 0);
+
+  check('a hosted media address is recognised', isKlipyAddress(new URL('https://static.klipy.com/ii/x/y.gif')));
+  check('a lookalike host is not the service', isKlipyAddress(new URL('https://klipy.com.evil.test/y.gif')) === false);
+  check('and neither is an unrelated host', isKlipyAddress(new URL('https://example.com/y.gif')) === false);
+  check(
+    'no search term asks for trending',
+    klipySearchUrl('KEY', { limit: 30 }).includes('/gifs/trending') &&
+      klipySearchUrl('KEY', { limit: 30 }).includes('per_page=30'),
+  );
+  check(
+    'a search term is passed through',
+    klipySearchUrl('KEY', { q: 'cat', limit: 10 }).includes('/gifs/search') &&
+      klipySearchUrl('KEY', { q: 'cat', limit: 10 }).includes('q=cat'),
+  );
 
   const storedPlayer = parseMessageEmbed(
     JSON.stringify({ url: 'https://youtu.be/dQw4w9WgXcQ', player: { provider: 'youtube', id: 'dQw4w9WgXcQ' } }),
@@ -918,6 +1054,121 @@ try {
     'a private address is never unfurled',
     privateHistory.json?.messages?.[0]?.id === privateLink.json?.id && privateHistory.json?.messages?.[0]?.embed === null,
   );
+
+  // --- Pictures fetched out of a message's own text ---
+  // Driven in process with a throwaway database, because the whole point of this
+  // path is a fetch, and a fetch to somewhere the guard allows is a fetch to the
+  // internet. What is checked here is the half that comes after one.
+  {
+    const pictureDir = mkdtempSync(join(tmpdir(), 'harmony-linked-'));
+    const pictureDb = new Database({ dataDir: pictureDir, dbFile: join(pictureDir, 'linked.db'), uploadDir: join(pictureDir, 'uploads') });
+    const pictureSettings = createSettingsService(pictureDb.sqlite, { serverName: 'Test', requireInvite: false });
+    const pictures = createAttachmentService(pictureDb.sqlite, { uploadDir: join(pictureDir, 'uploads') }, pictureSettings);
+
+    insertUser(pictureDb.sqlite, { id: 'u1', username: 'owner', passwordHash: 'x', isOwner: true });
+    insertChannel(pictureDb.sqlite, {
+      id: 'c1',
+      name: 'general',
+      topic: null,
+      categoryId: null,
+      type: 'text',
+      position: 0,
+      createdAt: new Date().toISOString(),
+      discordChannelId: null,
+    });
+    insertMessage(pictureDb.sqlite, {
+      id: 'm1',
+      channelId: 'c1',
+      authorId: 'u1',
+      content: 'https://example.com/cat.gif',
+      createdAt: new Date().toISOString(),
+    });
+
+    const gifBytes = await sharp({ create: { width: 40, height: 24, channels: 4, background: { r: 10, g: 20, b: 30, alpha: 1 } } })
+      .png()
+      .toBuffer();
+    const stored = await pictures.storeLinkedImage({
+      messageId: 'm1',
+      uploaderId: 'u1',
+      sourceUrl: 'https://example.com/cat.gif',
+      filename: 'cat.gif',
+      contentType: 'image/png',
+      data: gifBytes,
+    });
+    check(
+      'a picture fetched from a link is kept on the message',
+      stored?.messageId === 'm1' && stored?.sourceUrl === 'https://example.com/cat.gif' && stored?.width === 40,
+      JSON.stringify(stored),
+    );
+    check(
+      'so a message can find what it fetched',
+      listLinkedAttachments(pictureDb.sqlite, 'm1').some((row) => row.source_url === 'https://example.com/cat.gif'),
+    );
+    check(
+      'the same bytes are stored once, however many links point at them',
+      (await pictures.storeLinkedImage({
+        messageId: 'm1',
+        uploaderId: 'u1',
+        sourceUrl: 'https://example.com/other.gif',
+        filename: 'other.png',
+        contentType: 'image/png',
+        data: gifBytes,
+      }))?.hash === stored?.hash,
+    );
+    check(
+      'a non-image is refused',
+      (await pictures.storeLinkedImage({
+        messageId: 'm1',
+        uploaderId: 'u1',
+        sourceUrl: 'https://example.com/x.svg',
+        filename: 'x.svg',
+        contentType: 'image/svg+xml',
+        data: Buffer.from('<svg/>'),
+      })) === null,
+    );
+    check(
+      'an upload is not mistaken for something fetched',
+      listLinkedAttachments(pictureDb.sqlite, 'm1').every((row) => row.source_url !== null),
+    );
+
+    // The same gif comes round again far more often than a community finds a new
+    // one, so a second message should get the one already here rather than
+    // fetching it all over again.
+    const reusable = pictures.reusableForUrl('https://example.com/cat.gif');
+    check('a picture already held can be found for its link', reusable?.hash === stored?.hash);
+    check(
+      'a link nothing was ever fetched from has nothing to reuse',
+      pictures.reusableForUrl('https://example.com/never-seen.gif') === null,
+    );
+
+    insertMessage(pictureDb.sqlite, {
+      id: 'm2',
+      channelId: 'c1',
+      authorId: 'u1',
+      content: 'https://example.com/cat.gif again',
+      createdAt: new Date().toISOString(),
+    });
+    const copied = reusable
+      ? pictures.copyLinkedImage({
+          messageId: 'm2',
+          uploaderId: 'u1',
+          sourceUrl: 'https://example.com/cat.gif',
+          from: reusable,
+        })
+      : null;
+    check(
+      'a second message gets its own record, sharing the same bytes',
+      copied?.hash === stored?.hash && copied?.id !== stored?.id && copied?.messageId === 'm2',
+      JSON.stringify(copied),
+    );
+    check(
+      'and the second message can find it too',
+      listLinkedAttachments(pictureDb.sqlite, 'm2').length === 1,
+    );
+
+    pictureDb.close();
+    rmSync(pictureDir, { recursive: true, force: true });
+  }
 
   // --- Presence ---
   await sleep(200);
@@ -1485,6 +1736,314 @@ try {
   check(
     'channel is empty after message retention',
     (await req(`/channels/${colourChannel.id}/messages`, { token: ownerToken })).json?.messages?.length === 0,
+  );
+
+  // --- Saved gifs ---
+  // Reset the age rules so this block is about the rule for favourites, not the
+  // image and message ones that ran above.
+  await req('/retention', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { imageRetentionDays: null, messageRetentionDays: null },
+  });
+
+  // A gif, as far as the picker is concerned: only the type matters, and this is
+  // the only thing that decides whether a picture is offered.
+  const keeperPng = await sharp({
+    create: { width: 17, height: 11, channels: 4, background: { r: 9, g: 200, b: 90, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+  const keeperForm = new FormData();
+  keeperForm.append('file', new Blob([keeperPng], { type: 'image/gif' }), 'keeper.gif');
+  const keeperAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: keeperForm,
+    })
+  ).json();
+  const keeperBlobPath = join(dataDir, 'uploads', keeperAttachment.hash.slice(0, 2), keeperAttachment.hash);
+  const keeperMessage = await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'a keeper', attachmentIds: [keeperAttachment.id] },
+  });
+
+  const favorited = await req('/gifs/favorites', {
+    method: 'POST',
+    token: ownerToken,
+    body: { attachmentId: keeperAttachment.id },
+  });
+  check(
+    'a gif can be saved',
+    favorited.status === 200 && favorited.json?.hash === keeperAttachment.hash,
+    `status ${favorited.status}`,
+  );
+  const favoritedAgain = await req('/gifs/favorites', {
+    method: 'POST',
+    token: ownerToken,
+    body: { attachmentId: keeperAttachment.id },
+  });
+  check('saving the same gif twice keeps one row', favoritedAgain.json?.id === favorited.json?.id);
+  check(
+    'the saved gif is listed',
+    (await req('/gifs/favorites', { token: ownerToken })).json?.favorites?.length === 1,
+  );
+  check(
+    'a member sees only their own saved gifs',
+    (await req('/gifs/favorites', { token: bobToken })).json?.favorites?.length === 0,
+  );
+  check(
+    'the saved gif is served',
+    (await fetch(`${BASE}/gifs/favorites/${favorited.json.id}/image`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    })).status === 200,
+  );
+  check(
+    'somebody else cannot fetch a saved gif (404)',
+    (await fetch(`${BASE}/gifs/favorites/${favorited.json.id}/image`, {
+      headers: { authorization: `Bearer ${bobToken}` },
+    })).status === 404,
+  );
+  check(
+    'somebody else cannot pick a saved gif (404)',
+    (await req('/gifs/pick', { method: 'POST', token: bobToken, body: { favoriteId: favorited.json.id } })).status === 404,
+  );
+
+  // The local tab lists what the instance already holds, one per picture.
+  const localList = await req('/gifs/local', { token: ownerToken });
+  const localKeeper = localList.json?.gifs?.find((gif) => gif.hash === keeperAttachment.hash);
+  check('the local list offers gifs the instance holds', localKeeper !== undefined);
+  check('and marks the ones this member saved', localKeeper?.favoriteId === favorited.json.id);
+  check(
+    'the local list can be searched by name',
+    (await req('/gifs/local?q=keeper', { token: ownerToken })).json?.gifs?.some(
+      (gif) => gif.hash === keeperAttachment.hash,
+    ) === true,
+  );
+
+  // A gif in a channel a member cannot see must not reach their picker either.
+  const gifRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Gif Keepers' } });
+  const hiddenGifChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'hidden-gifs', requiredRoleId: gifRole.json.id },
+  });
+  const hiddenPng = await sharp({
+    create: { width: 19, height: 13, channels: 4, background: { r: 210, g: 20, b: 130, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+  const hiddenForm = new FormData();
+  hiddenForm.append('file', new Blob([hiddenPng], { type: 'image/gif' }), 'hidden.gif');
+  const hiddenAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: hiddenForm,
+    })
+  ).json();
+  await req(`/channels/${hiddenGifChannel.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'a gif behind a role', attachmentIds: [hiddenAttachment.id] },
+  });
+  check(
+    'a gif in a locked channel is not in a member picker',
+    (await req('/gifs/local', { token: bobToken })).json?.gifs?.every(
+      (gif) => gif.hash !== hiddenAttachment.hash,
+    ) === true,
+  );
+  check(
+    'an administrator sees it',
+    (await req('/gifs/local', { token: ownerToken })).json?.gifs?.some(
+      (gif) => gif.hash === hiddenAttachment.hash,
+    ) === true,
+  );
+  check(
+    'a locked gif cannot be saved by somebody who cannot see it (404)',
+    (
+      await req('/gifs/favorites', {
+        method: 'POST',
+        token: bobToken,
+        body: { attachmentId: hiddenAttachment.id },
+      })
+    ).status === 404,
+  );
+
+  // The same again for an age-gated section locked at the category, which is how
+  // a server with channels minors must not see tends to be arranged.
+  const gifCategory = await req('/categories', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Grown-up gifs', requiredRoleId: gifRole.json.id },
+  });
+  const behindCategory = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'behind-the-category', categoryId: gifCategory.json.id },
+  });
+  const adultPng = await sharp({
+    create: { width: 31, height: 17, channels: 4, background: { r: 120, g: 10, b: 60, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+  const adultForm = new FormData();
+  adultForm.append('file', new Blob([adultPng], { type: 'image/gif' }), 'grown-up.gif');
+  const adultAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: adultForm,
+    })
+  ).json();
+  await req(`/channels/${behindCategory.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'behind a category', attachmentIds: [adultAttachment.id] },
+  });
+  check(
+    'a gif in a category-locked channel is not in a member picker',
+    (await req('/gifs/local', { token: bobToken })).json?.gifs?.every(
+      (gif) => gif.hash !== adultAttachment.hash,
+    ) === true,
+  );
+  check(
+    'and an administrator sees it',
+    (await req('/gifs/local', { token: ownerToken })).json?.gifs?.some(
+      (gif) => gif.hash === adultAttachment.hash,
+    ) === true,
+  );
+
+  // The picker is gif-only: a screenshot or a photo is not something anybody
+  // browses a picker for, so it is neither offered nor savable.
+  const plainPng = await sharp({
+    create: { width: 23, height: 29, channels: 4, background: { r: 240, g: 240, b: 240, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+  const plainForm = new FormData();
+  plainForm.append('file', new Blob([plainPng], { type: 'image/png' }), 'plain.png');
+  const plainAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: plainForm,
+    })
+  ).json();
+  await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'just a picture', attachmentIds: [plainAttachment.id] },
+  });
+  check(
+    'a plain picture is not offered by the gif picker',
+    (await req('/gifs/local', { token: ownerToken })).json?.gifs?.every(
+      (gif) => gif.hash !== plainAttachment.hash,
+    ) === true,
+  );
+  check(
+    'and a plain picture cannot be saved as one (400)',
+    (
+      await req('/gifs/favorites', {
+        method: 'POST',
+        token: ownerToken,
+        body: { attachmentId: plainAttachment.id },
+      })
+    ).status === 400,
+  );
+
+  // Picking only makes an attachment; the message it goes into is sent normally.
+  const picked = await req('/gifs/pick', {
+    method: 'POST',
+    token: ownerToken,
+    body: { favoriteId: favorited.json.id },
+  });
+  check(
+    'a saved gif can be picked into a message',
+    picked.status === 200 && picked.json?.hash === keeperAttachment.hash,
+    `status ${picked.status}`,
+  );
+  check(
+    'the picked gif can be sent',
+    (await req(`/channels/${colourChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: '', attachmentIds: [picked.json.id] },
+    })).status === 200,
+  );
+
+  // The message it was found in goes away; the saved gif must not.
+  await req(`/messages/${keeperMessage.json.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'a saved gif outlives the message it was found in',
+    (await req('/gifs/favorites', { token: ownerToken })).json?.favorites?.length === 1,
+  );
+  check('and its bytes are still on disk', existsSync(keeperBlobPath));
+
+  // Even wiping every image attachment leaves a saved gif alone.
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { imageRetentionDays: 0 } });
+  await req('/retention/run', { method: 'POST', token: ownerToken });
+  check('a saved gif survives the image rule', existsSync(keeperBlobPath));
+
+  // It has a rule of its own, and only that rule ever ages it out.
+  await req('/retention', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { imageRetentionDays: null, favoriteRetentionDays: 0 },
+  });
+  const favoritesPruned = await req('/retention/run', { method: 'POST', token: ownerToken });
+  check(
+    'the saved-gif rule retires an unused gif',
+    favoritesPruned.json?.summary?.deletedFavorites >= 1,
+    JSON.stringify(favoritesPruned.json?.summary),
+  );
+  check('and its bytes are swept', !existsSync(keeperBlobPath));
+  check(
+    'the list is empty again',
+    (await req('/gifs/favorites', { token: ownerToken })).json?.favorites?.length === 0,
+  );
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { favoriteRetentionDays: null } });
+
+  // --- Hosted gif service ---
+  check('the hosted tab is off by default', (await req('/meta')).json?.klipyConfigured === false);
+  check(
+    'and its search has nothing to offer',
+    (await req('/gifs/klipy', { token: ownerToken })).json?.gifs?.length === 0,
+  );
+  const withKey = await req('/settings', { method: 'PATCH', token: ownerToken, body: { klipyApiKey: 'test-key' } });
+  check('setting a key turns the hosted tab on', withKey.json?.klipyConfigured === true);
+  check('and the key itself is never sent back', withKey.json?.klipyApiKey === undefined);
+  check('the public meta agrees', (await req('/meta')).json?.klipyConfigured === true);
+  check(
+    'a member cannot set a key (403)',
+    (await req('/settings', { method: 'PATCH', token: bobToken, body: { klipyApiKey: 'nope' } })).status === 403,
+  );
+  const withoutKey = await req('/settings', { method: 'PATCH', token: ownerToken, body: { klipyApiKey: '' } });
+  check('clearing the key takes the tab away', withoutKey.json?.klipyConfigured === false);
+
+  // Only the service's own addresses are ever fetched, so the picker cannot be
+  // turned into a way to make the server fetch arbitrary pages.
+  check(
+    'a gif address outside the service is refused (400)',
+    (
+      await req('/gifs/pick', {
+        method: 'POST',
+        token: ownerToken,
+        body: { url: 'https://example.com/not-ours.gif' },
+      })
+    ).status === 400,
+  );
+  check(
+    'and so is saving one (400)',
+    (
+      await req('/gifs/favorites', {
+        method: 'POST',
+        token: ownerToken,
+        body: { url: 'https://example.com/not-ours.gif' },
+      })
+    ).status === 400,
   );
 
   // --- Profile: display name and picture ---

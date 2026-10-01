@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { Permission, hasPermission, type LinkEmbed, type Message, type User } from '@harmony/shared';
+  import { Permission, hasPermission, isGifContentType, type Attachment, type LinkEmbed, type Message, type User } from '@harmony/shared';
   import { ApiError } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
   import { avatarUrl, initial } from '../lib/avatar';
   import { parseMessage, type InlineSegment } from '../lib/message-text';
   import { emojis } from '../lib/emojis.svelte';
+  import { gifs } from '../lib/gifs.svelte';
   import { members } from '../lib/members.svelte';
   import { profileCard } from '../lib/profile-card.svelte';
   import { session } from '../lib/session.svelte';
@@ -86,6 +87,56 @@
   function replySnippet(message: Message): string {
     if (message.replyTo?.deleted) return 'original message was deleted';
     return message.replyTo?.content.replace(/\s+/g, ' ').trim() ?? '';
+  }
+
+  /**
+   * Whether a message is nothing but the link a picture was fetched from.
+   *
+   * Such a message shows the picture and the picture alone, the way Discord does:
+   * the address is right there for anyone who wants it, behind the picture itself,
+   * and printing it above would only be noise. A message with anything else in it
+   * keeps its text, link and all.
+   */
+  function isOnlyTheLink(message: Message): boolean {
+    const source = message.attachments.find((attachment) => attachment.sourceUrl !== null)?.sourceUrl;
+    return source != null && message.content.trim() === source;
+  }
+
+  /** The largest a picture is drawn, matching the rules for `.attachments` in app.css. */
+  const PICTURE_MAX_WIDTH = 420;
+  const PICTURE_MAX_HEIGHT = 360;
+
+  /**
+   * The size a picture will be drawn at, as inline custom properties.
+   *
+   * A box left to work its own width out from the picture inside it gets it wrong
+   * whenever the picture is capped by its height: a browser measures the picture
+   * at full size and then caps the box by width alone, so a tall gif ends up in a
+   * box wider than it is and its heart lands beside the gif instead of on it.
+   * Saying the size outright, from the dimensions the attachment already carries,
+   * keeps the box and the picture the same shape whatever the proportions.
+   */
+  function pictureSize(attachment: Attachment): string | null {
+    const width = attachment.width;
+    const height = attachment.height;
+    if (!width || !height) return null;
+    const scale = Math.min(1, PICTURE_MAX_WIDTH / width, PICTURE_MAX_HEIGHT / height);
+    return `--picture-width: ${Math.round(width * scale)}px; --picture-ratio: ${width} / ${height}`;
+  }
+
+  /**
+   * Keeps or forgets a gif straight from the message it was posted in, the way
+   * Discord's star does. Which way it goes depends on whether the gif is already
+   * saved, looked up by content hash so every copy of it answers the same.
+   */
+  async function toggleGifFavorite(attachment: Attachment): Promise<void> {
+    const saved = gifs.byHash.get(attachment.hash);
+    try {
+      if (saved) await gifs.forget(saved.id);
+      else await gifs.save({ attachmentId: attachment.id });
+    } catch {
+      // A heart that cannot act says nothing rather than interrupting the chat.
+    }
   }
 
   // Only the author may edit; the author or any message manager may delete.
@@ -429,7 +480,7 @@
               </div>
             </form>
           {:else}
-            {#if message.content}
+            {#if message.content && !isOnlyTheLink(message)}
               <div class="content">
                 {#each blocks as block, blockIndex (blockIndex)}
                   {#if block.type === 'code'}
@@ -460,15 +511,44 @@
                       preload="metadata"
                     ></video>
                   {:else}
-                    <a href={`/api/v1/attachments/${attachment.id}`} target="_blank" rel="noreferrer">
-                      <img
-                        src={`/api/v1/attachments/${attachment.id}`}
-                        alt={attachment.filename}
-                        width={attachment.width ?? undefined}
-                        height={attachment.height ?? undefined}
-                        loading="lazy"
-                      />
-                    </a>
+                    <!--
+                      A picture fetched from a link points back at where it came
+                      from, the way an embed does, so the original is one click or
+                      one right-click away. An upload has nowhere else to point.
+                    -->
+                    <div
+                      class="attachment-picture"
+                      class:sized={pictureSize(attachment) !== null}
+                      style={pictureSize(attachment)}
+                    >
+                      <a
+                        href={attachment.sourceUrl ?? `/api/v1/attachments/${attachment.id}`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
+                        <img
+                          src={`/api/v1/attachments/${attachment.id}`}
+                          alt={attachment.filename}
+                          width={attachment.width ?? undefined}
+                          height={attachment.height ?? undefined}
+                          loading="lazy"
+                        />
+                      </a>
+                      {#if isGifContentType(attachment.contentType)}
+                        <button
+                          type="button"
+                          class="gif-heart"
+                          class:on={gifs.byHash.has(attachment.hash)}
+                          aria-pressed={gifs.byHash.has(attachment.hash)}
+                          title={gifs.byHash.has(attachment.hash)
+                            ? 'Remove from favourites'
+                            : 'Add to favourites'}
+                          onclick={() => toggleGifFavorite(attachment)}
+                        >
+                          {gifs.byHash.has(attachment.hash) ? '♥' : '♡'}
+                        </button>
+                      {/if}
+                    </div>
                   {/if}
                 {/each}
               </div>

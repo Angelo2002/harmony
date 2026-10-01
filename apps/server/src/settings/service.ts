@@ -30,6 +30,11 @@ export interface ServerSettings {
   previewUserAgent: string | null;
   /** True once the owner has been through the first-run setup wizard. */
   setupCompleted: boolean;
+  /**
+   * Whether a hosted gif service is configured, which is what the picker's third
+   * tab hangs on. The key itself never leaves the server.
+   */
+  klipyConfigured: boolean;
 }
 
 /** A settings patch. `theme` is partial so one colour can be changed on its own. */
@@ -44,6 +49,8 @@ export interface ServerSettingsUpdate {
   maxVideoBytes?: number;
   previewUserAgent?: string | null;
   setupCompleted?: boolean;
+  /** Cleared by an empty string, which takes the picker's hosted tab away. */
+  klipyApiKey?: string | null;
 }
 
 export interface BridgeSettings {
@@ -72,6 +79,8 @@ export interface SettingsService {
   getBridge(): BridgeSettings;
   getBridgePublic(): BridgePublicSettings;
   updateBridge(patch: { token?: string; enabled?: boolean; publicBaseUrl?: string | null }): BridgePublicSettings;
+  /** API key for the hosted gif service, or null when none is configured. */
+  getKlipyKey(): string | null;
   /** Content hash of the uploaded server icon, or null for the built-in default. */
   getIconHash(): string | null;
   setIconHash(hash: string | null): void;
@@ -89,6 +98,7 @@ const KEY_IMAGE_DAYS = 'retention_image_days';
 const KEY_VIDEO_DAYS = 'retention_video_days';
 const KEY_MESSAGE_DAYS = 'retention_message_days';
 const KEY_AUDIT_DAYS = 'retention_audit_days';
+const KEY_FAVORITE_DAYS = 'retention_favorite_days';
 const KEY_STORAGE_LIMIT = 'storage_limit_bytes';
 const KEY_STORAGE_TARGET = 'storage_target_bytes';
 const KEY_DISCORD_TOKEN = 'discord_bot_token';
@@ -97,6 +107,7 @@ const KEY_BRIDGE_PUBLIC_URL = 'bridge_public_base_url';
 const KEY_ICON_HASH = 'instance_icon_hash';
 const KEY_IMAGE_BYTES = 'upload_image_bytes';
 const KEY_VIDEO_BYTES = 'upload_video_bytes';
+const KEY_KLIPY_KEY = 'klipy_api_key';
 const KEY_PREVIEW_UA = 'preview_user_agent';
 const KEY_SETUP_COMPLETED = 'setup_completed';
 
@@ -172,7 +183,14 @@ function parseSize(raw: string | undefined, fallback: number): number {
  * Instance settings live in the database so admins can change them at runtime.
  * Environment values only provide the initial defaults.
  */
-export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSettings): SettingsService {
+/**
+ * What an instance falls back on before anything has been stored. It is the
+ * settings shape minus the few that are worked out rather than defaulted, so a
+ * caller cannot set something that is meant to be derived.
+ */
+export type SettingsDefaults = Omit<ServerSettings, 'klipyConfigured'>;
+
+export function createSettingsService(sqlite: DatabaseSync, defaults: SettingsDefaults): SettingsService {
   function get(): ServerSettings {
     const stored = readAllSettings(sqlite);
     const name = stored.get(KEY_SERVER_NAME);
@@ -197,6 +215,7 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       maxVideoBytes: parseSize(stored.get(KEY_VIDEO_BYTES), defaults.maxVideoBytes ?? DEFAULT_MAX_VIDEO_BYTES),
       previewUserAgent: parseStringOrNull(stored.get(KEY_PREVIEW_UA)),
       setupCompleted: setup ? parseBoolean(setup, defaults.setupCompleted) : defaults.setupCompleted,
+      klipyConfigured: parseStringOrNull(stored.get(KEY_KLIPY_KEY)) !== null,
     };
   }
 
@@ -207,6 +226,7 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       videoRetentionDays: parseNumberOrNull(stored.get(KEY_VIDEO_DAYS)),
       messageRetentionDays: parseNumberOrNull(stored.get(KEY_MESSAGE_DAYS)),
       auditRetentionDays: parseNumberOrNull(stored.get(KEY_AUDIT_DAYS)),
+      favoriteRetentionDays: parseNumberOrNull(stored.get(KEY_FAVORITE_DAYS)),
       storageLimitBytes: parseNumberOrNull(stored.get(KEY_STORAGE_LIMIT)),
       storageTargetBytes: parseNumberOrNull(stored.get(KEY_STORAGE_TARGET)),
     };
@@ -239,6 +259,10 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
 
     getIconHash() {
       return parseStringOrNull(readAllSettings(sqlite).get(KEY_ICON_HASH));
+    },
+
+    getKlipyKey() {
+      return parseStringOrNull(readAllSettings(sqlite).get(KEY_KLIPY_KEY));
     },
 
     setIconHash(hash) {
@@ -281,6 +305,10 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       if (patch.setupCompleted !== undefined) {
         writeSetting(sqlite, KEY_SETUP_COMPLETED, JSON.stringify(patch.setupCompleted));
       }
+      if (patch.klipyApiKey !== undefined) {
+        const trimmed = patch.klipyApiKey?.trim() ?? '';
+        writeSetting(sqlite, KEY_KLIPY_KEY, JSON.stringify(trimmed.length > 0 ? trimmed : null));
+      }
       return get();
     },
 
@@ -296,6 +324,9 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       }
       if (patch.auditRetentionDays !== undefined) {
         writeSetting(sqlite, KEY_AUDIT_DAYS, JSON.stringify(patch.auditRetentionDays));
+      }
+      if (patch.favoriteRetentionDays !== undefined) {
+        writeSetting(sqlite, KEY_FAVORITE_DAYS, JSON.stringify(patch.favoriteRetentionDays));
       }
       if (patch.storageLimitBytes !== undefined) {
         writeSetting(sqlite, KEY_STORAGE_LIMIT, JSON.stringify(patch.storageLimitBytes));

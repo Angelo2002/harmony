@@ -10,6 +10,7 @@
   let videoDays = $state('');
   let messageDays = $state('');
   let auditDays = $state('');
+  let favoriteDays = $state('');
   let limitGb = $state('');
   let targetGb = $state('');
   let usage = $state<RetentionResponse['usage'] | null>(null);
@@ -27,6 +28,7 @@
     videoDays = data.settings.videoRetentionDays == null ? '' : String(data.settings.videoRetentionDays);
     messageDays = data.settings.messageRetentionDays == null ? '' : String(data.settings.messageRetentionDays);
     auditDays = data.settings.auditRetentionDays == null ? '' : String(data.settings.auditRetentionDays);
+    favoriteDays = data.settings.favoriteRetentionDays == null ? '' : String(data.settings.favoriteRetentionDays);
     limitGb = data.settings.storageLimitBytes == null ? '' : String(round2(data.settings.storageLimitBytes / GB));
     targetGb = data.settings.storageTargetBytes == null ? '' : String(round2(data.settings.storageTargetBytes / GB));
     usage = data.usage;
@@ -67,6 +69,7 @@
             videoRetentionDays: toDays(videoDays),
             messageRetentionDays: toDays(messageDays),
             auditRetentionDays: toDays(auditDays),
+            favoriteRetentionDays: toDays(favoriteDays),
             storageLimitBytes: toBytes(limitGb),
             storageTargetBytes: toBytes(targetGb),
           }),
@@ -122,6 +125,11 @@
     </label>
 
     <label>
+      Delete saved gifs unused for (days)
+      <input bind:value={favoriteDays} placeholder="off" inputmode="numeric" />
+    </label>
+
+    <label>
       Emergency clean-up when media exceeds (GB)
       <input bind:value={limitGb} placeholder="off" inputmode="decimal" />
     </label>
@@ -151,7 +159,7 @@
         <p class="muted">
           Last clean-up {new Date(lastRun.ranAt).toLocaleString()}: {lastRun.deletedAttachments} attachment(s),
           {lastRun.deletedMessages} message(s), {lastRun.deletedAuditEntries} log entry/entries,
-          {lastRun.deletedBlobs} file(s) — freed
+          {lastRun.deletedFavorites} saved gif(s), {lastRun.deletedBlobs} file(s) — freed
           {formatBytes(lastRun.freedBytes)}.
         </p>
       {:else}

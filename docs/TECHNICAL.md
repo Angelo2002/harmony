@@ -69,7 +69,7 @@ retention, the bridge) live in the database and are edited in the admin panel.
 | `npm run typecheck` | Type-check every workspace (`tsc` for the server and shared package, `svelte-check` for the web client) |
 | `npm run smoke` | Boot a throwaway server and exercise the API end to end |
 | `npm run smoke:bridge` | Exercise the Discord bridge against a fake transport |
-| `npm run smoke:text` | Check the markdown and link parser |
+| `npm run smoke:text` | Check the client's pure logic: the markdown and link parser, catching up after being away, and what the emoji picker offers |
 
 ### Production
 
@@ -178,6 +178,25 @@ imported into Harmony the first time they post. Since Discord fetches avatars
 directly from this instance, outbound avatars need a **Public base URL** set in
 **Admin → Bridge** — the address people use to reach the instance from the
 internet. A `localhost` address will not work. Leave it blank to send names only.
+
+## Emoji
+
+The picker offers two tabs. **Server** holds the instance's own uploaded emoji and
+is the default, since those are the ones a member came here for. **Unicode** holds
+the full set, grouped the way Unicode groups it. Search filters whichever tab is
+open, matching names case-insensitively; while a search is running the group
+headings and the row of common shortcuts step aside, because a handful of results
+split across nine headings reads worse than one plain list.
+
+The unicode set comes from the `unicode-emoji-json` package (MIT): the RGI subset,
+the emoji likely to render everywhere, with skin tone variants collapsed onto the
+emoji they belong to rather than listed as separate entries. It is roughly 277 kB
+of JSON, fetched through a dynamic import only when a picker is first opened — so
+it is code-split into its own chunk, about 30 kB over the wire, and a session that
+never reacts to anything never pays for it. The package ships no types for the
+grouped file, so the shape the picker relies on is asserted by the text smoke test
+against the package itself, which is what would catch an upgrade changing it into
+an empty list with no error anywhere.
 
 ## Notification sounds
 

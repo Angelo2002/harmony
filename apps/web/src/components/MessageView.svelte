@@ -150,7 +150,10 @@
     if (window.matchMedia('(hover: hover)').matches) return;
 
     const target = event.target as Element | null;
-    if (target?.closest('a, button, .spoiler, .profile-trigger')) return;
+    // The emoji picker is its own surface inside the row, with a search field and
+    // stretches of padding between the emoji; a tap on any of it belongs to the
+    // picker, not to the message.
+    if (target?.closest('a, button, .spoiler, .profile-trigger, .emoji-picker')) return;
 
     // A tap while text is selected just clears the selection.
     const selection = window.getSelection();
@@ -522,7 +525,9 @@
           {/if}
 
           {#if pickerFor === message.id}
-            <EmojiPicker onpick={(emoji, emojiId) => pickReaction(message, emoji, emojiId)} />
+            <div class="reaction-picker">
+              <EmojiPicker onpick={(emoji, emojiId) => pickReaction(message, emoji, emojiId)} />
+            </div>
           {/if}
         </div>
 

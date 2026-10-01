@@ -1,9 +1,15 @@
-// Focused checks for the client's message plumbing: the text parser for markdown,
-// links, emoji and mentions, and the merge that catches up after being away.
+// Focused checks for the client's pure logic: parsing message text into markdown,
+// links, emoji and mentions, the merge that catches up after being away, deciding
+// whether a message is aimed at you, and what the emoji picker offers and finds.
 //
 // Run with: npm run smoke:text
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { parseMessage } from '../src/lib/message-text.ts';
 import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
+import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
+
+const require = createRequire(import.meta.url);
 
 let failures = 0;
 function check(name, condition) {
@@ -166,6 +172,56 @@ check(
 );
 check('a reserved mention is never yours', !mentionsUser(message('1', { content: '@everyone' }), 'u1', mentionOf));
 check('an ordinary message is not a mention', !mentionsUser(message('1', { content: 'good morning' }), 'u1', mentionOf));
+
+// --- Searching the emoji picker ---
+const named = [{ name: 'YES' }, { name: 'No' }, { name: 'yes_animated' }];
+
+check('an empty search keeps everything', filterByName(named, '').length === 3);
+check('a search ignores case', filterByName(named, 'yes').length === 2);
+check('a search matches anywhere in the name', filterByName(named, 'anim').length === 1);
+check('a search trims the space around it', filterByName(named, '  no  ').length === 1);
+check('a search matching nothing returns nothing', filterByName(named, 'zzz').length === 0);
+
+const searchable = [
+  { name: 'Smileys & Emotion', emojis: [{ name: 'grinning face' }, { name: 'joy' }] },
+  { name: 'Animals & Nature', emojis: [{ name: 'dog face' }] },
+];
+check('a search narrows the emoji inside each group', filterUnicodeGroups(searchable, 'face').length === 2);
+check('a search drops the groups left with no match', filterUnicodeGroups(searchable, 'dog').length === 1);
+check('a search matching nothing leaves no groups', filterUnicodeGroups(searchable, 'zzz').length === 0);
+check('an empty search keeps every group intact', filterUnicodeGroups(searchable, '').length === 2);
+
+// --- The unicode emoji data ---
+// Read straight from the package, since the client reaches it through a
+// bundler-only dynamic import that plain Node cannot perform. This guards the
+// shape the picker relies on, which a package upgrade could otherwise change
+// into an empty list with no error anywhere.
+const emojiData = JSON.parse(
+  readFileSync(require.resolve('unicode-emoji-json/data-by-group.json'), 'utf8'),
+);
+
+check('the unicode emoji data arrives as groups', Array.isArray(emojiData) && emojiData.length > 0);
+check(
+  'every group names itself and holds emoji that have names',
+  emojiData.every(
+    (group) =>
+      typeof group.name === 'string' &&
+      group.name.length > 0 &&
+      Array.isArray(group.emojis) &&
+      group.emojis.length > 0 &&
+      group.emojis.every((emoji) => typeof emoji.emoji === 'string' && typeof emoji.name === 'string'),
+  ),
+);
+
+const emojiCount = emojiData.reduce((total, group) => total + group.emojis.length, 0);
+check('the set is the whole range rather than a sample', emojiCount > 1000, `${emojiCount} emoji`);
+check(
+  'a known emoji can be found by name',
+  filterByName(
+    emojiData.flatMap((group) => group.emojis),
+    'waving hand',
+  ).some((emoji) => emoji.emoji === '👋'),
+);
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

@@ -7,7 +7,6 @@
     formatSlowmode,
     isTimedOut,
     type Attachment,
-    type Emoji,
     type User,
   } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
@@ -19,6 +18,7 @@
   import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
   import { uploads } from '../lib/upload-queue.svelte';
+  import EmojiPicker from './EmojiPicker.svelte';
 
   const acceptAttribute = ALLOWED_ATTACHMENT_TYPES.join(',');
   const maxAttachments = LIMITS.attachmentsPerMessage;
@@ -119,9 +119,14 @@
     pending = pending.filter((attachment) => attachment.id !== id);
   }
 
-  function insertEmoji(emoji: Emoji): void {
+  /**
+   * Inserts whatever the picker chose. A server emoji arrives as its `:name:`
+   * shortcode and a unicode one as the character itself, so either way the text
+   * is what goes in the field.
+   */
+  function insertEmoji(emoji: string): void {
     const separator = value.length > 0 && !value.endsWith(' ') ? ' ' : '';
-    value = `${value}${separator}:${emoji.name}:`;
+    value = `${value}${separator}${emoji}`;
     showPicker = false;
   }
 
@@ -400,17 +405,7 @@
   {/if}
 
   {#if showPicker}
-    <div class="emoji-picker">
-      {#if emojis.list.length === 0}
-        <p class="muted">No custom emojis yet.</p>
-      {:else}
-        {#each emojis.list as emoji (emoji.id)}
-          <button type="button" class="emoji-option" title={`:${emoji.name}:`} onclick={() => insertEmoji(emoji)}>
-            <img src={`/api/v1/emojis/${emoji.id}`} alt={emoji.name} />
-          </button>
-        {/each}
-      {/if}
-    </div>
+    <EmojiPicker onpick={(emoji) => insertEmoji(emoji)} />
   {/if}
 
   {#if pending.length > 0}

@@ -30,16 +30,62 @@ export interface IconService {
 
 /**
  * Android crops a maskable icon to whatever shape the launcher uses, so the
- * artwork is drawn at 80% and centred on a themed square that takes the clipping.
+ * artwork is drawn at 80% and centred on a tile that takes the clipping.
+ *
+ * The tile is the artwork's own colour rather than the app's background, which
+ * matters more than it sounds: the background is usually dark, and a dark tile
+ * around a logo reads as a black frame rather than as part of the icon.
  */
-async function maskableFrom(source: string, size: number, background: string): Promise<Buffer> {
+async function maskableFrom(source: string, size: number, tile: Rgb): Promise<Buffer> {
   const inner = Math.max(1, Math.round(size * 0.8));
   const art = await sharp(source).resize(inner, inner, { fit: 'cover', position: 'centre' }).png().toBuffer();
   const pad = Math.round((size - inner) / 2);
-  return sharp({ create: { width: size, height: size, channels: 4, background } })
+  return sharp({ create: { width: size, height: size, channels: 3, background: tile } })
     .composite([{ input: art, top: pad, left: pad }])
     .png()
     .toBuffer();
+}
+
+/** A colour as channels, which is how sharp takes a background. */
+interface Rgb {
+  r: number;
+  g: number;
+  b: number;
+}
+
+/** Alpha at or below this is a pixel that is not really there. */
+const TRANSPARENT_CUTOFF = 8;
+
+/**
+ * The colour the artwork is mostly made of.
+ *
+ * Transparent pixels are skipped rather than averaged in. A logo drawn on
+ * nothing would otherwise average out close to black, and sharp's own dominant
+ * colour has exactly that problem, which is the dark ring this exists to avoid.
+ * Null means there was nothing opaque to measure.
+ */
+async function artworkColor(source: string): Promise<Rgb | null> {
+  // Small: only an average is wanted, and this runs once per icon and size.
+  const { data, info } = await sharp(source)
+    .resize(32, 32, { fit: 'inside' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let seen = 0;
+  for (let i = 0; i < data.length; i += info.channels) {
+    if ((data[i + 3] ?? 0) <= TRANSPARENT_CUTOFF) continue;
+    r += data[i] ?? 0;
+    g += data[i + 1] ?? 0;
+    b += data[i + 2] ?? 0;
+    seen += 1;
+  }
+
+  if (seen === 0) return null;
+  return { r: r / seen, g: g / seen, b: b / seen };
 }
 
 /**
@@ -73,15 +119,28 @@ export function createIconService(config: Config, settings: SettingsService): Ic
     const source = sourcePath();
     if (!source) return null;
 
-    // The maskable padding follows the theme, so the tile matches the app.
-    const background = maskable ? deriveTheme(settings.get().theme).bg : '';
-    const key = `${source}|${size}|${background}`;
+    // Always an opaque tile, in the artwork's own colour. A transparent icon is
+    // left to the platform to back, and iOS backs those with black, which is the
+    // same dark frame by another route. Artwork with nothing opaque in it has no
+    // colour of its own, so it falls back to the app's background.
+    const theme = deriveTheme(settings.get().theme);
+    const tile = (await artworkColor(source)) ?? {
+      r: Number.parseInt(theme.bg.slice(1, 3), 16),
+      g: Number.parseInt(theme.bg.slice(3, 5), 16),
+      b: Number.parseInt(theme.bg.slice(5, 7), 16),
+    };
+
+    const key = `${source}|${size}|${maskable ? 'maskable' : 'any'}|${tile.r},${tile.g},${tile.b}`;
     const cached = rendered.get(key);
     if (cached) return cached;
 
     const buffer = maskable
-      ? await maskableFrom(source, size, background)
-      : await sharp(source).resize(size, size, { fit: 'cover', position: 'centre' }).png().toBuffer();
+      ? await maskableFrom(source, size, tile)
+      : await sharp(source)
+          .resize(size, size, { fit: 'cover', position: 'centre' })
+          .flatten({ background: tile })
+          .png()
+          .toBuffer();
 
     rendered.set(key, buffer);
     return buffer;

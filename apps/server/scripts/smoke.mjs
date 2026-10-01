@@ -2372,17 +2372,35 @@ try {
   );
 
   const icon192 = await fetch(`${ORIGIN}/api/v1/icons/192`);
+  const icon192Bytes = Buffer.from(await icon192.arrayBuffer());
   check(
     'an icon is rendered at the requested size',
     icon192.status === 200 &&
       (icon192.headers.get('content-type') ?? '') === 'image/png' &&
-      (await sharp(Buffer.from(await icon192.arrayBuffer())).metadata()).width === 192,
+      (await sharp(icon192Bytes).metadata()).width === 192,
   );
   const maskableIcon = await fetch(`${ORIGIN}/api/v1/icons/512?maskable=1`);
-  const maskableMeta = await sharp(Buffer.from(await maskableIcon.arrayBuffer())).metadata();
+  const maskableBytes = Buffer.from(await maskableIcon.arrayBuffer());
+  const maskableMeta = await sharp(maskableBytes).metadata();
   check(
     'a maskable icon is rendered at its size',
     maskableIcon.status === 200 && maskableMeta.width === 512 && maskableMeta.height === 512,
+  );
+  // Opaque, because a transparent icon is left for the platform to back, and
+  // Android and iOS both fill those in as a dark frame around the logo.
+  check(
+    'a rendered icon is opaque rather than left transparent',
+    (await sharp(icon192Bytes).stats()).isOpaque === true &&
+      (await sharp(maskableBytes).stats()).isOpaque === true,
+  );
+  // The corner of the maskable tile is padding, well clear of any artwork. The
+  // stand-in icon above is a solid #5865f2 and the theme background is #313338,
+  // so this tells the two apart.
+  const corner = await sharp(maskableBytes).extract({ left: 2, top: 2, width: 1, height: 1 }).raw().toBuffer();
+  check(
+    'the maskable padding takes its colour from the artwork, not the app background',
+    corner[0] === 0x58 && corner[1] === 0x65 && corner[2] === 0xf2,
+    `corner was ${corner[0]},${corner[1]},${corner[2]}`,
   );
   check('an unreasonable icon size is refused (400)', (await fetch(`${ORIGIN}/api/v1/icons/99999`)).status === 400);
 

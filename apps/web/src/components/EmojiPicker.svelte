@@ -7,6 +7,9 @@
   /** The most common reactions, within reach of both tabs rather than a scroll away. */
   const quickReactions = ['👍', '❤️', '😂', '🎉', '😮', '😢'];
 
+  /** A little daylight between the picker and the keyboard. */
+  const REVEAL_MARGIN = 12;
+
   type Tab = 'server' | 'unicode';
   /** The instance's own emoji first: they are the ones people came here for. */
   let tab = $state<Tab>('server');
@@ -31,9 +34,47 @@
 
   /** Searching is a different task from browsing, so the shortcuts step aside. */
   const searching = $derived(query.trim().length > 0);
+
+  let picker = $state<HTMLDivElement | null>(null);
+
+  /**
+   * Keeps the picker clear of the keyboard.
+   *
+   * A soft keyboard drawn over the page leaves no room for a field near the
+   * bottom, and the browser's own scroll-into-view has nothing to work with: the
+   * shell is a fixed-height column that the page itself cannot scroll. The
+   * picker's scroll container can, though, so the shortfall against the part of
+   * the page actually on screen is measured and handed to that.
+   */
+  function reveal(): void {
+    const viewport = window.visualViewport;
+    const element = picker;
+    if (!viewport || !element) return;
+
+    const covered = element.getBoundingClientRect().bottom - (viewport.height + viewport.offsetTop);
+    if (covered <= 0) return;
+
+    // The nearest ancestor that actually scrolls: the message list when reacting
+    // to something, and nothing at all when the picker sits in the composer, in
+    // which case the layout has already moved and there is nothing to do.
+    let scroller = element.parentElement;
+    while (scroller && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement;
+    scroller?.scrollBy({ top: covered + REVEAL_MARGIN });
+  }
+
+  // Only while the picker is open, and cleaned up with it. The keyboard animates
+  // in, so the useful measurements are the later ones; the call here covers a
+  // picker opened while a keyboard is already up.
+  $effect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    viewport.addEventListener('resize', reveal);
+    reveal();
+    return () => viewport.removeEventListener('resize', reveal);
+  });
 </script>
 
-<div class="emoji-picker">
+<div class="emoji-picker" bind:this={picker}>
   <div class="emoji-picker-head">
     <input
       class="emoji-search"

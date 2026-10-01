@@ -204,6 +204,14 @@ otherwise. A larger source makes a sharper icon — the shipped default is only
 96×96 — so if the icon matters to you, upload a square image of at least 512×512
 in **Admin → Settings**.
 
+Uploaded icons may have a transparent background. The launcher will not leave one,
+though: an installed app icon is a tile that the operating system crops to its own
+shape, so the icon is drawn on a background taken from the artwork itself — the
+average of its own colours. A logo that is mostly one colour therefore blends into
+its tile, and one on a white or dark background gets a tile of that colour rather
+than a frame around the logo. This is normal for installed apps; Discord and every
+other app icon works the same way.
+
 Updates arrive on the next visit: the service worker caches nothing, so a new
 deploy is never served stale, though an existing install may need one reload.
 

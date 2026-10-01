@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      interactive-widget asks Android to shrink the layout when the soft keyboard
+      opens, rather than drawing it over the page. The shell is a fixed-height
+      column with nothing for the page to scroll, so without it the composer and
+      anything under it end up behind the keyboard.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <link rel="icon" type="image/png" href="/icon.png" />
     <!-- Served by the server from the instance's own name, icon and colours. -->
     <link rel="manifest" href="/manifest.webmanifest" />

@@ -89,8 +89,8 @@ export interface Channel {
 }
 
 export interface Attachment {
-  id: SnowflakeId;
-  messageId: SnowflakeId | null;
+  id: string;
+  messageId: string | null;
   filename: string;
   contentType: string;
   size: number;
@@ -98,6 +98,13 @@ export interface Attachment {
   height: number | null;
   hash: string;
   createdAt: IsoTimestamp;
+  /**
+   * The link this was copied from, for an image the server fetched out of a
+   * message's own text rather than one somebody uploaded. Null for an upload.
+   * A client can ignore it; the bridge uses it to avoid handing Discord a file
+   * for a link Discord is perfectly able to unfurl itself.
+   */
+  sourceUrl: string | null;
 }
 
 /**

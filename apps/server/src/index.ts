@@ -102,6 +102,7 @@ const embedService = createEmbedService({
   sqlite: db.sqlite,
   settings: settingsService,
   hub,
+  attachments: attachmentService,
   renderMessage: (messageId) => messageService.byId(messageId),
   log: (message, detail) => app.log.debug(detail ?? {}, message),
 });

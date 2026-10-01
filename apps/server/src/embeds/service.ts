@@ -1,9 +1,19 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { GatewayEvent, listEmbeddableUrls, type LinkEmbed, type Message } from '@harmony/shared';
+import {
+  ALLOWED_IMAGE_TYPES,
+  GatewayEvent,
+  listEmbeddableUrls,
+  type ImageContentType,
+  type LinkEmbed,
+  type Message,
+} from '@harmony/shared';
+import type { AttachmentService } from '../attachments/service.ts';
+import { deleteAttachment, listLinkedAttachments } from '../db/attachments.ts';
 import { setMessageEmbed } from '../db/messages.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
 import { resolvesToPublicHost } from './guard.ts';
+import { readCappedBody } from './media.ts';
 import { parseEmbedMetadata } from './metadata.ts';
 import { fetchTweetEmbed, fetchYouTubeEmbed, tweetStatusId, youtubeVideoId } from './providers.ts';
 
@@ -28,23 +38,40 @@ export interface EmbedServiceDeps {
   sqlite: DatabaseSync;
   settings: SettingsService;
   hub: GatewayHub;
+  attachments: AttachmentService;
   /** Renders a message for a broadcast, or null when it is gone. */
   renderMessage: (messageId: string) => Message | null;
   log?: (message: string, detail?: unknown) => void;
 }
 
 /**
- * Unfurls one link per message into a small text preview.
+ * What a message's link turned out to be. A page becomes a card; a picture is
+ * brought home and kept, because a link to somebody else's file is not something
+ * this instance can rely on still being there tomorrow.
+ */
+type Outcome =
+  | { kind: 'embed'; embed: LinkEmbed | null }
+  | { kind: 'media'; url: string; contentType: string; data: Buffer };
+
+/**
+ * Resolves one link a message contains, and puts the result on the message.
+ *
+ * A page becomes a small text card. A picture is fetched and kept as an
+ * attachment of the message instead, because a link to somebody else's file is
+ * not something this instance can rely on still being there: those addresses are
+ * often signed and expire, and a preview cached from one goes dead within a day.
+ * A copy of our own, on the other hand, keeps working, appears in the media
+ * gallery, answers to retention, and needs no card around it.
  *
  * The target URL comes from message text, so every hop is treated as hostile:
  * only http and https are allowed, the host must resolve to a public address,
  * redirects are followed manually and re-checked, and the response is bounded by
- * a timeout, a content-type check and a byte cap. Results are cached per URL,
- * including failures, so a dead link is not refetched for every message.
+ * a timeout, a content-type check and a byte cap.
  */
 export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
-  const cache = new Map<string, LinkEmbed | null>();
-  const inFlight = new Map<string, Promise<LinkEmbed | null>>();
+  /** Cards, by URL and user agent. Small, and the same link turns up again. */
+  const cards = new Map<string, LinkEmbed | null>();
+  const inFlight = new Map<string, Promise<Outcome>>();
   const log = deps.log ?? ((): void => {});
 
   /**
@@ -63,19 +90,26 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
     deps.hub.dispatch(GatewayEvent.MessageUpdate, message, { channelId: message.channelId });
   }
 
-  async function lookup(url: string, userAgent: string): Promise<LinkEmbed | null> {
+  /**
+   * Resolves a link, remembering only what is worth remembering. A card is small
+   * and the same link comes up again, so it is kept; an outcome carrying a
+   * picture is not, since only the one message that asked for it ever wants it.
+   */
+  function resolveOutcome(url: string, userAgent: string): Promise<Outcome> {
     const key = cacheKey(userAgent, url);
-    if (cache.has(key)) return cache.get(key) ?? null;
+    if (cards.has(key)) return Promise.resolve({ kind: 'embed', embed: cards.get(key) ?? null });
 
     const pending = inFlight.get(key);
     if (pending) return pending;
 
-    const job = fetchEmbed(url, userAgent, log)
-      .catch(() => null)
-      .then((embed) => {
-        if (cache.size >= CACHE_LIMIT) cache.clear();
-        cache.set(key, embed);
-        return embed;
+    const job = fetchOutcome(url, userAgent, deps.settings.get().maxImageBytes, log)
+      .catch((): Outcome => ({ kind: 'embed', embed: null }))
+      .then((outcome) => {
+        if (outcome.kind === 'embed') {
+          if (cards.size >= CACHE_LIMIT) cards.clear();
+          cards.set(key, outcome.embed);
+        }
+        return outcome;
       })
       .finally(() => inFlight.delete(key));
 
@@ -83,34 +117,95 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
     return job;
   }
 
+  /**
+   * Forgets any picture this message brought in from one of its own links.
+   *
+   * The blob itself is left alone: the pruner sweeps whatever nothing refers to,
+   * exactly as it does for an upload somebody deleted.
+   */
+  function dropLinkedImages(messageId: string): void {
+    for (const attachment of listLinkedAttachments(deps.sqlite, messageId)) {
+      deleteAttachment(deps.sqlite, attachment.id);
+    }
+  }
+
+  /** Puts a message's link into its settled state, and tells clients about it. */
+  async function applyOutcome(messageId: string, outcome: Outcome): Promise<void> {
+    dropLinkedImages(messageId);
+
+    if (outcome.kind === 'media') {
+      const stored = await deps.attachments.storeLinkedImage({
+        messageId,
+        uploaderId: deps.renderMessage(messageId)?.author?.id ?? null,
+        sourceUrl: outcome.url,
+        filename: filenameFor(outcome.url, outcome.contentType),
+        contentType: outcome.contentType,
+        data: outcome.data,
+      });
+      // A picture we could not keep leaves the link as plain text, rather than
+      // becoming a card that would have to fetch it all over again.
+      if (stored) log('kept a linked image', { messageId, url: outcome.url });
+    }
+
+    // A card is only for pages. When the picture is on the message itself there
+    // is nothing left for a card to say.
+    const embed = outcome.kind === 'embed' ? outcome.embed : null;
+    if (!setMessageEmbed(deps.sqlite, messageId, embed ? JSON.stringify(embed) : null)) return;
+    broadcast(messageId);
+  }
+
   return {
     resolve(messageId, content) {
       if (!deps.settings.get().embedsEnabled) return;
+
       const url = listEmbeddableUrls(content)[0];
-      if (!url) return;
+      const linked = listLinkedAttachments(deps.sqlite, messageId);
+
+      // The message no longer points anywhere, so anything it brought in has to
+      // go with it.
+      if (!url) {
+        if (linked.length > 0) void applyOutcome(messageId, { kind: 'embed', embed: null });
+        return;
+      }
+
+      // The same link as last time: the picture is already here, and an edit
+      // elsewhere in the text must not fetch it a second time.
+      if (linked.some((attachment) => attachment.source_url === url)) return;
 
       const userAgent = deps.settings.get().previewUserAgent ?? USER_AGENT;
-      void lookup(url, userAgent)
-        .then((embed) => {
-          // A message deleted while we were fetching simply changes nothing.
-          if (!setMessageEmbed(deps.sqlite, messageId, embed ? JSON.stringify(embed) : null)) return;
-          broadcast(messageId);
-        })
-        .catch((error: unknown) => deps.log?.('link preview failed', { error: String(error) }));
+      void resolveOutcome(url, userAgent)
+        .then((outcome) => applyOutcome(messageId, outcome))
+        .catch((error: unknown) => log('link preview failed', { error: String(error) }));
     },
   };
 }
 
-async function fetchEmbed(
+/** A name for a file fetched from a link, which usually has none of its own. */
+function filenameFor(url: string, contentType: string): string {
+  const last = new URL(url).pathname.split('/').filter(Boolean).pop() ?? '';
+  if (last.length > 0 && last.length <= 100) {
+    try {
+      return decodeURIComponent(last);
+    } catch {
+      // A broken escape sequence is still a better name than none at all.
+      return last;
+    }
+  }
+  return `linked-image.${contentType.split('/')[1]?.split('+')[0] ?? 'img'}`;
+}
+
+async function fetchOutcome(
   url: string,
   userAgent: string,
+  /** Largest picture worth keeping, from the instance's own upload limit. */
+  maxImageBytes: number,
   log: (message: string, detail?: unknown) => void,
-): Promise<LinkEmbed | null> {
+): Promise<Outcome> {
   let target: URL;
   try {
     target = new URL(url);
   } catch {
-    return null;
+    return { kind: 'embed', embed: null };
   }
 
   // Providers with a small JSON endpoint of their own are asked directly: it is
@@ -119,17 +214,17 @@ async function fetchEmbed(
   const videoId = youtubeVideoId(target);
   if (videoId) {
     const embed = await fetchYouTubeEmbed(videoId, userAgent);
-    if (embed) return embed;
+    if (embed) return { kind: 'embed', embed };
   }
   const statusId = tweetStatusId(target);
   if (statusId) {
     const embed = await fetchTweetEmbed(statusId, userAgent);
-    if (embed) return embed;
+    if (embed) return { kind: 'embed', embed };
   }
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (target.protocol !== 'http:' && target.protocol !== 'https:') return null;
-    if (!(await resolvesToPublicHost(target.hostname))) return null;
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') return { kind: 'embed', embed: null };
+    if (!(await resolvesToPublicHost(target.hostname))) return { kind: 'embed', embed: null };
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -142,7 +237,7 @@ async function fetchEmbed(
 
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
-        if (!location) return null;
+        if (!location) return { kind: 'embed', embed: null };
         target = new URL(location, target);
         continue;
       }
@@ -154,32 +249,49 @@ async function fetchEmbed(
           status: response.status,
           challenged: response.headers.get('cf-mitigated') === 'challenge',
         });
-        return null;
+        return { kind: 'embed', embed: null };
       }
 
-      const contentType = response.headers.get('content-type') ?? '';
-      // A link that points straight at an image is its own preview.
-      if (/^image\//i.test(contentType)) {
-        await response.body?.cancel();
-        return {
-          url: target.toString(),
-          title: null,
-          description: null,
-          siteName: target.hostname.replace(/^www\./, ''),
-          imageUrl: target.toString(),
-          player: null,
-        };
+      const contentType = (response.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+      // A link that points straight at a picture is the picture, so it comes
+      // home with us. One too large to keep is left as the card it used to be,
+      // which is better than nothing at all.
+      if (isStorableImage(contentType)) {
+        const data = await readCappedBody(response, maxImageBytes);
+        if (data) return { kind: 'media', url: target.toString(), contentType, data };
+        log('linked image too large to keep', { url: target.toString(), limit: maxImageBytes });
+        return { kind: 'embed', embed: bareImageCard(target, contentType) };
       }
-      if (!/text\/html|application\/xhtml/i.test(contentType)) return null;
+      if (!/text\/html|application\/xhtml/i.test(contentType)) return { kind: 'embed', embed: null };
 
-      return parseEmbedMetadata(await readHead(response), target.toString());
+      return { kind: 'embed', embed: parseEmbedMetadata(await readHead(response), target.toString()) };
     } catch {
-      return null;
+      return { kind: 'embed', embed: null };
     } finally {
       clearTimeout(timer);
     }
   }
-  return null;
+  return { kind: 'embed', embed: null };
+}
+
+/** Image types this instance is willing to keep a copy of. */
+function isStorableImage(contentType: string): boolean {
+  return ALLOWED_IMAGE_TYPES.includes(contentType as ImageContentType);
+}
+
+/**
+ * The old behaviour for a picture we will not keep: a card whose image the
+ * client fetches through the proxy. Only reached for files too large to store.
+ */
+function bareImageCard(target: URL, _contentType: string): LinkEmbed {
+  return {
+    url: target.toString(),
+    title: null,
+    description: null,
+    siteName: target.hostname.replace(/^www\./, ''),
+    imageUrl: target.toString(),
+    player: null,
+  };
 }
 
 /**

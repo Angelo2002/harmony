@@ -215,6 +215,24 @@ what the sound actually is, and when it plays, is the client's business.
 Which messages count as a mention is decided by the same parser that renders them,
 so a name inside a backtick block is a quotation rather than a summons.
 
+## Links and media
+
+A message's first link is resolved, and a small card is stored on the message. A link that points
+straight at a picture is different: the bytes are fetched once and kept as an attachment of that
+message, with the link it came from in the attachment's `source_url` column.
+
+That column is what makes the rest work. It marks the attachment as having come from the text rather
+than from the sender, which is how an edit knows to take the picture away again when the link goes,
+how the bridge knows not to hand Discord a file for a link Discord can unfurl itself, and how a
+resolution is skipped when the link has not actually changed. Anything with a null `source_url` was
+uploaded by a person and belongs to the message; anything else is a copy of somebody else's file and
+follows the text.
+
+The two also differ in what happens when they cannot be had. An image too large for the instance's
+owner-configured upload limit is left as a card pointing at it through the proxy, rather than being
+stored; a page's preview image is always only a reference. Nothing is kept that an upload of the same
+file would have been refused.
+
 ## Versioning
 
 The release number lives in one place, `HARMONY_VERSION` in

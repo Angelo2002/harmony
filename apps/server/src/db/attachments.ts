@@ -12,6 +12,8 @@ export interface AttachmentRow {
   height: number | null;
   hash: string;
   created_at: string;
+  /** The link this was copied from, or null for something that was uploaded. */
+  source_url: string | null;
 }
 
 export function toAttachment(row: AttachmentRow): Attachment {
@@ -25,6 +27,7 @@ export function toAttachment(row: AttachmentRow): Attachment {
     height: row.height,
     hash: row.hash,
     createdAt: row.created_at,
+    sourceUrl: row.source_url,
   };
 }
 
@@ -32,7 +35,7 @@ export function insertAttachment(
   sqlite: DatabaseSync,
   input: {
     id: string;
-    uploaderId: string;
+    uploaderId: string | null;
     filename: string;
     contentType: string;
     size: number;
@@ -40,12 +43,14 @@ export function insertAttachment(
     height: number | null;
     hash: string;
     createdAt: string;
+    /** Set when the bytes came from a link rather than an upload. */
+    sourceUrl?: string | null;
   },
 ): void {
   sqlite
     .prepare(
-      `INSERT INTO attachments (id, uploader_id, filename, content_type, size, width, height, hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO attachments (id, uploader_id, filename, content_type, size, width, height, hash, created_at, source_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.id,
@@ -57,7 +62,18 @@ export function insertAttachment(
       input.height,
       input.hash,
       input.createdAt,
+      input.sourceUrl ?? null,
     );
+}
+
+/**
+ * The attachments on a message that were copied from a link, so the one keeping
+ * a message in step with its own text can be found again.
+ */
+export function listLinkedAttachments(sqlite: DatabaseSync, messageId: string): AttachmentRow[] {
+  return sqlite
+    .prepare('SELECT * FROM attachments WHERE message_id = ? AND source_url IS NOT NULL')
+    .all(messageId) as unknown as AttachmentRow[];
 }
 
 export function findAttachment(sqlite: DatabaseSync, id: string): AttachmentRow | null {

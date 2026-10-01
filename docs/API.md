@@ -191,6 +191,7 @@ type Attachment = {
   height: number | null;
   hash: string;                 // content hash; blob is immutable
   createdAt: string;
+  sourceUrl: string | null;     // the link this was fetched from, null for an upload
 };
 
 type Reaction = {
@@ -656,15 +657,30 @@ stub, and the bridge mirrors the removal to Discord.
 #### Link previews
 
 When `embedsEnabled` is on, the server takes the first link a message contains and, if it can reach
-it, attaches a small `embed` and fires a second `MESSAGE_UPDATE` carrying it. Only the first link is
-used. As well as the text, the page's preview image (`og:image` or `twitter:image`) is recorded in
-`imageUrl`; a link that points straight at an image is its own preview.
+it, resolves it. Only the first link is used. What comes back depends on what the link is:
+
+- **A picture** — anything served as one of the instance's accepted image types — is **downloaded
+  and kept as an attachment of that message**, and the message carries no `embed` at all. A link to
+  somebody else's file cannot be relied on to still be there: those addresses are often signed and
+  expire, and a preview that merely points at one goes dead within a day. A copy of our own keeps
+  working, appears in the media gallery, answers to retention, and needs no card around it. Which
+  attachment came from a link is recorded in its `sourceUrl`.
+- **A page** becomes a small `embed`: its title, description, site name, and preview image
+  (`og:image` or `twitter:image`) in `imageUrl`.
+
+Only a picture is ever kept, and only its own bytes: a page's `imageUrl` stays a reference that a
+client loads through the proxy below. A picture larger than the instance's `maxImageBytes` is left as
+an old-style card instead, since keeping it would mean storing something an upload of the same file
+would have been refused.
 
 Links inside code, masked links (`[text](url)`) and angle-bracket links (`<url>`) are never
 unfurled. The fetch is guarded: `http` and `https` only, the host must resolve to a public address,
-and redirects are limited and re-checked at each hop. Editing a message drops its old preview and
-resolves the new text, and a message the Discord bridge imports resolves a preview as if it had been
-typed here. Turn previews off instance-wide with `embedsEnabled` in the server settings.
+and redirects are limited and re-checked at each hop. Editing a message drops what it previously
+resolved — a preview card and any picture it had fetched — and resolves the new text, so removing a
+link takes the picture with it. Resolving is skipped when the link has not changed, so an edit
+elsewhere in the text does not download the same file twice. A message the Discord bridge imports
+resolves the same way it would if it had been typed here. Turn the whole thing off instance-wide
+with `embedsEnabled` in the server settings.
 
 Two providers are recognised from the link itself and asked for a small JSON summary instead of a
 page, because their pages are heavy, script-driven or both:
@@ -686,9 +702,11 @@ is the only way to preview them.
 
 #### `GET /api/v1/embeds/media` — `ViewChannels`
 
-Serves a preview image, given the embed's `imageUrl` as a `url` query parameter. A client should
-load `imageUrl` through this rather than from the third party: the viewer's address stays private,
-and an `http`-only image still shows on an `https` page.
+Serves a preview image for a card, given the embed's `imageUrl` as a `url` query parameter. A client
+should load `imageUrl` through this rather than from the third party: the viewer's address stays
+private, and an `http`-only image still shows on an `https` page. A picture a message linked to
+directly does not go through here: it was kept as an attachment, and is served from `/attachments`
+like any other.
 
 The URL is treated as hostile exactly like the metadata fetch — public hosts only, redirects
 re-checked — the response must be an `image/*` type of at most 8 MB, and SVG is refused because it

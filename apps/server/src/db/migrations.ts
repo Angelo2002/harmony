@@ -299,4 +299,17 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 14,
+    name: 'attachment_source_url',
+    up(db) {
+      /*
+       * The link an attachment was copied from, when it was fetched rather than
+       * uploaded. NULL for anything someone actually attached themselves, which
+       * is how the two are told apart: a linked image is kept in step with the
+       * message's text, while an upload belongs to the message and stays.
+       */
+      db.exec(`ALTER TABLE attachments ADD COLUMN source_url TEXT`);
+    },
+  },
 ];

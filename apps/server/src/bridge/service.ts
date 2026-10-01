@@ -334,6 +334,10 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   function collectMirrorFiles(message: Message): MirrorFile[] {
     const files: MirrorFile[] = [];
     for (const attachment of message.attachments) {
+      // A picture the server fetched out of the message's own text is not ours
+      // to send: the link is right there in the content, and Discord unfurls
+      // those itself, so uploading a copy would show the same gif twice.
+      if (attachment.sourceUrl !== null) continue;
       if (attachment.size > DISCORD_MAX_FILE_BYTES) {
         logger.debug('skipping an attachment too large for discord', {
           filename: attachment.filename,

@@ -19,7 +19,12 @@ import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts'
 import { tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
-import { insertGhostUser } from '../src/db/users.ts';
+import { insertGhostUser, insertUser } from '../src/db/users.ts';
+import { insertChannel } from '../src/db/channels.ts';
+import { insertMessage } from '../src/db/messages.ts';
+import { listLinkedAttachments } from '../src/db/attachments.ts';
+import { createAttachmentService } from '../src/attachments/service.ts';
+import { createSettingsService } from '../src/settings/service.ts';
 import { createUserService } from '../src/users/service.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -918,6 +923,86 @@ try {
     'a private address is never unfurled',
     privateHistory.json?.messages?.[0]?.id === privateLink.json?.id && privateHistory.json?.messages?.[0]?.embed === null,
   );
+
+  // --- Pictures fetched out of a message's own text ---
+  // Driven in process with a throwaway database, because the whole point of this
+  // path is a fetch, and a fetch to somewhere the guard allows is a fetch to the
+  // internet. What is checked here is the half that comes after one.
+  {
+    const pictureDir = mkdtempSync(join(tmpdir(), 'harmony-linked-'));
+    const pictureDb = new Database({ dataDir: pictureDir, dbFile: join(pictureDir, 'linked.db'), uploadDir: join(pictureDir, 'uploads') });
+    const pictureSettings = createSettingsService(pictureDb.sqlite, { serverName: 'Test', requireInvite: false });
+    const pictures = createAttachmentService(pictureDb.sqlite, { uploadDir: join(pictureDir, 'uploads') }, pictureSettings);
+
+    insertUser(pictureDb.sqlite, { id: 'u1', username: 'owner', passwordHash: 'x', isOwner: true });
+    insertChannel(pictureDb.sqlite, {
+      id: 'c1',
+      name: 'general',
+      topic: null,
+      categoryId: null,
+      type: 'text',
+      position: 0,
+      createdAt: new Date().toISOString(),
+      discordChannelId: null,
+    });
+    insertMessage(pictureDb.sqlite, {
+      id: 'm1',
+      channelId: 'c1',
+      authorId: 'u1',
+      content: 'https://example.com/cat.gif',
+      createdAt: new Date().toISOString(),
+    });
+
+    const gifBytes = await sharp({ create: { width: 40, height: 24, channels: 4, background: { r: 10, g: 20, b: 30, alpha: 1 } } })
+      .png()
+      .toBuffer();
+    const stored = await pictures.storeLinkedImage({
+      messageId: 'm1',
+      uploaderId: 'u1',
+      sourceUrl: 'https://example.com/cat.gif',
+      filename: 'cat.gif',
+      contentType: 'image/png',
+      data: gifBytes,
+    });
+    check(
+      'a picture fetched from a link is kept on the message',
+      stored?.messageId === 'm1' && stored?.sourceUrl === 'https://example.com/cat.gif' && stored?.width === 40,
+      JSON.stringify(stored),
+    );
+    check(
+      'so a message can find what it fetched',
+      listLinkedAttachments(pictureDb.sqlite, 'm1').some((row) => row.source_url === 'https://example.com/cat.gif'),
+    );
+    check(
+      'the same bytes are stored once, however many links point at them',
+      (await pictures.storeLinkedImage({
+        messageId: 'm1',
+        uploaderId: 'u1',
+        sourceUrl: 'https://example.com/other.gif',
+        filename: 'other.png',
+        contentType: 'image/png',
+        data: gifBytes,
+      }))?.hash === stored?.hash,
+    );
+    check(
+      'a non-image is refused',
+      (await pictures.storeLinkedImage({
+        messageId: 'm1',
+        uploaderId: 'u1',
+        sourceUrl: 'https://example.com/x.svg',
+        filename: 'x.svg',
+        contentType: 'image/svg+xml',
+        data: Buffer.from('<svg/>'),
+      })) === null,
+    );
+    check(
+      'an upload is not mistaken for something fetched',
+      listLinkedAttachments(pictureDb.sqlite, 'm1').every((row) => row.source_url !== null),
+    );
+
+    pictureDb.close();
+    rmSync(pictureDir, { recursive: true, force: true });
+  }
 
   // --- Presence ---
   await sleep(200);

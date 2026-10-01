@@ -12,7 +12,13 @@ import {
 import type { Config } from '../config.ts';
 import type { AuthContext } from '../auth/service.ts';
 import { assertNotTimedOut } from '../auth/guards.ts';
-import { findAttachment, insertAttachment, toAttachment, type AttachmentRow } from '../db/attachments.ts';
+import {
+  attachToMessage,
+  findAttachment,
+  insertAttachment,
+  toAttachment,
+  type AttachmentRow,
+} from '../db/attachments.ts';
 import { HttpError } from '../http/errors.ts';
 import type { SettingsService } from '../settings/service.ts';
 import { createBlobStore } from '../storage/blobs.ts';
@@ -23,8 +29,27 @@ export interface UploadInput {
   data: Buffer;
 }
 
+/** An image the server fetched from a link in a message's own text. */
+export interface LinkedImageInput {
+  messageId: string;
+  uploaderId: string | null;
+  sourceUrl: string;
+  filename: string;
+  contentType: string;
+  data: Buffer;
+}
+
 export interface AttachmentService {
   upload(auth: AuthContext, file: UploadInput): Promise<Attachment>;
+  /**
+   * Stores an image that a message linked to, as an attachment of that message.
+   *
+   * Anything the server has to fetch on a message's behalf has to be kept: the
+   * address it came from is somebody else's, may be signed and expire, and may
+   * simply stop existing. A copy of our own keeps working. Returns null when the
+   * bytes are not a usable image, or are too large for this instance.
+   */
+  storeLinkedImage(input: LinkedImageInput): Promise<Attachment | null>;
   find(id: string): AttachmentRow | null;
   /** Absolute path of the on-disk blob for a content hash. */
   filePathFor(hash: string): string;
@@ -55,6 +80,38 @@ export function createAttachmentService(
 
     find(id) {
       return findAttachment(sqlite, id);
+    },
+
+    async storeLinkedImage(input) {
+      if (!ALLOWED_IMAGE_TYPES.includes(input.contentType as ImageContentType)) return null;
+      // The same ceiling an upload of the same image would meet.
+      if (input.data.length > settings.get().maxImageBytes) return null;
+
+      let metadata: Metadata;
+      try {
+        metadata = await sharp(input.data).metadata();
+      } catch {
+        return null; // Not a real image, whatever the content type claimed.
+      }
+
+      const id = randomUUID();
+      insertAttachment(sqlite, {
+        id,
+        uploaderId: input.uploaderId,
+        filename: input.filename,
+        contentType: input.contentType,
+        size: input.data.length,
+        width: metadata.width ?? null,
+        height: metadata.height ?? null,
+        // Content-addressed, so the same gif pasted twice costs the disk once.
+        hash: blobs.save(input.data),
+        createdAt: new Date().toISOString(),
+        sourceUrl: input.sourceUrl,
+      });
+      attachToMessage(sqlite, id, input.messageId);
+
+      const row = findAttachment(sqlite, id);
+      return row ? toAttachment(row) : null;
     },
 
     async upload(auth, file) {

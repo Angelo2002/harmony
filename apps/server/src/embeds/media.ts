@@ -52,7 +52,7 @@ export async function fetchEmbedMedia(url: string, userAgent: string): Promise<E
       // directly, so it is refused rather than served from our origin.
       if (contentType.includes('svg') || contentType.includes('+xml')) return null;
 
-      const data = await readCapped(response, MAX_MEDIA_BYTES);
+      const data = await readCappedBody(response, MAX_MEDIA_BYTES);
       if (!data || data.length === 0) return null;
       return { data, contentType };
     } catch {
@@ -65,7 +65,7 @@ export async function fetchEmbedMedia(url: string, userAgent: string): Promise<E
 }
 
 /** Reads a body up to a byte cap, or null when it is empty or over the cap. */
-async function readCapped(response: Response, limit: number): Promise<Buffer | null> {
+export async function readCappedBody(response: Response, limit: number): Promise<Buffer | null> {
   const body = response.body;
   if (!body) return null;
 

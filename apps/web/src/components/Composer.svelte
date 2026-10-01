@@ -513,10 +513,13 @@
     <input class="file-input" type="file" accept={acceptAttribute} multiple bind:this={fileInput} onchange={onFiles} />
     <input
       class="text-input"
+      type="search"
       bind:value
       bind:this={textInput}
       placeholder={`Message #${chat.activeChannel?.name ?? ''}`}
       autocomplete="off"
+      autocorrect="off"
+      enterkeyhint="send"
       aria-label="Message"
       aria-autocomplete="list"
       disabled={timeoutUntil !== null || slowmodeRemaining > 0}

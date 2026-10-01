@@ -1423,6 +1423,20 @@ button.ghost {
   outline: none;
 }
 
+/*
+ * The message box is a search field on purpose. Android's autofill picks what it
+ * will offer from how a field looks rather than from `autocomplete` alone, and a
+ * plain text field in a form gets offered passwords, payment methods and
+ * addresses — none of which belong over a chat box. A search field is left
+ * alone, which is why the app's other boxes never showed it. The clear button
+ * that comes with the type is hidden, since sending already empties it.
+ */
+.text-input::-webkit-search-cancel-button,
+.text-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .attach {
   width: 36px;
   height: 36px;

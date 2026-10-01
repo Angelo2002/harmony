@@ -228,6 +228,17 @@ resolution is skipped when the link has not actually changed. Anything with a nu
 uploaded by a person and belongs to the message; anything else is a copy of somebody else's file and
 follows the text.
 
+A message whose whole text is that link shows the picture and nothing else, the way Discord does: the
+address is behind the picture for anyone who wants it, and printing it above would only be noise. A
+message with anything else in it keeps its text, link and all. The picture itself links back to where
+it came from, so the original is one right-click away.
+
+The page half of this has one wrinkle worth knowing. A page may offer several preview images and they
+are not equal — Giphy and Klipy both list a still WebP first and the animated GIF second — so the
+animated one is preferred, recognised either from the `og:image:type` that follows it or from the
+address itself. A reader that takes the first one gets a frozen picture, which is most of why a gif
+link used to preview badly.
+
 It also makes the second and later postings of the same link free. Blobs are content-addressed, so
 the bytes were only ever stored once; the row is what is per-message, and a row is a few hundred
 bytes. What the column adds is the ability to notice before fetching that this instance already holds

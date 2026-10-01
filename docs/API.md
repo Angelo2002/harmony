@@ -666,7 +666,9 @@ it, resolves it. Only the first link is used. What comes back depends on what th
   working, appears in the media gallery, answers to retention, and needs no card around it. Which
   attachment came from a link is recorded in its `sourceUrl`.
 - **A page** becomes a small `embed`: its title, description, site name, and preview image
-  (`og:image` or `twitter:image`) in `imageUrl`.
+  (`og:image` or `twitter:image`) in `imageUrl`. Where a page offers several preview images, the
+  animated one is preferred: Giphy and Klipy both list a still WebP first and the GIF second, so
+  taking the first is what makes those links preview as frozen pictures.
 
 Only a picture is ever kept, and only its own bytes: a page's `imageUrl` stays a reference that a
 client loads through the proxy below. A picture larger than the instance's `maxImageBytes` is left as

@@ -88,6 +88,19 @@
     return message.replyTo?.content.replace(/\s+/g, ' ').trim() ?? '';
   }
 
+  /**
+   * Whether a message is nothing but the link a picture was fetched from.
+   *
+   * Such a message shows the picture and the picture alone, the way Discord does:
+   * the address is right there for anyone who wants it, behind the picture itself,
+   * and printing it above would only be noise. A message with anything else in it
+   * keeps its text, link and all.
+   */
+  function isOnlyTheLink(message: Message): boolean {
+    const source = message.attachments.find((attachment) => attachment.sourceUrl !== null)?.sourceUrl;
+    return source != null && message.content.trim() === source;
+  }
+
   // Only the author may edit; the author or any message manager may delete.
   function canEdit(message: Message): boolean {
     return message.author?.id === myId;
@@ -429,7 +442,7 @@
               </div>
             </form>
           {:else}
-            {#if message.content}
+            {#if message.content && !isOnlyTheLink(message)}
               <div class="content">
                 {#each blocks as block, blockIndex (blockIndex)}
                   {#if block.type === 'code'}
@@ -460,7 +473,16 @@
                       preload="metadata"
                     ></video>
                   {:else}
-                    <a href={`/api/v1/attachments/${attachment.id}`} target="_blank" rel="noreferrer">
+                    <!--
+                      A picture fetched from a link points back at where it came
+                      from, the way an embed does, so the original is one click or
+                      one right-click away. An upload has nowhere else to point.
+                    -->
+                    <a
+                      href={attachment.sourceUrl ?? `/api/v1/attachments/${attachment.id}`}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                    >
                       <img
                         src={`/api/v1/attachments/${attachment.id}`}
                         alt={attachment.filename}

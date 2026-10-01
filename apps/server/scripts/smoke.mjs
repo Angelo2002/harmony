@@ -875,6 +875,53 @@ try {
     'https://example.com/post',
   );
   check('an og:image is resolved against the page', gifPage.imageUrl === 'https://example.com/img/cat.gif');
+
+  // Giphy and Klipy both list a still WebP first and the animated GIF second, so
+  // taking the first one is exactly why those links preview as frozen pictures.
+  const twoImages = parseEmbedMetadata(
+    '<meta property="og:image" content="https://cdn.test/aa/1.webp">' +
+      '<meta property="og:image:type" content="image/webp">' +
+      '<meta property="og:image:width" content="480">' +
+      '<meta property="og:image" content="https://cdn.test/aa/1.gif">' +
+      '<meta property="og:image:type" content="image/gif">',
+    'https://example.com/post',
+  );
+  check(
+    'the animated image wins when a page offers both',
+    twoImages.imageUrl === 'https://cdn.test/aa/1.gif',
+    String(twoImages.imageUrl),
+  );
+
+  const gifLast = parseEmbedMetadata(
+    '<meta property="og:image" content="https://cdn.test/aa/still.png">' +
+      '<meta property="og:image" content="https://cdn.test/aa/loop.gif?cid=abc123">',
+    'https://example.com/post',
+  );
+  check(
+    'a gif is recognised from its address even with a query on the end',
+    gifLast.imageUrl === 'https://cdn.test/aa/loop.gif?cid=abc123',
+    String(gifLast.imageUrl),
+  );
+
+  const stillOnly = parseEmbedMetadata(
+    '<meta property="og:image" content="https://cdn.test/aa/one.png">' +
+      '<meta property="og:image" content="https://cdn.test/aa/two.jpg">',
+    'https://example.com/post',
+  );
+  check('with no animated image the first is still used', stillOnly.imageUrl === 'https://cdn.test/aa/one.png');
+  check(
+    "a still that merely says gif is not taken as one",
+    parseEmbedMetadata(
+      '<meta property="og:image" content="https://cdn.test/aa/a.png">' +
+        '<meta property="og:image:type" content="image/png">',
+      'https://example.com/',
+    ).imageUrl === 'https://cdn.test/aa/a.png',
+  );
+  check(
+    'a twitter image is still a fallback',
+    parseEmbedMetadata('<meta name="twitter:image" content="https://cdn.test/t.png">', 'https://example.com/')
+      .imageUrl === 'https://cdn.test/t.png',
+  );
   check(
     'a data: image is refused',
     parseEmbedMetadata('<meta property="og:image" content="data:image/gif;base64,R0lGOD">', 'https://example.com/')

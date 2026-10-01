@@ -53,6 +53,52 @@ interface MetaTag {
   content: string;
 }
 
+/** One preview image a page offers, and whether the page says it is animated. */
+interface ImageCandidate {
+  url: string;
+  animated: boolean;
+}
+
+/** The keys that introduce a preview image, in the order they are preferred. */
+const OG_IMAGE_KEYS = new Set(['og:image', 'og:image:url', 'og:image:secure_url']);
+const TWITTER_IMAGE_KEYS = new Set(['twitter:image', 'twitter:image:src']);
+
+/**
+ * Every preview image a page offers, in the order it lists them.
+ *
+ * A page may offer several and they are not equal. Giphy and Klipy both list a
+ * still WebP first and the animated GIF second, so a reader that takes the first
+ * one gets a frozen picture: the whole reason a gif link previews badly. The
+ * animated one is recognised either from the `og:image:type` that follows it, or
+ * from the address itself, since a name ending in .gif is one too.
+ */
+function imageCandidates(tags: MetaTag[]): ImageCandidate[] {
+  const candidates: ImageCandidate[] = [];
+
+  for (const tag of tags) {
+    if (OG_IMAGE_KEYS.has(tag.key) || TWITTER_IMAGE_KEYS.has(tag.key)) {
+      candidates.push({ url: tag.content, animated: false });
+      continue;
+    }
+    // An og:image:type describes the image listed just before it.
+    if (tag.key === 'og:image:type' && /gif/i.test(tag.content)) {
+      const last = candidates.at(-1);
+      if (last) last.animated = true;
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (isGifAddress(candidate.url)) candidate.animated = true;
+  }
+  return candidates;
+}
+
+/** Whether an address names a gif, ignoring anything after a query or fragment. */
+function isGifAddress(url: string): boolean {
+  const path = url.split(/[?#]/)[0] ?? '';
+  return /\.gif$/i.test(path);
+}
+
 function metaTags(html: string): MetaTag[] {
   const tags: MetaTag[] = [];
   for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
@@ -97,6 +143,16 @@ function absoluteHttpUrl(value: string | null, base: string): string | null {
 }
 
 /**
+ * The image a page offers as its preview: the animated one when there is a
+ * choice, and otherwise the first it lists.
+ */
+function previewImage(tags: MetaTag[], base: string): string | null {
+  const candidates = imageCandidates(tags);
+  const chosen = candidates.find((candidate) => candidate.animated) ?? candidates[0];
+  return absoluteHttpUrl(chosen?.url ?? null, base);
+}
+
+/**
  * Builds a preview from a page's OpenGraph, Twitter-card or plain metadata.
  * Text is read here; the preview image is only referenced, never fetched, and
  * the client asks the server to proxy it when it wants to show it.
@@ -117,10 +173,7 @@ export function parseEmbedMetadata(html: string, url: string): LinkEmbed {
     title: collapseText(pick('og:title', 'twitter:title') ?? titleTag(head), MAX_TITLE),
     description: collapseText(pick('og:description', 'twitter:description', 'description'), MAX_DESCRIPTION),
     siteName: collapseText(pick('og:site_name', 'application-name') ?? hostnameOf(url), MAX_SITE_NAME),
-    imageUrl: absoluteHttpUrl(
-      pick('og:image:secure_url', 'og:image:url', 'og:image', 'twitter:image', 'twitter:image:src'),
-      url,
-    ),
+    imageUrl: previewImage(tags, url),
     // A page's own og:video is not trusted as a player; providers are recognised
     // from the URL instead, so the embed origin is always ours to choose.
     player: null,

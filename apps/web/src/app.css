@@ -2257,14 +2257,16 @@ button.danger {
 
 /*
  * The gif picker. Built like the emoji one — a fixed head over a body that
- * scrolls — but taller, since it is showing pictures rather than characters.
+ * scrolls — but with a definite height rather than a maximum one: tabs hold
+ * different amounts of content, and a box that grew and shrank with them would
+ * move the composer's buttons every time somebody switched.
  */
 .gif-picker {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   width: min(340px, 100%);
-  max-height: 340px;
+  height: min(340px, 50vh);
   padding: 0.5rem;
   border-radius: var(--h-radius);
   background: var(--h-bg-elevated);
@@ -2273,6 +2275,7 @@ button.danger {
 .gif-body {
   display: flex;
   flex-direction: column;
+  flex: 1;
   gap: 0.5rem;
   min-height: 0;
   overflow-y: auto;

@@ -225,6 +225,12 @@ export interface RetentionSettings {
   messageRetentionDays: number | null;
   /** Delete audit log entries older than this many days. */
   auditRetentionDays: number | null;
+  /**
+   * Delete a saved gif this many days after it was last favourited or sent.
+   * Favourites are exempt from the image and message rules, so this is the only
+   * thing that ever ages them out; null keeps them forever.
+   */
+  favoriteRetentionDays: number | null;
   /** Start emergency pruning once stored media exceeds this many bytes. */
   storageLimitBytes: number | null;
   /** Emergency pruning deletes oldest content until usage is back under this. */
@@ -238,11 +244,37 @@ export interface RetentionUsage {
   messageCount: number;
 }
 
+/**
+ * A gif somebody kept. It is held by content hash, not by any message, so it
+ * outlives the message it was found in and is only ever aged out by the rule for
+ * favourites.
+ */
+export interface GifFavorite {
+  id: string;
+  /** Content hash of the stored bytes; the same gif is stored once. */
+  hash: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  /** The link it was fetched from, or null for something uploaded here. */
+  sourceUrl: string | null;
+  createdAt: string;
+  /** When it was last favourited or sent, which its retention counts from. */
+  usedAt: string;
+}
+
+export interface GifFavoriteListResponse {
+  favorites: GifFavorite[];
+}
+
 export interface PruneSummary {
   ranAt: string;
   deletedAttachments: number;
   deletedMessages: number;
   deletedAuditEntries: number;
+  deletedFavorites: number;
   deletedBlobs: number;
   freedBytes: number;
 }

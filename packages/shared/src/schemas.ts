@@ -217,10 +217,28 @@ export const updateRetentionSchema = z.object({
   videoRetentionDays: retentionNumber,
   messageRetentionDays: retentionNumber,
   auditRetentionDays: retentionNumber,
+  favoriteRetentionDays: retentionNumber,
   storageLimitBytes: retentionNumber,
   storageTargetBytes: retentionNumber,
 });
 export type UpdateRetentionInput = z.infer<typeof updateRetentionSchema>;
+
+/** Keeps an already-stored gif, so it survives the message it was found in. */
+export const addGifFavoriteSchema = z.object({
+  attachmentId: z.string().min(1),
+});
+export type AddGifFavoriteInput = z.infer<typeof addGifFavoriteSchema>;
+
+/**
+ * Takes a gif out of the picker and into the message being written. The server
+ * copies it into an unattached attachment owned by the caller, which the message
+ * then claims exactly as it would an upload.
+ */
+export const pickGifSchema = z.union([
+  z.object({ attachmentId: z.string().min(1) }),
+  z.object({ favoriteId: z.string().min(1) }),
+]);
+export type PickGifInput = z.infer<typeof pickGifSchema>;
 
 export const updateBridgeSchema = z
   .object({

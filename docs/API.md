@@ -27,6 +27,8 @@ code wins — please open an issue.
   - [Search](#search)
   - [Reactions](#reactions)
   - [Attachments](#attachments)
+  - [Media gallery](#media-gallery)
+  - [Saved gifs](#saved-gifs)
   - [Custom emoji](#custom-emoji)
   - [Users and avatars](#users-and-avatars)
   - [Roles](#roles)
@@ -865,6 +867,61 @@ together.
 `uploader`, `channelId` and `channelName` are `null` for an upload that was never attached to a
 message.
 
+### Saved gifs
+
+Saved gifs are private to the member who kept them. A saved gif is held by **content hash** rather
+than by an attachment row, which is what lets it outlive the message it was found in: it is exempt
+from the image, video and message retention rules and is only ever aged out by
+`favoriteRetentionDays`, counted from the last time it was saved or sent. Nothing is ever downloaded
+to save one — the bytes are already stored, and a saved gif shares its blob with every attachment of
+the same picture.
+
+```ts
+type GifFavorite = {
+  id: string;
+  hash: string;             // content hash of the bytes
+  filename: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  sourceUrl: string | null; // the link it was fetched from, if any
+  createdAt: string;
+  usedAt: string;           // what favouriteRetentionDays counts from
+};
+```
+
+#### `GET /api/v1/gifs/favorites` — `ViewChannels`
+
+This member's saved gifs, most recently used first. Returns `{ "favorites": [GifFavorite] }`.
+
+#### `POST /api/v1/gifs/favorites` — `ViewChannels`
+
+Body `{ "attachmentId": string }`. Keeps a picture this instance already holds and returns the
+`GifFavorite`. Saving the same gif twice only moves `usedAt` forward. A member may only save a gif
+they can see: anything from a channel they cannot view, or an unattached upload of somebody else's,
+answers `404 gif_not_found` rather than admitting it exists.
+
+#### `DELETE /api/v1/gifs/favorites/:id` — `ViewChannels`
+
+Forgets one of the caller's own saved gifs. `204` on success; `404` for anybody else's.
+
+#### `GET /api/v1/gifs/favorites/:id/image` — `ViewChannels`
+
+Serves the saved gif's bytes. Only the owner may fetch it, and it is cached immutably by hash, like
+`/attachments/:id`.
+
+#### `POST /api/v1/gifs/pick` — `AttachFiles`
+
+Takes a gif out of the picker and into the message being written. Body is either
+`{ "favoriteId": string }` or `{ "attachmentId": string }`; the answer is an `Attachment` that is
+**not yet attached to anything**. Send it with the message as usual — `POST /api/v1/channels/:id/messages`
+with `attachmentIds: [thatId]` — exactly as an upload would be.
+
+Nothing is fetched or copied: the picked attachment is a new row pointing at bytes the instance
+already has, so it costs a few hundred bytes and no bandwidth. Picking a **saved** gif also counts as
+using it, moving its `usedAt` forward.
+
 ### Custom emoji
 
 #### `GET /api/v1/emojis` — `ViewChannels`
@@ -1320,12 +1377,16 @@ Retention automatically prunes old content and can cap total storage. Any rule s
 switched off. Image, video, message and audit-log age limits are independent: each is deleted once
 it is older than its own limit, and the log can be cleared outright with `DELETE /api/v1/audit`.
 
+[Saved gifs](#saved-gifs) are deliberately outside all of those. `favoriteRetentionDays` is the only
+rule that ages one out, counted from the last time it was saved or sent.
+
 ```ts
 type RetentionSettings = {
   imageRetentionDays: number | null;
   videoRetentionDays: number | null;
   messageRetentionDays: number | null;
   auditRetentionDays: number | null;
+  favoriteRetentionDays: number | null;
   storageLimitBytes: number | null;
   storageTargetBytes: number | null;
 };
@@ -1337,6 +1398,7 @@ type PruneSummary = {
   deletedAttachments: number;
   deletedMessages: number;
   deletedAuditEntries: number;
+  deletedFavorites: number;
   deletedBlobs: number;
   freedBytes: number;
 };
@@ -1349,8 +1411,8 @@ Returns `{ settings, usage, lastRun }`, where `lastRun` is a `PruneSummary` or `
 #### `PATCH /api/v1/retention` — `ManageServer`
 
 Any subset of `imageRetentionDays`, `videoRetentionDays`, `messageRetentionDays`,
-`auditRetentionDays`, `storageLimitBytes`, `storageTargetBytes`; `null` disables a rule. Returns the
-same shape as `GET`.
+`auditRetentionDays`, `favoriteRetentionDays`, `storageLimitBytes`, `storageTargetBytes`; `null`
+disables a rule. Returns the same shape as `GET`.
 
 #### `POST /api/v1/retention/run` — `ManageServer`
 

@@ -102,12 +102,18 @@ export function countAttachments(sqlite: DatabaseSync): number {
   return row.count;
 }
 
-/** Every blob hash still referenced by an attachment, an emoji or an avatar. */
+/**
+ * Every blob hash still referenced by an attachment, an emoji, an avatar or a
+ * saved gif. A favourite is here on purpose: it is kept by hash rather than by a
+ * message, so it is what keeps a saved gif alive after the message it was found
+ * in is gone.
+ */
 export function listReferencedHashes(sqlite: DatabaseSync): Set<string> {
   const rows = sqlite
     .prepare(
       `SELECT hash FROM attachments
        UNION SELECT hash FROM emojis
+       UNION SELECT hash FROM gif_favorites
        UNION SELECT avatar_hash FROM users WHERE avatar_hash IS NOT NULL`,
     )
     .all() as unknown as Array<{ hash: string }>;

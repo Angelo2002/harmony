@@ -1693,6 +1693,129 @@ try {
     (await req(`/channels/${colourChannel.id}/messages`, { token: ownerToken })).json?.messages?.length === 0,
   );
 
+  // --- Saved gifs ---
+  // Reset the age rules so this block is about the rule for favourites, not the
+  // image and message ones that ran above.
+  await req('/retention', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { imageRetentionDays: null, messageRetentionDays: null },
+  });
+
+  const keeperPng = await sharp({
+    create: { width: 17, height: 11, channels: 4, background: { r: 9, g: 200, b: 90, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+  const keeperForm = new FormData();
+  keeperForm.append('file', new Blob([keeperPng], { type: 'image/png' }), 'keeper.png');
+  const keeperAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: keeperForm,
+    })
+  ).json();
+  const keeperBlobPath = join(dataDir, 'uploads', keeperAttachment.hash.slice(0, 2), keeperAttachment.hash);
+  const keeperMessage = await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'a keeper', attachmentIds: [keeperAttachment.id] },
+  });
+
+  const favorited = await req('/gifs/favorites', {
+    method: 'POST',
+    token: ownerToken,
+    body: { attachmentId: keeperAttachment.id },
+  });
+  check(
+    'a gif can be saved',
+    favorited.status === 200 && favorited.json?.hash === keeperAttachment.hash,
+    `status ${favorited.status}`,
+  );
+  const favoritedAgain = await req('/gifs/favorites', {
+    method: 'POST',
+    token: ownerToken,
+    body: { attachmentId: keeperAttachment.id },
+  });
+  check('saving the same gif twice keeps one row', favoritedAgain.json?.id === favorited.json?.id);
+  check(
+    'the saved gif is listed',
+    (await req('/gifs/favorites', { token: ownerToken })).json?.favorites?.length === 1,
+  );
+  check(
+    'a member sees only their own saved gifs',
+    (await req('/gifs/favorites', { token: bobToken })).json?.favorites?.length === 0,
+  );
+  check(
+    'the saved gif is served',
+    (await fetch(`${BASE}/gifs/favorites/${favorited.json.id}/image`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    })).status === 200,
+  );
+  check(
+    'somebody else cannot fetch a saved gif (404)',
+    (await fetch(`${BASE}/gifs/favorites/${favorited.json.id}/image`, {
+      headers: { authorization: `Bearer ${bobToken}` },
+    })).status === 404,
+  );
+  check(
+    'somebody else cannot pick a saved gif (404)',
+    (await req('/gifs/pick', { method: 'POST', token: bobToken, body: { favoriteId: favorited.json.id } })).status === 404,
+  );
+
+  // Picking only makes an attachment; the message it goes into is sent normally.
+  const picked = await req('/gifs/pick', {
+    method: 'POST',
+    token: ownerToken,
+    body: { favoriteId: favorited.json.id },
+  });
+  check(
+    'a saved gif can be picked into a message',
+    picked.status === 200 && picked.json?.hash === keeperAttachment.hash,
+    `status ${picked.status}`,
+  );
+  check(
+    'the picked gif can be sent',
+    (await req(`/channels/${colourChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: '', attachmentIds: [picked.json.id] },
+    })).status === 200,
+  );
+
+  // The message it was found in goes away; the saved gif must not.
+  await req(`/messages/${keeperMessage.json.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'a saved gif outlives the message it was found in',
+    (await req('/gifs/favorites', { token: ownerToken })).json?.favorites?.length === 1,
+  );
+  check('and its bytes are still on disk', existsSync(keeperBlobPath));
+
+  // Even wiping every image attachment leaves a saved gif alone.
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { imageRetentionDays: 0 } });
+  await req('/retention/run', { method: 'POST', token: ownerToken });
+  check('a saved gif survives the image rule', existsSync(keeperBlobPath));
+
+  // It has a rule of its own, and only that rule ever ages it out.
+  await req('/retention', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { imageRetentionDays: null, favoriteRetentionDays: 0 },
+  });
+  const favoritesPruned = await req('/retention/run', { method: 'POST', token: ownerToken });
+  check(
+    'the saved-gif rule retires an unused gif',
+    favoritesPruned.json?.summary?.deletedFavorites >= 1,
+    JSON.stringify(favoritesPruned.json?.summary),
+  );
+  check('and its bytes are swept', !existsSync(keeperBlobPath));
+  check(
+    'the list is empty again',
+    (await req('/gifs/favorites', { token: ownerToken })).json?.favorites?.length === 0,
+  );
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { favoriteRetentionDays: null } });
+
   // --- Profile: display name and picture ---
   const renamed = await req('/users/@me', {
     method: 'PATCH',

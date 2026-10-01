@@ -279,6 +279,29 @@ owner-configured upload limit is left as a card pointing at it through the proxy
 stored; a page's preview image is always only a reference. Nothing is kept that an upload of the same
 file would have been refused.
 
+## Saved gifs
+
+A saved gif is held by content hash, in its own table, rather than by an attachment row. That is the
+whole point: an attachment belongs to its message and is deleted along with it, and a saved gif has to
+outlive the message it was found in. Keeping the hash instead means the bytes are shared with every
+other copy of the same gif on the instance — saving one costs a row and nothing else.
+
+It is also what keeps the bytes alive. The sweep deletes a blob only once nothing references it, and
+that list of references now includes saved gifs alongside attachments, emoji, avatars and the
+instance icon. So the image and message rules can take the attachment and the message away and the
+blob stays, because a saved gif is still pointing at it.
+
+That leaves the question of what eventually clears a saved gif up, and the answer is deliberately
+one rule and no other: `favoriteRetentionDays`, counted from `used_at`, which moves whenever the gif
+is saved or sent. `null` keeps them forever, which is the default — an instance that never turns the
+rule on never loses one. Everything else the owner might set, including emergency pruning, leaves
+them alone.
+
+Picking a gif out of the picker is not a copy and not a fetch. It writes one attachment row pointing
+at bytes that are already stored, owned by the person picking, and the message then claims it exactly
+as it would an upload. That keeps a picked gif the same kind of thing as everything else in a message
+— retention, the media gallery and the bridge already understand it — and makes picking instant.
+
 ## Versioning
 
 The release number lives in one place, `HARMONY_VERSION` in

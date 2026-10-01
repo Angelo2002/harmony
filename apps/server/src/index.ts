@@ -30,6 +30,7 @@ import { createChannelImportService } from './channels/import.ts';
 import { createEmbedService } from './embeds/service.ts';
 import { createModerationService } from './moderation/service.ts';
 import { createMediaService } from './media/service.ts';
+import { createGifService } from './gifs/service.ts';
 import { registerErrorHandler } from './http/errors.ts';
 import { registerSecurityHeaders, warnAboutExposure } from './http/security.ts';
 import { registerWebClient, webClientIndex } from './http/webclient.ts';
@@ -49,6 +50,7 @@ import { registerAttachmentRoutes } from './routes/attachments.ts';
 import { registerEmbedRoutes } from './routes/embeds.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
 import { registerMediaRoutes } from './routes/media.ts';
+import { registerGifRoutes } from './routes/gifs.ts';
 import { registerUserRoutes } from './routes/users.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
 import { registerBridgeRoutes } from './routes/bridge.ts';
@@ -84,6 +86,7 @@ const userService = createUserService(db.sqlite, config);
 const messageService = createMessageService(db.sqlite, hub, auditService);
 const moderationService = createModerationService({ sqlite: db.sqlite, hub, audit: auditService });
 const mediaService = createMediaService(db.sqlite, config);
+const gifService = createGifService(db.sqlite, config);
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
 
@@ -199,6 +202,7 @@ registerSearchRoutes(app, { service: messageService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
 registerEmbedRoutes(app, { settings: settingsService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
+registerGifRoutes(app, { service: gifService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
 registerUserRoutes(app, { db, users: userService, hub });
 registerGateway(app, {

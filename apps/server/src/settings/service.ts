@@ -89,6 +89,7 @@ const KEY_IMAGE_DAYS = 'retention_image_days';
 const KEY_VIDEO_DAYS = 'retention_video_days';
 const KEY_MESSAGE_DAYS = 'retention_message_days';
 const KEY_AUDIT_DAYS = 'retention_audit_days';
+const KEY_FAVORITE_DAYS = 'retention_favorite_days';
 const KEY_STORAGE_LIMIT = 'storage_limit_bytes';
 const KEY_STORAGE_TARGET = 'storage_target_bytes';
 const KEY_DISCORD_TOKEN = 'discord_bot_token';
@@ -207,6 +208,7 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       videoRetentionDays: parseNumberOrNull(stored.get(KEY_VIDEO_DAYS)),
       messageRetentionDays: parseNumberOrNull(stored.get(KEY_MESSAGE_DAYS)),
       auditRetentionDays: parseNumberOrNull(stored.get(KEY_AUDIT_DAYS)),
+      favoriteRetentionDays: parseNumberOrNull(stored.get(KEY_FAVORITE_DAYS)),
       storageLimitBytes: parseNumberOrNull(stored.get(KEY_STORAGE_LIMIT)),
       storageTargetBytes: parseNumberOrNull(stored.get(KEY_STORAGE_TARGET)),
     };
@@ -296,6 +298,9 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: ServerSett
       }
       if (patch.auditRetentionDays !== undefined) {
         writeSetting(sqlite, KEY_AUDIT_DAYS, JSON.stringify(patch.auditRetentionDays));
+      }
+      if (patch.favoriteRetentionDays !== undefined) {
+        writeSetting(sqlite, KEY_FAVORITE_DAYS, JSON.stringify(patch.favoriteRetentionDays));
       }
       if (patch.storageLimitBytes !== undefined) {
         writeSetting(sqlite, KEY_STORAGE_LIMIT, JSON.stringify(patch.storageLimitBytes));

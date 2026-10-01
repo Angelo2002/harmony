@@ -1,10 +1,20 @@
 class UiState {
   adminOpen = $state(false);
+  aboutOpen = $state(false);
   profileOpen = $state(false);
   searchOpen = $state(false);
   /** Off-canvas navigation, used on narrow screens. */
   sidebarOpen = $state(false);
   rosterOpen = $state(false);
+
+  openAbout(): void {
+    this.closeDrawers();
+    this.aboutOpen = true;
+  }
+
+  closeAbout(): void {
+    this.aboutOpen = false;
+  }
 
   openSearch(): void {
     this.closeDrawers();

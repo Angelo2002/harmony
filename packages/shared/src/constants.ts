@@ -2,6 +2,16 @@
 
 export const HARMONY_NAME = 'Harmony';
 
+/**
+ * The release shown in the About panel. Patch for fixes and minor for features;
+ * the major number is the owner's to raise. Kept here rather than in a
+ * package.json so the client, the server and the bridge all read one value.
+ */
+export const HARMONY_VERSION = '1.0.3';
+
+/** Where the project lives, linked from the About panel. */
+export const HARMONY_REPO_URL = 'https://github.com/YuukiEatsYou/harmony';
+
 /** Version prefix for all REST routes, e.g. `/api/v1`. */
 export const API_VERSION = 'v1';
 

@@ -179,6 +179,22 @@ directly from this instance, outbound avatars need a **Public base URL** set in
 **Admin → Bridge** — the address people use to reach the instance from the
 internet. A `localhost` address will not work. Leave it blank to send names only.
 
+## Versioning
+
+The release number lives in one place, `HARMONY_VERSION` in
+`packages/shared/src/constants.ts`, and is what the About panel shows when a member
+clicks the server name. It is deliberately not read from a `package.json`: nothing
+in this repository is published to a registry, so a second number that has to be
+kept in step would only be a way for the two to disagree.
+
+Patch versions are for fixes, minor versions for features. The major number is the
+owner's to raise, because it is the one that signals a break to people running an
+instance.
+
+The number is compiled into the web bundle, so an installed app that has not
+reloaded since an update reports the version it was built with. The service worker
+caches nothing, so one reload corrects it.
+
 ## License
 
 Harmony is free software, licensed under the

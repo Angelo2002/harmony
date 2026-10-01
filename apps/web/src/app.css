@@ -255,12 +255,32 @@ button.link:hover {
   padding: 1rem;
   font-weight: 700;
   box-shadow: 0 1px 0 rgb(0 0 0 / 20%);
+  /* Declared here rather than inherited from the element, which is now a button. */
+  margin-bottom: 1.25rem;
 }
 
 .server-name-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * The server name opens the About panel, so it is a button. The chrome of one
+ * would look wrong here: the whole row is the control and it should still read
+ * as the heading it sits where it does.
+ */
+button.server-name {
+  width: 100%;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+button.server-name:hover:not(:disabled) {
+  /* A quiet highlight, rather than the global brightness lift on a bare button. */
+  filter: none;
+  background: var(--h-hover);
 }
 
 .server-icon {
@@ -1593,6 +1613,59 @@ select {
   font-size: 1.1rem;
 }
 
+/*
+ * A full-bleed button behind the panel, so the dimmed area is a real close
+ * control a keyboard can reach rather than an unlabelled click target.
+ */
+.overlay-close {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.overlay-close:hover:not(:disabled) {
+  /* Nothing to brighten; the dimming belongs to the overlay underneath. */
+  filter: none;
+}
+
+/*
+ * The About panel is a small card rather than the full admin shell, so it drops
+ * the fixed height the other panels use and takes only the width it needs.
+ */
+.about {
+  width: min(360px, 92vw);
+  height: auto;
+}
+
+.about-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.about-head h3 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.about-powered {
+  margin: 1rem 0 0.4rem;
+  font-weight: 600;
+}
+
+.about-link {
+  display: inline-block;
+  margin-bottom: 0.9rem;
+  color: var(--h-accent);
+}
+
+.about-version {
+  margin: 0 0 1rem;
+}
+
 .inline {
   display: flex;
   align-items: center;
@@ -2347,6 +2420,13 @@ button.danger {
     height: 100dvh;
     max-height: none;
     border-radius: 0;
+  }
+
+  /* The About card stays a card: there is too little in it to fill a phone. */
+  .about {
+    width: min(360px, 92vw);
+    height: auto;
+    border-radius: var(--h-radius);
   }
 
   .admin-nav {

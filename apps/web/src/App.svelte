@@ -6,6 +6,7 @@
   import { session } from './lib/session.svelte';
   import { ui } from './lib/ui.svelte';
   import AdminPanel from './components/admin/AdminPanel.svelte';
+  import AboutPanel from './components/AboutPanel.svelte';
   import AuthPanel from './components/AuthPanel.svelte';
   import Chat from './components/Chat.svelte';
   import ProfileCard from './components/ProfileCard.svelte';
@@ -68,6 +69,9 @@
   {/if}
   {#if ui.profileOpen}
     <ProfilePanel />
+  {/if}
+  {#if ui.aboutOpen}
+    <AboutPanel />
   {/if}
   {#if ui.searchOpen}
     <SearchPanel onclose={() => ui.closeSearch()} />

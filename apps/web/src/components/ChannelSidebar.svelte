@@ -46,10 +46,10 @@
 </script>
 
 <aside class="sidebar" class:open={ui.sidebarOpen}>
-  <header class="server-name">
+  <button class="server-name" type="button" title="About this instance" onclick={() => ui.openAbout()}>
     <img class="server-icon" src={meta.iconUrl} alt="" />
     <span class="server-name-text">{meta.serverName}</span>
-  </header>
+  </button>
 
   <nav class="channels">
     {#each chat.categories as category (category.id)}

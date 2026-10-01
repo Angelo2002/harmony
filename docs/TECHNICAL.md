@@ -302,11 +302,13 @@ at bytes that are already stored, owned by the person picking, and the message t
 as it would an upload. That keeps a picked gif the same kind of thing as everything else in a message
 — retention, the media gallery and the bridge already understand it — and makes picking instant.
 
-The picker's other tab, This server, is a listing rather than a store: it reads recent image
+The picker's other tab, This server, is a listing rather than a store: it reads recent gif
 attachments, keeps one per content hash, and drops any channel the caller cannot see, through the
 same role-aware helper the sidebar uses. The read is deliberately bounded to a few times the page
 size, because the same handful of gifs get sent again and again and the rows far outnumber the
-pictures — a bounded scan still fills a page with distinct gifs.
+pictures — a bounded scan still fills a page with distinct gifs. What counts as a gif lives in one
+place, the shared package's GIF_CONTENT_TYPES, and decides the listing, the hearts and what may be
+saved alike; a screenshot is stored and shown like anything else but never turns up in a picker.
 
 ## Versioning
 

@@ -1702,13 +1702,15 @@ try {
     body: { imageRetentionDays: null, messageRetentionDays: null },
   });
 
+  // A gif, as far as the picker is concerned: only the type matters, and this is
+  // the only thing that decides whether a picture is offered.
   const keeperPng = await sharp({
     create: { width: 17, height: 11, channels: 4, background: { r: 9, g: 200, b: 90, alpha: 1 } },
   })
     .png()
     .toBuffer();
   const keeperForm = new FormData();
-  keeperForm.append('file', new Blob([keeperPng], { type: 'image/png' }), 'keeper.png');
+  keeperForm.append('file', new Blob([keeperPng], { type: 'image/gif' }), 'keeper.gif');
   const keeperAttachment = await (
     await fetch(`${BASE}/attachments`, {
       method: 'POST',
@@ -1789,7 +1791,7 @@ try {
     .png()
     .toBuffer();
   const hiddenForm = new FormData();
-  hiddenForm.append('file', new Blob([hiddenPng], { type: 'image/png' }), 'hidden.png');
+  hiddenForm.append('file', new Blob([hiddenPng], { type: 'image/gif' }), 'hidden.gif');
   const hiddenAttachment = await (
     await fetch(`${BASE}/attachments`, {
       method: 'POST',
@@ -1823,6 +1825,44 @@ try {
         body: { attachmentId: hiddenAttachment.id },
       })
     ).status === 404,
+  );
+
+  // The picker is gif-only: a screenshot or a photo is not something anybody
+  // browses a picker for, so it is neither offered nor savable.
+  const plainPng = await sharp({
+    create: { width: 23, height: 29, channels: 4, background: { r: 240, g: 240, b: 240, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+  const plainForm = new FormData();
+  plainForm.append('file', new Blob([plainPng], { type: 'image/png' }), 'plain.png');
+  const plainAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: plainForm,
+    })
+  ).json();
+  await req(`/channels/${colourChannel.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'just a picture', attachmentIds: [plainAttachment.id] },
+  });
+  check(
+    'a plain picture is not offered by the gif picker',
+    (await req('/gifs/local', { token: ownerToken })).json?.gifs?.every(
+      (gif) => gif.hash !== plainAttachment.hash,
+    ) === true,
+  );
+  check(
+    'and a plain picture cannot be saved as one (400)',
+    (
+      await req('/gifs/favorites', {
+        method: 'POST',
+        token: ownerToken,
+        body: { attachmentId: plainAttachment.id },
+      })
+    ).status === 400,
   );
 
   // Picking only makes an attachment; the message it goes into is sent normally.

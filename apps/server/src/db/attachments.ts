@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { Attachment } from '@harmony/shared';
+import { GIF_CONTENT_TYPES, type Attachment } from '@harmony/shared';
 
 export interface AttachmentRow {
   id: string;
@@ -234,20 +234,21 @@ export function deleteAttachment(sqlite: DatabaseSync, id: string): boolean {
 }
 
 /**
- * Recent image attachments that could appear in the picker's local tab, newest
- * first. `channelIds` limits it to the channels a member may see, and null means
- * every channel, which is what an administrator gets. `q` matches the file name or
- * the link it was fetched from. Rows are not deduplicated: the same bytes are
- * stored once but sent many times, and which copy to keep is the caller's call.
+ * Recent gif attachments that could appear in the picker's local tab, newest first.
+ * `channelIds` limits it to the channels a member may see, and null means every
+ * channel, which is what an administrator gets. `q` matches the file name or the
+ * link it was fetched from. Rows are not deduplicated: the same bytes are stored
+ * once but sent many times, and which copy to keep is the caller's call.
  */
-export function listRecentImageAttachments(
+export function listRecentGifAttachments(
   sqlite: DatabaseSync,
   options: { channelIds: string[] | null; q: string | null; limit: number },
 ): AttachmentRow[] {
   if (options.channelIds && options.channelIds.length === 0) return [];
 
-  const clauses = ["a.content_type LIKE 'image/%'", 'a.message_id IS NOT NULL'];
-  const params: Array<string | number> = [];
+  const types = GIF_CONTENT_TYPES.map(() => '?').join(', ');
+  const clauses = [`a.content_type IN (${types})`, 'a.message_id IS NOT NULL'];
+  const params: Array<string | number> = [...GIF_CONTENT_TYPES];
 
   if (options.channelIds) {
     clauses.push(`m.channel_id IN (${options.channelIds.map(() => '?').join(', ')})`);

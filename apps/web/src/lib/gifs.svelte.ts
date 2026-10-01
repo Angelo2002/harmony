@@ -9,6 +9,8 @@ import { api } from './api';
 class GifState {
   favorites = $state<GifFavorite[]>([]);
   local = $state<GifItem[]>([]);
+  /** Saved gifs by content hash, so a heart anywhere can tell whether it is on. */
+  byHash = $derived(new Map(this.favorites.map((favorite) => [favorite.hash, favorite])));
   /** Raised with each local search, so a slower earlier one cannot overwrite it. */
   #search = 0;
 

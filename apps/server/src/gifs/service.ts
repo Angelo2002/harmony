@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
-import { ALLOWED_IMAGE_TYPES, type Attachment, type GifFavorite, type GifItem, type ImageContentType } from '@harmony/shared';
+import { isGifContentType, type Attachment, type GifFavorite, type GifItem } from '@harmony/shared';
 import { canAccessChannel, channelAccessFor, visibleChannels } from '../access/service.ts';
 import type { AuthContext } from '../auth/service.ts';
 import type { Config } from '../config.ts';
 import {
   findAttachment,
   insertAttachment,
-  listRecentImageAttachments,
+  listRecentGifAttachments,
   toAttachment,
   type AttachmentRow,
 } from '../db/attachments.ts';
@@ -50,11 +50,6 @@ export interface GifService {
 const LOCAL_SCAN_FACTOR = 4;
 const LOCAL_SCAN_LIMIT = 400;
 
-/** A gif is an image, and only the types this instance stores are keepable. */
-function isGifImage(contentType: string): boolean {
-  return ALLOWED_IMAGE_TYPES.includes(contentType as ImageContentType);
-}
-
 export function createGifService(sqlite: DatabaseSync, config: Config): GifService {
   const blobs: BlobStore = createBlobStore(config);
 
@@ -90,8 +85,8 @@ export function createGifService(sqlite: DatabaseSync, config: Config): GifServi
       const attachment = findAttachment(sqlite, attachmentId);
       if (!attachment) missing();
       assertMayUseAttachment(auth, attachment);
-      if (!isGifImage(attachment.content_type)) {
-        throw new HttpError(400, 'not_a_gif', 'Only images can be kept.');
+      if (!isGifContentType(attachment.content_type)) {
+        throw new HttpError(400, 'not_a_gif', 'Only gifs can be saved.');
       }
       requireStoredBytes(attachment.hash);
 
@@ -144,8 +139,8 @@ export function createGifService(sqlite: DatabaseSync, config: Config): GifServi
         const attachment = findAttachment(sqlite, ref.attachmentId);
         if (!attachment) missing();
         assertMayUseAttachment(auth, attachment);
-        if (!isGifImage(attachment.content_type)) {
-          throw new HttpError(400, 'not_a_gif', 'Only images can be sent from the picker.');
+        if (!isGifContentType(attachment.content_type)) {
+          throw new HttpError(400, 'not_a_gif', 'Only gifs can be sent from the picker.');
         }
         requireStoredBytes(attachment.hash);
         source = {
@@ -192,7 +187,7 @@ export function createGifService(sqlite: DatabaseSync, config: Config): GifServi
       // gif in a locked channel never turns up in somebody's picker.
       const channelIds = access.bypass ? null : visibleChannels(sqlite, access).map((channel) => channel.id);
 
-      const rows = listRecentImageAttachments(sqlite, {
+      const rows = listRecentGifAttachments(sqlite, {
         channelIds,
         q: query.q && query.q.length > 0 ? query.q : null,
         // The same picture is sent over and over, so a page's worth of rows holds

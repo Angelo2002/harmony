@@ -880,6 +880,11 @@ attachment of the same picture.
 was sent, and only from channels the caller may see. A third tab for a hosted service is planned and
 will appear only when a key for one is configured.
 
+The picker is deliberately **gif-only**. A screenshot or a photo is stored and shown like anything
+else, but it is not something anybody browses a picker for: it is not listed here, it cannot be
+saved, and it cannot be picked. `GIF_CONTENT_TYPES` in the shared package is the one place that
+decides what counts.
+
 ```ts
 type GifFavorite = {
   id: string;
@@ -931,10 +936,11 @@ This member's saved gifs, most recently used first. Returns `{ "favorites": [Gif
 
 #### `POST /api/v1/gifs/favorites` — `ViewChannels`
 
-Body `{ "attachmentId": string }`. Keeps a picture this instance already holds and returns the
+Body `{ "attachmentId": string }`. Keeps a gif this instance already holds and returns the
 `GifFavorite`. Saving the same gif twice only moves `usedAt` forward. A member may only save a gif
 they can see: anything from a channel they cannot view, or an unattached upload of somebody else's,
-answers `404 gif_not_found` rather than admitting it exists.
+answers `404 gif_not_found` rather than admitting it exists, and anything that is not a gif answers
+`400 not_a_gif`.
 
 #### `DELETE /api/v1/gifs/favorites/:id` — `ViewChannels`
 

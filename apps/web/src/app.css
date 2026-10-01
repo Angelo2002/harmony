@@ -1507,6 +1507,17 @@ button.ghost {
   object-fit: contain;
 }
 
+/*
+ * A picture with its heart. Sized to the picture rather than to the column, so
+ * the heart lands on the picture's own corner instead of the far side of the
+ * message list.
+ */
+.attachment-picture {
+  position: relative;
+  align-self: flex-start;
+  max-width: 100%;
+}
+
 /* ---- Admin panel ---- */
 
 .user-actions {
@@ -2312,7 +2323,9 @@ button.danger {
 .gif-heart.on,
 .gif-heart:focus-visible,
 .gif-send:focus-visible + .gif-heart,
-.gif-tile:hover .gif-heart {
+.gif-tile:hover .gif-heart,
+.attachment-picture:hover .gif-heart,
+.attachment-picture:focus-within .gif-heart {
   opacity: 1;
 }
 
@@ -2321,8 +2334,13 @@ button.danger {
   filter: none;
 }
 
+/*
+ * A touch screen has no hover, so the picker's hearts are always out. A gif in
+ * the chat keeps its heart hidden there instead: a heart on every gif in a
+ * conversation is a lot of furniture, and the picker is where it is reached.
+ */
 @media (hover: none) {
-  .gif-heart {
+  .gif-tile .gif-heart {
     opacity: 1;
   }
 }

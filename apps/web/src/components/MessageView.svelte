@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { Permission, hasPermission, type LinkEmbed, type Message, type User } from '@harmony/shared';
+  import { Permission, hasPermission, isGifContentType, type Attachment, type LinkEmbed, type Message, type User } from '@harmony/shared';
   import { ApiError } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
   import { avatarUrl, initial } from '../lib/avatar';
   import { parseMessage, type InlineSegment } from '../lib/message-text';
   import { emojis } from '../lib/emojis.svelte';
+  import { gifs } from '../lib/gifs.svelte';
   import { members } from '../lib/members.svelte';
   import { profileCard } from '../lib/profile-card.svelte';
   import { session } from '../lib/session.svelte';
@@ -99,6 +100,21 @@
   function isOnlyTheLink(message: Message): boolean {
     const source = message.attachments.find((attachment) => attachment.sourceUrl !== null)?.sourceUrl;
     return source != null && message.content.trim() === source;
+  }
+
+  /**
+   * Keeps or forgets a gif straight from the message it was posted in, the way
+   * Discord's star does. Which way it goes depends on whether the gif is already
+   * saved, looked up by content hash so every copy of it answers the same.
+   */
+  async function toggleGifFavorite(attachment: Attachment): Promise<void> {
+    const saved = gifs.byHash.get(attachment.hash);
+    try {
+      if (saved) await gifs.forget(saved.id);
+      else await gifs.save(attachment.id);
+    } catch {
+      // A heart that cannot act says nothing rather than interrupting the chat.
+    }
   }
 
   // Only the author may edit; the author or any message manager may delete.
@@ -478,19 +494,35 @@
                       from, the way an embed does, so the original is one click or
                       one right-click away. An upload has nowhere else to point.
                     -->
-                    <a
-                      href={attachment.sourceUrl ?? `/api/v1/attachments/${attachment.id}`}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                    >
-                      <img
-                        src={`/api/v1/attachments/${attachment.id}`}
-                        alt={attachment.filename}
-                        width={attachment.width ?? undefined}
-                        height={attachment.height ?? undefined}
-                        loading="lazy"
-                      />
-                    </a>
+                    <div class="attachment-picture">
+                      <a
+                        href={attachment.sourceUrl ?? `/api/v1/attachments/${attachment.id}`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
+                        <img
+                          src={`/api/v1/attachments/${attachment.id}`}
+                          alt={attachment.filename}
+                          width={attachment.width ?? undefined}
+                          height={attachment.height ?? undefined}
+                          loading="lazy"
+                        />
+                      </a>
+                      {#if isGifContentType(attachment.contentType)}
+                        <button
+                          type="button"
+                          class="gif-heart"
+                          class:on={gifs.byHash.has(attachment.hash)}
+                          aria-pressed={gifs.byHash.has(attachment.hash)}
+                          title={gifs.byHash.has(attachment.hash)
+                            ? 'Remove from favourites'
+                            : 'Add to favourites'}
+                          onclick={() => toggleGifFavorite(attachment)}
+                        >
+                          {gifs.byHash.has(attachment.hash) ? '♥' : '♡'}
+                        </button>
+                      {/if}
+                    </div>
                   {/if}
                 {/each}
               </div>

@@ -354,8 +354,11 @@
         highlight = (highlight - 1 + suggestions.length) % suggestions.length;
         return;
       }
-      // Enter and Tab accept the highlighted suggestion instead of sending.
-      if (event.key === 'Enter' || event.key === 'Tab') {
+      // Tab accepts the highlighted suggestion, the way Discord does. Enter is
+      // deliberately left alone so that it sends the message: otherwise somebody
+      // typing an emoticon like :D or :3 gets an emoji they did not ask for
+      // instead of their message, since a : starts the same list either way.
+      if (event.key === 'Tab') {
         event.preventDefault();
         const chosen = suggestions[highlight];
         if (chosen) void acceptSuggestion(chosen);

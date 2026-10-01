@@ -433,7 +433,12 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
     },
 
     async resolveAttachmentUrl(channelId, attachmentId) {
-      const channel = await client.channels.fetch(channelId).catch(() => null);
+      const channel = await client.channels.fetch(channelId).catch((error: unknown) => {
+        // Nearly always a channel the bot cannot view. From the outside that looks
+        // exactly like the file being gone, so it is worth recording which it was.
+        logger.debug('discord attachment channel unreachable', { channelId, error: String(error) });
+        return null;
+      });
       if (!channel || channel.type !== ChannelType.GuildText) return null;
 
       // Discord signs these addresses, so the only place a live one exists is in

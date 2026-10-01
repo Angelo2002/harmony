@@ -15,7 +15,7 @@ import type { SettingsService } from '../settings/service.ts';
 import { resolvesToPublicHost } from './guard.ts';
 import { readCappedBody } from './media.ts';
 import { parseEmbedMetadata } from './metadata.ts';
-import { fetchGiphyMedia, fetchTweetEmbed, fetchYouTubeEmbed, isGiphyPage, tweetStatusId, youtubeVideoId } from './providers.ts';
+import { fetchGiphyMedia, fetchTweetEmbed, fetchYouTubeEmbed, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from './providers.ts';
 
 /** Outbound fetch limits, kept tight because the target is user-supplied. */
 const FETCH_TIMEOUT_MS = 6000;
@@ -316,7 +316,17 @@ async function fetchOutcome(
       }
       if (!/text\/html|application\/xhtml/i.test(contentType)) return { kind: 'embed', embed: null };
 
-      return { kind: 'embed', embed: parseEmbedMetadata(await readHead(response), target.toString()) };
+      const embed = parseEmbedMetadata(await readHead(response), target.toString());
+      // A gif service's page is a wrapper around a single picture, which the page
+      // names in its own preview metadata. That picture is what the link is about,
+      // so it is fetched and kept just as a link straight at it would be, and the
+      // card that would only repeat the page's own words is left off. The page is
+      // kept as the message's link, so hiding it behind the picture still works.
+      if (isGifPage(target) && embed.imageUrl) {
+        const kept = await fetchImageBytes(embed.imageUrl, userAgent, maxImageBytes, log);
+        if (kept) return { kind: 'image', url, contentType: kept.contentType, data: kept.data };
+      }
+      return { kind: 'embed', embed };
     } catch {
       return { kind: 'embed', embed: null };
     } finally {
@@ -329,6 +339,64 @@ async function fetchOutcome(
 /** Image types this instance is willing to keep a copy of. */
 function isStorableImage(contentType: string): boolean {
   return ALLOWED_IMAGE_TYPES.includes(contentType as ImageContentType);
+}
+
+/**
+ * Fetches a picture that somebody else's page named, through the same guard as
+ * every other fetch here: http or https only, a public host at each hop, and a
+ * timeout and byte cap on the response. Returns null when it is not a picture
+ * this instance keeps, or is larger than it will hold, so the caller can fall
+ * back to the card it already has rather than showing the message with nothing.
+ */
+async function fetchImageBytes(
+  url: string,
+  userAgent: string,
+  maxImageBytes: number,
+  log: (message: string, detail?: unknown) => void,
+): Promise<{ contentType: string; data: Buffer } | null> {
+  let target: URL;
+  try {
+    target = new URL(url);
+  } catch {
+    return null;
+  }
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') return null;
+    if (!(await resolvesToPublicHost(target.hostname))) return null;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(target, {
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: { 'user-agent': userAgent, accept: 'image/*' },
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) return null;
+        target = new URL(location, target);
+        continue;
+      }
+      if (!response.ok) return null;
+
+      const contentType = (response.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+      if (!isStorableImage(contentType)) return null;
+
+      const data = await readCappedBody(response, maxImageBytes);
+      if (!data) {
+        log('linked image too large to keep', { url: target.toString(), limit: maxImageBytes });
+        return null;
+      }
+      return { contentType, data };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
 }
 
 /**

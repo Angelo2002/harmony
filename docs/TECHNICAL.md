@@ -245,6 +245,12 @@ the file itself. That address is then fetched by the ordinary guarded path, so a
 exactly like a link straight at a gif and is kept as an attachment with no card. No account and no
 key is involved, which is the rule this project holds to for every provider it recognises.
 
+Tenor and Klipy have no such endpoint, so their pages are read instead: both name the gif in their own
+preview metadata, and that address is fetched by the same guarded path and kept the same way. The two
+differ only in access — Tenor serves its pages to anyone, while Klipy puts them behind a Cloudflare
+challenge and hands them over to a recognised crawler name alone. That is precisely what the opt-in
+`previewUserAgent` setting is for, and why Klipy page links preview only once it is set.
+
 One detail is behind a surprising amount of the earlier unreliability: the fetch says it wants an
 image first and only falls back to a page (`Accept: image/*, text/html;q=0.9`), rather than the other
 way round. Giphy serves its media host by content negotiation on a single address — ask for `image/*`

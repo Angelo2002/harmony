@@ -16,7 +16,7 @@ import WebSocket from 'ws';
 import sharp from 'sharp';
 import { listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
-import { isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
+import { isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
 import { insertGhostUser, insertUser } from '../src/db/users.ts';
@@ -952,6 +952,16 @@ try {
   check('a plain media address is not a page', isGiphyPage(new URL('https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif')) === false);
   check('a channel page is not a gif', isGiphyPage(new URL('https://giphy.com/channel/kdy')) === false);
   check('a lookalike host is not giphy', isGiphyPage(new URL('https://giphy.com.evil.test/gifs/cat-JIX9t2j0ZTN9S')) === false);
+
+  // A Tenor or Klipy page is read for the picture it names in its own metadata,
+  // which is then kept like a file link. Their media hosts are not pages.
+  check('a tenor view page is recognised', isGifPage(new URL('https://tenor.com/view/x-gif-123')));
+  check('a www tenor view page is recognised', isGifPage(new URL('https://www.tenor.com/view/x-gif-123')));
+  check('a tenor search page is not a gif page', isGifPage(new URL('https://tenor.com/search/happy')) === false);
+  check('a tenor media address is not a page', isGifPage(new URL('https://media1.tenor.com/m/abc/x.gif')) === false);
+  check('a klipy gifs page is recognised', isGifPage(new URL('https://klipy.com/gifs/name-id')));
+  check('a klipy media address is not a page', isGifPage(new URL('https://static2.klipy.com/ii/x/00/6e/y.gif')) === false);
+  check('a lookalike host is not a gif page', isGifPage(new URL('https://tenor.com.evil.test/view/x-gif-123')) === false);
 
   const storedPlayer = parseMessageEmbed(
     JSON.stringify({ url: 'https://youtu.be/dQw4w9WgXcQ', player: { provider: 'youtube', id: 'dQw4w9WgXcQ' } }),

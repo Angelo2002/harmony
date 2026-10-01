@@ -88,6 +88,27 @@ export async function fetchGiphyMedia(pageUrl: string, userAgent: string): Promi
   }
 }
 
+/** Gif services whose page shows one gif, keyed by host with its page shape. */
+const GIF_PAGE_HOSTS = new Map<string, RegExp>([
+  ['tenor.com', /^\/view\//],
+  ['klipy.com', /^\/gifs\//],
+]);
+
+/**
+ * Whether a link is a page of a gif service that shows a single gif, rather than
+ * a file of theirs already. These pages serve no file at their own address; they
+ * name one in their preview metadata, so the picture is picked up from there
+ * once the page has been read.
+ *
+ * Giphy is deliberately absent: it answers through an endpoint of its own, so it
+ * is asked before a page is ever fetched.
+ */
+export function isGifPage(url: URL): boolean {
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  const path = GIF_PAGE_HOSTS.get(host);
+  return path !== undefined && path.test(url.pathname);
+}
+
 /** The numeric status id in an X/Twitter link, or null when it is not one. */
 export function tweetStatusId(url: URL): string | null {
   if (!TWITTER_HOSTS.has(url.hostname.toLowerCase())) return null;

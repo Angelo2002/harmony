@@ -669,6 +669,11 @@ it, resolves it. Only the first link is used. What comes back depends on what th
   (`og:image` or `twitter:image`) in `imageUrl`. Where a page offers several preview images, the
   animated one is preferred: Giphy and Klipy both list a still WebP first and the GIF second, so
   taking the first is what makes those links preview as frozen pictures.
+- **A gif service's page** — Tenor (`tenor.com/view/…`) and Klipy (`klipy.com/gifs/…`) — is read for
+  the picture it names in its own preview metadata, and that picture is then fetched and kept exactly
+  like a picture link: an attachment, no card, the page's address in `sourceUrl`. Giphy's pages come
+  out the same way, except Giphy names the file through a keyless endpoint, so its page is never
+  fetched at all.
 
 Only a picture is ever kept, and only its own bytes: a page's `imageUrl` stays a reference that a
 client loads through the proxy below. A picture larger than the instance's `maxImageBytes` is left as
@@ -703,6 +708,11 @@ page, because their pages are heavy, script-driven or both:
   link straight at a picture, so the gif is kept as an attachment and the message carries no card.
   The page itself is no help here: it offers a still WebP and the animated GIF as two previews, and
   a page rewritten to a file is exactly what a chat client should show.
+
+Tenor and Klipy have no endpoint of their own, so their pages are read instead: each names the gif in
+its preview metadata and that address is fetched the same way. The only difference between them is
+access — Tenor serves its pages to anyone, while Klipy hides them behind a Cloudflare challenge and
+surrenders them only to a crawler name it recognises, which is what `previewUserAgent` is for.
 
 Everything else is scraped for OpenGraph metadata. Only the head is read: social tags always live
 there, and on a heavy page they can be hundreds of kilobytes in.

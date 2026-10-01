@@ -46,7 +46,8 @@
 
     // Hoisted roles come first, highest position first, each with its own
     // section. Members holding no hoisted role fall into a plain "Online" group
-    // underneath them, then everyone who is offline.
+    // underneath them, then everyone who is offline. The Discord sections slot
+    // into whichever half of that split they belong to.
     const hoisted = roster.roles
       .filter((role) => role.hoist && !role.isDefault)
       .sort((a, b) => b.position - a.position);
@@ -58,26 +59,29 @@
     const ungrouped = online.filter((entry) => hoistedRole(entry, byId) === null).sort(byName);
     if (ungrouped.length > 0) result.push({ key: 'online', label: 'Online', color: null, members: ungrouped });
 
+    /*
+     * Discord stand-in accounts belong to the Discord side of a bridge, so they
+     * are only worth listing where they can actually be reached: a bridged
+     * channel. They keep their own sections rather than joining the ones above,
+     * so it stays obvious who is here and who is on Discord, and each one sits in
+     * the half of the online split it belongs to instead of them all being kept
+     * together at the bottom.
+     */
+    const bridged = chat.activeChannel?.discordChannelId != null;
+    const standIns = bridged ? roster.members.filter((entry) => entry.user.isBot) : [];
+    const aroundOnDiscord = standIns.filter((entry) => entry.online).sort(byName);
+    const awayOnDiscord = standIns.filter((entry) => !entry.online).sort(byName);
+
+    if (aroundOnDiscord.length > 0) {
+      result.push({ key: 'discord-online', label: 'Discord', color: null, members: aroundOnDiscord });
+    }
+
     if (offline.length > 0) {
       result.push({ key: 'offline', label: 'Offline', color: null, members: offline.sort(byName) });
     }
 
-    /*
-     * Discord stand-in accounts belong to the Discord side of a bridge, so they
-     * are only worth listing where they can actually be reached: a bridged
-     * channel. They keep their own pair of sections rather than joining the ones
-     * above, so it stays obvious which members are here and which are on Discord.
-     */
-    if (chat.activeChannel?.discordChannelId != null) {
-      const standIns = roster.members.filter((entry) => entry.user.isBot);
-      const around = standIns.filter((entry) => entry.online).sort(byName);
-      const away = standIns.filter((entry) => !entry.online).sort(byName);
-      if (around.length > 0) {
-        result.push({ key: 'discord-online', label: 'Discord', color: null, members: around });
-      }
-      if (away.length > 0) {
-        result.push({ key: 'discord-offline', label: 'Discord (offline)', color: null, members: away });
-      }
+    if (awayOnDiscord.length > 0) {
+      result.push({ key: 'discord-offline', label: 'Discord (offline)', color: null, members: awayOnDiscord });
     }
 
     return result;

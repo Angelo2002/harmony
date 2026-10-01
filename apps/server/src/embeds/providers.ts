@@ -109,6 +109,30 @@ export function isGifPage(url: URL): boolean {
   return path !== undefined && path.test(url.pathname);
 }
 
+const DISCORD_CDN_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
+const DISCORD_ATTACHMENT_PATH = /^\/(?:attachments|ephemeral-attachments)\/(\d{15,25})\/(\d{15,25})\//;
+
+/** The ids a Discord attachment link carries, or null when the link is not one. */
+export interface DiscordAttachmentRef {
+  channelId: string;
+  attachmentId: string;
+}
+
+/**
+ * The channel and attachment ids in a Discord CDN link, or null when the link is
+ * not one. Discord signs these addresses and they expire, so the ids are what
+ * lets the bridge ask Discord for a live address; the filename is not needed for
+ * that and is left out.
+ */
+export function discordAttachment(url: URL): DiscordAttachmentRef | null {
+  if (!DISCORD_CDN_HOSTS.has(url.hostname.toLowerCase())) return null;
+  const match = DISCORD_ATTACHMENT_PATH.exec(url.pathname);
+  if (!match) return null;
+  const [, channelId, attachmentId] = match;
+  if (!channelId || !attachmentId) return null;
+  return { channelId, attachmentId };
+}
+
 /** The numeric status id in an X/Twitter link, or null when it is not one. */
 export function tweetStatusId(url: URL): string | null {
   if (!TWITTER_HOSTS.has(url.hostname.toLowerCase())) return null;

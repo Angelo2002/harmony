@@ -16,7 +16,7 @@ import WebSocket from 'ws';
 import sharp from 'sharp';
 import { listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
-import { isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
+import { discordAttachment, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
 import { insertGhostUser, insertUser } from '../src/db/users.ts';
@@ -962,6 +962,28 @@ try {
   check('a klipy gifs page is recognised', isGifPage(new URL('https://klipy.com/gifs/name-id')));
   check('a klipy media address is not a page', isGifPage(new URL('https://static2.klipy.com/ii/x/00/6e/y.gif')) === false);
   check('a lookalike host is not a gif page', isGifPage(new URL('https://tenor.com.evil.test/view/x-gif-123')) === false);
+
+  // A pasted Discord CDN attachment is signed and expires, so the ids in it are
+  // what lets the bridge ask Discord for a live address of the same file.
+  const discordRef = discordAttachment(
+    new URL('https://cdn.discordapp.com/attachments/1400576064547196989/1527627040914804798/x.gif?ex=1&is=2&hm=3'),
+  );
+  check(
+    'a discord attachment link yields its ids',
+    discordRef?.channelId === '1400576064547196989' && discordRef?.attachmentId === '1527627040914804798',
+    JSON.stringify(discordRef),
+  );
+  check(
+    'the discord proxy host yields them too',
+    discordAttachment(new URL('https://media.discordapp.net/attachments/1400576064547196989/1527627040914804798/x.gif'))
+      ?.attachmentId === '1527627040914804798',
+  );
+  check('a discord emoji link is not an attachment', discordAttachment(new URL('https://cdn.discordapp.com/emojis/123456789012345678.gif')) === null);
+  check('a plain discord cdn link is not an attachment', discordAttachment(new URL('https://cdn.discordapp.com/icons/123456789012345678/abc.png')) === null);
+  check(
+    'a lookalike host is not discord',
+    discordAttachment(new URL('https://cdn.discordapp.com.evil.test/attachments/1400576064547196989/1527627040914804798/x.gif')) === null,
+  );
 
   const storedPlayer = parseMessageEmbed(
     JSON.stringify({ url: 'https://youtu.be/dQw4w9WgXcQ', player: { provider: 'youtube', id: 'dQw4w9WgXcQ' } }),

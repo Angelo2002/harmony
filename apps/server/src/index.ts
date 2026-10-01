@@ -95,6 +95,10 @@ const pruner = createPruner({
   log: (message, detail) => app.log.info(detail ?? {}, message),
 });
 
+// Set once the bridge exists, so a pasted Discord attachment link can be turned
+// back into a live address. Null until then, and while the bridge is offline.
+let resolveDiscordAttachment: ((channelId: string, attachmentId: string) => Promise<string | null>) | null = null;
+
 // Unfurls one link per message into a small preview. It listens for local
 // messages only and pushes updates straight to the gateway, so the bridge never
 // mistakes a preview for a user edit.
@@ -104,6 +108,8 @@ const embedService = createEmbedService({
   hub,
   attachments: attachmentService,
   renderMessage: (messageId) => messageService.byId(messageId),
+  resolveDiscordAttachment: (channelId, attachmentId) =>
+    resolveDiscordAttachment?.(channelId, attachmentId) ?? Promise.resolve(null),
   log: (message, detail) => app.log.debug(detail ?? {}, message),
 });
 messageService.onMessageCreated((message) => embedService.resolve(message.id, message.content));
@@ -127,6 +133,9 @@ const bridge = createBridgeService({
   // straight to the gateway, so this never mirrors itself back out.
   resolvePreview: (messageId, content) => embedService.resolve(messageId, content),
 });
+
+// Hand the embed service the bridge it can ask for Discord attachment addresses.
+resolveDiscordAttachment = (channelId, attachmentId) => bridge.resolveDiscordAttachment(channelId, attachmentId);
 
 // Copies the linked guild's custom emoji in on demand from the emoji panel.
 const emojiImport = createEmojiImportService({

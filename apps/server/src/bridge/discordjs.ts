@@ -30,6 +30,19 @@ import type {
 const MAX_DISCORD_CONTENT = 2000;
 const MAX_DISCORD_USERNAME = 80;
 
+/** Snowflakes count milliseconds from Discord's epoch. */
+const DISCORD_EPOCH_MS = 1420070400000n;
+
+/** When a snowflake was made, in milliseconds. */
+function snowflakeMs(id: string): number {
+  return Number(BigInt(id) >> 22n) + Number(DISCORD_EPOCH_MS);
+}
+
+/** The snowflake for a moment, for paging a channel by id. */
+function snowflakeAt(ms: number): string {
+  return ((BigInt(Math.floor(ms)) - DISCORD_EPOCH_MS) << 22n).toString();
+}
+
 export function createDiscordTransport(token: string, logger: BridgeLogger): DiscordTransport {
   const client = new Client({
     intents: [
@@ -417,6 +430,27 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Discord returned ${response.status} for an attachment`);
       return Buffer.from(await response.arrayBuffer());
+    },
+
+    async resolveAttachmentUrl(channelId, attachmentId) {
+      const channel = await client.channels.fetch(channelId).catch(() => null);
+      if (!channel || channel.type !== ChannelType.GuildText) return null;
+
+      // Discord signs these addresses, so the only place a live one exists is in
+      // the message itself. An attachment id is a snowflake, so it says roughly
+      // when the message was sent: that is where the search starts instead of
+      // walking the whole channel.
+      const around = await channel.messages.fetch({ around: attachmentId, limit: 50 }).catch(() => null);
+      const near = around?.find((message) => message.attachments.has(attachmentId));
+      if (near) return near.attachments.get(attachmentId)?.url ?? null;
+
+      // A snowflake that is not a message id still has a place in the channel's
+      // order, but if Discord did not resolve it, the upload was a moment before
+      // the message, so look at what was posted just after it instead.
+      const after = snowflakeAt(snowflakeMs(attachmentId) - 30_000);
+      const scanned = await channel.messages.fetch({ after, limit: 100 }).catch(() => null);
+      const hit = scanned?.find((message) => message.attachments.has(attachmentId));
+      return hit?.attachments.get(attachmentId)?.url ?? null;
     },
 
     async fetchRecentMessages(channelId, limit) {

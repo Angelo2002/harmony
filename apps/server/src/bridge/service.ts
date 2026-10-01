@@ -63,6 +63,12 @@ export interface BridgeService {
   downloadGuildEmoji(id: string, animated: boolean): Promise<{ data: Buffer; contentType: ImageContentType }>;
   /** Pulls recent Discord history into a bridged channel; returns how many. */
   importChannel(channelId: string, limit?: number): Promise<number>;
+  /**
+   * A live, signed CDN address for a Discord attachment, found through the message
+   * it belongs to. Null when the bridge is down, the channel is not one the bot
+   * can read, or the message is gone.
+   */
+  resolveDiscordAttachment(channelId: string, attachmentId: string): Promise<string | null>;
   /** Sends a test message so an admin can verify a mapping and see any error. */
   testMirror(channelId: string): Promise<void>;
   /**
@@ -788,6 +794,11 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     },
 
     importChannel,
+
+    async resolveDiscordAttachment(channelId, attachmentId) {
+      if (!transport) return null;
+      return transport.resolveAttachmentUrl(channelId, attachmentId);
+    },
 
     onlineDiscordIds() {
       return new Set(discordOnline);

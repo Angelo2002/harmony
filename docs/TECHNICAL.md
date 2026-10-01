@@ -251,6 +251,16 @@ differ only in access — Tenor serves its pages to anyone, while Klipy puts the
 challenge and hands them over to a recognised crawler name alone. That is precisely what the opt-in
 `previewUserAgent` setting is for, and why Klipy page links preview only once it is set.
 
+A Discord attachment link needs a different trick again, because the address itself is the problem:
+Discord signs it and the signature expires, so a link copied out of the client usually arrives already
+dead. The link still carries the channel and the attachment id, though, and those are enough to ask
+Discord for the message the file belongs to. When the bridge is connected its bot does exactly that —
+the attachment id is a snowflake, so it says roughly when the message was sent and the lookup starts
+there rather than walking the channel — and hands back a live address, which the ordinary guarded path
+then fetches and keeps. Nothing is stored when the bot cannot see that channel, or the message is
+gone, or the bridge is simply off, which is also why the feature costs an instance with no Discord
+presence nothing at all.
+
 One detail is behind a surprising amount of the earlier unreliability: the fetch says it wants an
 image first and only falls back to a page (`Accept: image/*, text/html;q=0.9`), rather than the other
 way round. Giphy serves its media host by content negotiation on a single address — ask for `image/*`

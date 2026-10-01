@@ -60,6 +60,8 @@ function createFakeTransport() {
     recentMessages: [],
     downloadBytes: null,
     downloads: [],
+    // Attachment ids the fake bot can resolve, keyed channel/attachment.
+    attachmentUrls: new Map([['111/900', 'https://cdn.discordapp.com/attachments/111/900/x.gif?ex=ff&is=1&hm=abc']]),
   };
   return {
     state,
@@ -126,6 +128,9 @@ function createFakeTransport() {
     async download(url) {
       state.downloads.push(url);
       return state.downloadBytes;
+    },
+    async resolveAttachmentUrl(channelId, attachmentId) {
+      return state.attachmentUrls.get(`${channelId}/${attachmentId}`) ?? null;
     },
     emit(message) {
       // Message fields the tests omit default to sensible values.
@@ -209,6 +214,14 @@ try {
   check('bot identity is exposed', bridge.status().status.botTag === 'fake#0001');
   check('discord channels are listable', (await bridge.listDiscordChannels()).channels.length === 3);
   check('discord categories are listable', (await bridge.listDiscordChannels()).categories.length === 1);
+  check(
+    'a live attachment address is asked for through its message',
+    (await bridge.resolveDiscordAttachment('111', '900'))?.includes('/attachments/111/900/') === true,
+  );
+  check(
+    'an attachment the bot cannot see resolves to nothing',
+    (await bridge.resolveDiscordAttachment('111', '901')) === null,
+  );
 
   const userId = randomUUID();
   insertUser(db.sqlite, { id: userId, username: 'alice', passwordHash: 'scrypt$x$y$z', isOwner: true });

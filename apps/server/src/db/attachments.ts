@@ -232,3 +232,42 @@ export function deleteAttachment(sqlite: DatabaseSync, id: string): boolean {
   const result = sqlite.prepare('DELETE FROM attachments WHERE id = ?').run(id);
   return Number(result.changes) > 0;
 }
+
+/**
+ * Recent image attachments that could appear in the picker's local tab, newest
+ * first. `channelIds` limits it to the channels a member may see, and null means
+ * every channel, which is what an administrator gets. `q` matches the file name or
+ * the link it was fetched from. Rows are not deduplicated: the same bytes are
+ * stored once but sent many times, and which copy to keep is the caller's call.
+ */
+export function listRecentImageAttachments(
+  sqlite: DatabaseSync,
+  options: { channelIds: string[] | null; q: string | null; limit: number },
+): AttachmentRow[] {
+  if (options.channelIds && options.channelIds.length === 0) return [];
+
+  const clauses = ["a.content_type LIKE 'image/%'", 'a.message_id IS NOT NULL'];
+  const params: Array<string | number> = [];
+
+  if (options.channelIds) {
+    clauses.push(`m.channel_id IN (${options.channelIds.map(() => '?').join(', ')})`);
+    params.push(...options.channelIds);
+  }
+  if (options.q) {
+    // A search term is text, not a pattern, so its own wildcards are escaped.
+    const like = `%${options.q.replace(/[\\%_]/g, '\\$&')}%`;
+    clauses.push("(a.filename LIKE ? ESCAPE '\\' OR a.source_url LIKE ? ESCAPE '\\')");
+    params.push(like, like);
+  }
+  params.push(options.limit);
+
+  return sqlite
+    .prepare(
+      `SELECT a.* FROM attachments a
+       JOIN messages m ON m.id = a.message_id
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY a.created_at DESC, a.rowid DESC
+       LIMIT ?`,
+    )
+    .all(...params) as unknown as AttachmentRow[];
+}

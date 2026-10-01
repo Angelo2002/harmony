@@ -104,3 +104,14 @@ export function deleteGifFavoritesUnusedBefore(sqlite: DatabaseSync, before: str
   const result = sqlite.prepare('DELETE FROM gif_favorites WHERE used_at < ?').run(before);
   return Number(result.changes);
 }
+
+/**
+ * A member's saved gifs by content hash, so a listing can mark the ones already
+ * kept without a query per gif.
+ */
+export function favoriteIdsByHash(sqlite: DatabaseSync, userId: string): Map<string, string> {
+  const rows = sqlite
+    .prepare('SELECT id, hash FROM gif_favorites WHERE user_id = ?')
+    .all(userId) as unknown as Array<{ id: string; hash: string }>;
+  return new Map(rows.map((row) => [row.hash, row.id]));
+}

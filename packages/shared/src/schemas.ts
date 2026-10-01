@@ -134,6 +134,13 @@ export type AuditQuery = z.infer<typeof auditQuerySchema>;
 export const mediaQuerySchema = cursorQuerySchema;
 export type MediaQuery = z.infer<typeof mediaQuerySchema>;
 
+/** The picker's local tab: a search term and a page size. */
+export const gifQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type GifQuery = z.infer<typeof gifQuerySchema>;
+
 /** Permission bitfields cross the wire as decimal strings. */
 const permissionString = z.string().regex(/^\d+$/, 'Must be a decimal permission bitfield');
 

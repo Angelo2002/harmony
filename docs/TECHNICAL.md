@@ -302,6 +302,12 @@ at bytes that are already stored, owned by the person picking, and the message t
 as it would an upload. That keeps a picked gif the same kind of thing as everything else in a message
 — retention, the media gallery and the bridge already understand it — and makes picking instant.
 
+The picker's other tab, This server, is a listing rather than a store: it reads recent image
+attachments, keeps one per content hash, and drops any channel the caller cannot see, through the
+same role-aware helper the sidebar uses. The read is deliberately bounded to a few times the page
+size, because the same handful of gifs get sent again and again and the rows far outnumber the
+pictures — a bounded scan still fills a page with distinct gifs.
+
 ## Versioning
 
 The release number lives in one place, `HARMONY_VERSION` in

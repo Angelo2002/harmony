@@ -269,6 +269,30 @@ export interface GifFavoriteListResponse {
   favorites: GifFavorite[];
 }
 
+/**
+ * A gif this instance already holds, for the picker's local tab. One per picture:
+ * the same bytes are stored once however many times they were sent, so the newest
+ * copy of each is what is listed.
+ */
+export interface GifItem {
+  /** The attachment serving the bytes. */
+  id: string;
+  hash: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  sourceUrl: string | null;
+  createdAt: string;
+  /** The caller's own saved copy of it, when they have one. */
+  favoriteId: string | null;
+}
+
+export interface GifListResponse {
+  gifs: GifItem[];
+}
+
 export interface PruneSummary {
   ranAt: string;
   deletedAttachments: number;

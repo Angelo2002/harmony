@@ -2219,6 +2219,114 @@ button.danger {
   font-size: 0.8rem;
 }
 
+/* The GIF button's label has to fit the same circle as the emoji one. */
+.attach-gif {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/*
+ * The gif picker. Built like the emoji one — a fixed head over a body that
+ * scrolls — but taller, since it is showing pictures rather than characters.
+ */
+.gif-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(340px, 100%);
+  max-height: 340px;
+  padding: 0.5rem;
+  border-radius: var(--h-radius);
+  background: var(--h-bg-elevated);
+}
+
+.gif-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Columns rather than a grid: gifs are all different shapes, and a column flow
+   packs them without leaving gaps the way even rows would. */
+.gif-grid {
+  columns: 2;
+  column-gap: 0.4rem;
+}
+
+@media (min-width: 420px) {
+  .gif-grid {
+    columns: 3;
+  }
+}
+
+.gif-tile {
+  position: relative;
+  break-inside: avoid;
+  margin-bottom: 0.4rem;
+}
+
+.gif-send {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--h-bg);
+  line-height: 0;
+}
+
+.gif-send:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.gif-send img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/*
+ * The heart keeps a gif. It sits over the top corner and only comes out when the
+ * tile is hovered, or when the gif is already saved, so it does not sit on the
+ * picture otherwise. A touch screen has no hover, so there it is always out.
+ */
+.gif-heart {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 60%);
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.gif-heart.on,
+.gif-heart:focus-visible,
+.gif-send:focus-visible + .gif-heart,
+.gif-tile:hover .gif-heart {
+  opacity: 1;
+}
+
+.gif-heart:hover:not(:disabled) {
+  background: var(--h-accent);
+  filter: none;
+}
+
+@media (hover: none) {
+  .gif-heart {
+    opacity: 1;
+  }
+}
+
 /* ---- Profile ---- */
 
 .user-button {

@@ -1,10 +1,10 @@
 import { createReadStream, statSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
-import { Permission, addGifFavoriteSchema, pickGifSchema, type GifFavoriteListResponse } from '@harmony/shared';
+import { Permission, addGifFavoriteSchema, gifQuerySchema, pickGifSchema, type GifFavoriteListResponse, type GifListResponse } from '@harmony/shared';
 import { requirePermission } from '../auth/plugin.ts';
 import type { GifService } from '../gifs/service.ts';
 import { HttpError } from '../http/errors.ts';
-import { parseBody } from '../http/validation.ts';
+import { parseBody, parseQuery } from '../http/validation.ts';
 
 export interface GifRouteDeps {
   service: GifService;
@@ -27,6 +27,13 @@ export function registerGifRoutes(app: FastifyInstance, deps: GifRouteDeps): voi
     const auth = requirePermission(request, Permission.ViewChannels);
     const input = parseBody(addGifFavoriteSchema, request.body);
     return deps.service.addFavorite(auth, input.attachmentId);
+  });
+
+  app.get('/api/v1/gifs/local', async (request) => {
+    const auth = requirePermission(request, Permission.ViewChannels);
+    const query = parseQuery(gifQuerySchema, request.query);
+    const body: GifListResponse = { gifs: deps.service.listLocal(auth, query) };
+    return body;
   });
 
   app.delete('/api/v1/gifs/favorites/:id', async (request, reply) => {

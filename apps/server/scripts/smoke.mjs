@@ -1764,6 +1764,67 @@ try {
     (await req('/gifs/pick', { method: 'POST', token: bobToken, body: { favoriteId: favorited.json.id } })).status === 404,
   );
 
+  // The local tab lists what the instance already holds, one per picture.
+  const localList = await req('/gifs/local', { token: ownerToken });
+  const localKeeper = localList.json?.gifs?.find((gif) => gif.hash === keeperAttachment.hash);
+  check('the local list offers gifs the instance holds', localKeeper !== undefined);
+  check('and marks the ones this member saved', localKeeper?.favoriteId === favorited.json.id);
+  check(
+    'the local list can be searched by name',
+    (await req('/gifs/local?q=keeper', { token: ownerToken })).json?.gifs?.some(
+      (gif) => gif.hash === keeperAttachment.hash,
+    ) === true,
+  );
+
+  // A gif in a channel a member cannot see must not reach their picker either.
+  const gifRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Gif Keepers' } });
+  const hiddenGifChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'hidden-gifs', requiredRoleId: gifRole.json.id },
+  });
+  const hiddenPng = await sharp({
+    create: { width: 19, height: 13, channels: 4, background: { r: 210, g: 20, b: 130, alpha: 1 } },
+  })
+    .png()
+    .toBuffer();
+  const hiddenForm = new FormData();
+  hiddenForm.append('file', new Blob([hiddenPng], { type: 'image/png' }), 'hidden.png');
+  const hiddenAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: hiddenForm,
+    })
+  ).json();
+  await req(`/channels/${hiddenGifChannel.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'a gif behind a role', attachmentIds: [hiddenAttachment.id] },
+  });
+  check(
+    'a gif in a locked channel is not in a member picker',
+    (await req('/gifs/local', { token: bobToken })).json?.gifs?.every(
+      (gif) => gif.hash !== hiddenAttachment.hash,
+    ) === true,
+  );
+  check(
+    'an administrator sees it',
+    (await req('/gifs/local', { token: ownerToken })).json?.gifs?.some(
+      (gif) => gif.hash === hiddenAttachment.hash,
+    ) === true,
+  );
+  check(
+    'a locked gif cannot be saved by somebody who cannot see it (404)',
+    (
+      await req('/gifs/favorites', {
+        method: 'POST',
+        token: bobToken,
+        body: { attachmentId: hiddenAttachment.id },
+      })
+    ).status === 404,
+  );
+
   // Picking only makes an attachment; the message it goes into is sent normally.
   const picked = await req('/gifs/pick', {
     method: 'POST',

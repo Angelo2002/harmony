@@ -1,13 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
-import { ALLOWED_IMAGE_TYPES, type Attachment, type GifFavorite, type ImageContentType } from '@harmony/shared';
-import { canAccessChannel, channelAccessFor } from '../access/service.ts';
+import { ALLOWED_IMAGE_TYPES, type Attachment, type GifFavorite, type GifItem, type ImageContentType } from '@harmony/shared';
+import { canAccessChannel, channelAccessFor, visibleChannels } from '../access/service.ts';
 import type { AuthContext } from '../auth/service.ts';
 import type { Config } from '../config.ts';
-import { findAttachment, insertAttachment, toAttachment, type AttachmentRow } from '../db/attachments.ts';
+import {
+  findAttachment,
+  insertAttachment,
+  listRecentImageAttachments,
+  toAttachment,
+  type AttachmentRow,
+} from '../db/attachments.ts';
 import {
   deleteGifFavorite,
+  favoriteIdsByHash,
   findGifFavorite,
   listGifFavoritesForUser,
   touchGifFavorite,
@@ -32,7 +39,16 @@ export interface GifService {
   pick(auth: AuthContext, ref: { attachmentId?: string; favoriteId?: string }): Attachment;
   /** Absolute path of a kept gif's bytes, or null when they are gone. */
   filePathFor(favorite: { hash: string }): string | null;
+  /**
+   * Gifs this instance already holds, for the picker's local tab: one per picture,
+   * newest first, and only from channels the member may see.
+   */
+  listLocal(auth: AuthContext, query: { q?: string; limit: number }): GifItem[];
 }
+
+/** How many candidate rows to look at to fill a page once duplicates are dropped. */
+const LOCAL_SCAN_FACTOR = 4;
+const LOCAL_SCAN_LIMIT = 400;
 
 /** A gif is an image, and only the types this instance stores are keepable. */
 function isGifImage(contentType: string): boolean {
@@ -168,6 +184,44 @@ export function createGifService(sqlite: DatabaseSync, config: Config): GifServi
     filePathFor(favorite) {
       const path = blobs.pathFor(favorite.hash);
       return existsSync(path) ? path : null;
+    },
+
+    listLocal(auth, query) {
+      const access = channelAccessFor(sqlite, auth.user.id);
+      // Administrators see everything; everybody else only their own channels, so a
+      // gif in a locked channel never turns up in somebody's picker.
+      const channelIds = access.bypass ? null : visibleChannels(sqlite, access).map((channel) => channel.id);
+
+      const rows = listRecentImageAttachments(sqlite, {
+        channelIds,
+        q: query.q && query.q.length > 0 ? query.q : null,
+        // The same picture is sent over and over, so a page's worth of rows holds
+        // far fewer distinct gifs; read ahead before dropping the duplicates.
+        limit: Math.min(query.limit * LOCAL_SCAN_FACTOR, LOCAL_SCAN_LIMIT),
+      });
+
+      const saved = favoriteIdsByHash(sqlite, auth.user.id);
+      const seen = new Set<string>();
+      const gifs: GifItem[] = [];
+
+      for (const row of rows) {
+        if (seen.has(row.hash)) continue;
+        seen.add(row.hash);
+        gifs.push({
+          id: row.id,
+          hash: row.hash,
+          filename: row.filename,
+          contentType: row.content_type,
+          size: row.size,
+          width: row.width,
+          height: row.height,
+          sourceUrl: row.source_url,
+          createdAt: row.created_at,
+          favoriteId: saved.get(row.hash) ?? null,
+        });
+        if (gifs.length >= query.limit) break;
+      }
+      return gifs;
     },
   };
 }

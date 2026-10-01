@@ -28,7 +28,7 @@ code wins — please open an issue.
   - [Reactions](#reactions)
   - [Attachments](#attachments)
   - [Media gallery](#media-gallery)
-  - [Saved gifs](#saved-gifs)
+  - [Gifs and the picker](#gifs-and-the-picker)
   - [Custom emoji](#custom-emoji)
   - [Users and avatars](#users-and-avatars)
   - [Roles](#roles)
@@ -867,14 +867,18 @@ together.
 `uploader`, `channelId` and `channelName` are `null` for an upload that was never attached to a
 message.
 
-### Saved gifs
+### Gifs and the picker
 
-Saved gifs are private to the member who kept them. A saved gif is held by **content hash** rather
-than by an attachment row, which is what lets it outlive the message it was found in: it is exempt
-from the image, video and message retention rules and is only ever aged out by
-`favoriteRetentionDays`, counted from the last time it was saved or sent. Nothing is ever downloaded
-to save one — the bytes are already stored, and a saved gif shares its blob with every attachment of
-the same picture.
+The picker has two tabs. **Favourites** are private to the member who saved them, and a saved gif is
+held by **content hash** rather than by an attachment row, which is what lets it outlive the message
+it was found in: it is exempt from the image, video and message retention rules and is only ever aged
+out by `favoriteRetentionDays`, counted from the last time it was saved or sent. Nothing is ever
+downloaded to save one — the bytes are already stored, and a saved gif shares its blob with every
+attachment of the same picture.
+
+**This server** lists what the instance already holds, one entry per picture however many times it
+was sent, and only from channels the caller may see. A third tab for a hosted service is planned and
+will appear only when a key for one is configured.
 
 ```ts
 type GifFavorite = {
@@ -890,6 +894,36 @@ type GifFavorite = {
   usedAt: string;           // what favouriteRetentionDays counts from
 };
 ```
+
+#### `GET /api/v1/gifs/local` — `ViewChannels`
+
+Gifs this instance already holds, **newest first**, for the picker's second tab. One entry per
+picture: identical bytes are stored once but sent many times, so only the most recent copy of each is
+listed.
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `q` | string, ≤100 | — | Matches the file name or the link it came from |
+| `limit` | integer 1–100 | 50 | |
+
+```ts
+type GifItem = {
+  id: string;               // the attachment serving the bytes
+  hash: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  sourceUrl: string | null;
+  createdAt: string;
+  favoriteId: string | null; // the caller's saved copy, if they have one
+};
+```
+
+Returns `{ "gifs": [GifItem] }`. Only channels the caller may see are searched, so a gif in a
+[locked channel](#channel-locking) never turns up in somebody else's picker. Load a gif from
+`/api/v1/attachments/{id}`.
 
 #### `GET /api/v1/gifs/favorites` — `ViewChannels`
 
@@ -1377,8 +1411,8 @@ Retention automatically prunes old content and can cap total storage. Any rule s
 switched off. Image, video, message and audit-log age limits are independent: each is deleted once
 it is older than its own limit, and the log can be cleared outright with `DELETE /api/v1/audit`.
 
-[Saved gifs](#saved-gifs) are deliberately outside all of those. `favoriteRetentionDays` is the only
-rule that ages one out, counted from the last time it was saved or sent.
+[Saved gifs](#gifs-and-the-picker) are deliberately outside all of those. `favoriteRetentionDays` is
+the only rule that ages one out, counted from the last time it was saved or sent.
 
 ```ts
 type RetentionSettings = {

@@ -198,7 +198,12 @@
 
   let sizeObserver: ResizeObserver | null = null;
 
-  /** Re-pins the view to the newest message when it is already at the bottom. */
+  /**
+   * Re-pins the view to the newest message when it is already at the bottom. Also
+   * watches the scroller itself, because anything that takes height away from it -
+   * the reply bar, the typing line, a growing composer - would otherwise push the
+   * newest messages below the fold without changing a single row.
+   */
   function onRowResize(): void {
     const element = scroller;
     if (!element || !atBottom) return;
@@ -209,7 +214,9 @@
    * Keeps the view pinned to the newest message when a row grows for a reason
    * other than a new message: a link preview arriving a moment late, an image
    * finishing its load, or a reaction picker or edit form opening. Watching the
-   * message list alone cannot see any of those, because the list is unchanged.
+   * message list alone cannot see any of those, because the list is unchanged. The
+   * scroller is tracked the same way, since it can be resized from outside the
+   * list entirely.
    */
   function trackSize(element: HTMLElement): { destroy: () => void } {
     sizeObserver ??= new ResizeObserver(onRowResize);
@@ -308,7 +315,7 @@
   {/if}
 {/snippet}
 
-<div class="messages" bind:this={scroller} onscroll={onScroll}>
+<div class="messages" bind:this={scroller} use:trackSize onscroll={onScroll}>
   {#if actionError}
     <p class="form-error pad">{actionError}</p>
   {/if}

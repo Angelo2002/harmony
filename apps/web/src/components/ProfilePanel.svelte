@@ -9,10 +9,16 @@
 
   let displayName = $state(session.user?.displayName ?? '');
   let showTyping = $state(session.user?.showTyping ?? true);
+  let notifyMajor = $state(session.user?.notifyMajor ?? true);
+  let notifyMinor = $state(session.user?.notifyMinor ?? true);
   let fileInput = $state<HTMLInputElement | null>(null);
   let error = $state<string | null>(null);
   let message = $state<string | null>(null);
   let busy = $state(false);
+
+  let soundError = $state<string | null>(null);
+  let soundMessage = $state<string | null>(null);
+  let savingSounds = $state(false);
 
   let currentPassword = $state('');
   let newPassword = $state('');
@@ -23,11 +29,22 @@
 
   const picture = $derived(avatarUrl(session.user));
 
+  type Tab = 'profile' | 'notifications' | 'password';
+  let tab = $state<Tab>('profile');
+
+  const TABS: Array<{ id: Tab; label: string }> = [
+    { id: 'profile', label: 'Profile' },
+    { id: 'notifications', label: 'Notifications' },
+    { id: 'password', label: 'Password' },
+  ];
+
   function apply(data: MeResponse): void {
     session.user = data.user;
     session.permissions = data.permissions;
     displayName = data.user.displayName ?? '';
     showTyping = data.user.showTyping;
+    notifyMajor = data.user.notifyMajor;
+    notifyMinor = data.user.notifyMinor;
   }
 
   function fail(cause: unknown): void {
@@ -89,6 +106,26 @@
     }
   }
 
+  async function saveSounds(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    savingSounds = true;
+    soundError = null;
+    soundMessage = null;
+    try {
+      apply(
+        await api<MeResponse>('/users/@me', {
+          method: 'PATCH',
+          body: JSON.stringify({ notifyMajor, notifyMinor }),
+        }),
+      );
+      soundMessage = 'Notification sounds saved.';
+    } catch (cause) {
+      soundError = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      savingSounds = false;
+    }
+  }
+
   async function changePassword(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     passwordError = null;
@@ -118,97 +155,140 @@
 
 <div class="admin-overlay">
   <div class="admin profile-panel">
+    <nav class="admin-nav">
+      <h2>Your account</h2>
+      {#each TABS as entry (entry.id)}
+        <button class="admin-tab" class:active={tab === entry.id} type="button" onclick={() => (tab = entry.id)}>
+          {entry.label}
+        </button>
+      {/each}
+      <button class="admin-close" type="button" onclick={() => ui.closeProfile()}>Close</button>
+    </nav>
+
     <div class="admin-body">
-      <h3>Your profile</h3>
+      {#if tab === 'profile'}
+        <h3>Your profile</h3>
 
-      <div class="profile-avatar">
-        {#if picture}
-          <img class="avatar large" src={picture} alt="" />
-        {:else}
-          <span class="avatar large fallback">{initial(session.user)}</span>
-        {/if}
-
-        <div class="editor-actions">
-          <button type="button" onclick={() => fileInput?.click()} disabled={busy}>Change picture</button>
+        <div class="profile-avatar">
           {#if picture}
-            <button type="button" class="danger" onclick={removeAvatar} disabled={busy}>Remove</button>
+            <img class="avatar large" src={picture} alt="" />
+          {:else}
+            <span class="avatar large fallback">{initial(session.user)}</span>
           {/if}
-          <input
-            class="file-input"
-            type="file"
-            accept={acceptAttribute}
-            bind:this={fileInput}
-            onchange={uploadAvatar}
-          />
+
+          <div class="editor-actions">
+            <button type="button" onclick={() => fileInput?.click()} disabled={busy}>Change picture</button>
+            {#if picture}
+              <button type="button" class="danger" onclick={removeAvatar} disabled={busy}>Remove</button>
+            {/if}
+            <input
+              class="file-input"
+              type="file"
+              accept={acceptAttribute}
+              bind:this={fileInput}
+              onchange={uploadAvatar}
+            />
+          </div>
         </div>
-      </div>
 
-      <form onsubmit={saveName}>
-        <label>
-          Display name
-          <input bind:value={displayName} maxlength={LIMITS.displayName.max} placeholder={session.user?.username} />
-        </label>
-        <p class="muted">Leave this blank to show your username, {session.user?.username}.</p>
+        <form onsubmit={saveName}>
+          <label>
+            Display name
+            <input bind:value={displayName} maxlength={LIMITS.displayName.max} placeholder={session.user?.username} />
+          </label>
+          <p class="muted">Leave this blank to show your username, {session.user?.username}.</p>
 
-        <label class="checkbox">
-          <input type="checkbox" bind:checked={showTyping} />
-          Typing indicators
-        </label>
-        <p class="muted">See when other people are typing, and let them see when you are.</p>
+          <label class="checkbox">
+            <input type="checkbox" bind:checked={showTyping} />
+            Typing indicators
+          </label>
+          <p class="muted">See when other people are typing, and let them see when you are.</p>
 
-        {#if error}<p class="form-error">{error}</p>{/if}
-        {#if message}<p class="ok-text">{message}</p>{/if}
+          {#if error}<p class="form-error">{error}</p>{/if}
+          {#if message}<p class="ok-text">{message}</p>{/if}
 
-        <div class="editor-actions">
-          <button type="submit" disabled={busy}>Save</button>
-          <button type="button" onclick={() => ui.closeProfile()}>Close</button>
-        </div>
-      </form>
+          <div class="editor-actions">
+            <button type="submit" disabled={busy}>Save</button>
+          </div>
+        </form>
+      {:else if tab === 'notifications'}
+        <h3>Notifications</h3>
 
-      <form onsubmit={changePassword}>
-        <h4 class="profile-section-title">Change password</h4>
+        <form onsubmit={saveSounds}>
+          <label class="checkbox">
+            <input type="checkbox" bind:checked={notifyMajor} />
+            Someone mentions me
+          </label>
+          <p class="muted">
+            The louder sound, for a reply to one of your messages or a message that names you.
+          </p>
 
-        <label>
-          Current password
-          <input
-            type="password"
-            bind:value={currentPassword}
-            autocomplete="current-password"
-            maxlength={LIMITS.password.max}
-          />
-        </label>
+          <label class="checkbox">
+            <input type="checkbox" bind:checked={notifyMinor} />
+            New messages in the channel I am reading
+          </label>
+          <p class="muted">The quieter sound. Messages in other channels stay silent.</p>
 
-        <label>
-          New password
-          <input
-            type="password"
-            bind:value={newPassword}
-            autocomplete="new-password"
-            minlength={LIMITS.password.min}
-            maxlength={LIMITS.password.max}
-          />
-        </label>
+          <p class="muted">
+            Sounds only play while Harmony is open in a tab or window. Nothing is ever sent to your phone or
+            desktop.
+          </p>
 
-        <label>
-          Confirm new password
-          <input
-            type="password"
-            bind:value={confirmPassword}
-            autocomplete="new-password"
-            minlength={LIMITS.password.min}
-            maxlength={LIMITS.password.max}
-          />
-        </label>
+          {#if soundError}<p class="form-error">{soundError}</p>{/if}
+          {#if soundMessage}<p class="ok-text">{soundMessage}</p>{/if}
 
-        <p class="muted">Changing your password signs out every other device. Ask an admin if you have forgotten it.</p>
+          <div class="editor-actions">
+            <button type="submit" disabled={savingSounds}>Save</button>
+          </div>
+        </form>
+      {:else}
+        <h3>Change password</h3>
 
-        {#if passwordError}<p class="form-error">{passwordError}</p>{/if}
-        {#if passwordMessage}<p class="ok-text">{passwordMessage}</p>{/if}
+        <form onsubmit={changePassword}>
+          <label>
+            Current password
+            <input
+              type="password"
+              bind:value={currentPassword}
+              autocomplete="current-password"
+              maxlength={LIMITS.password.max}
+            />
+          </label>
 
-        <div class="editor-actions">
-          <button type="submit" disabled={changingPassword || !currentPassword || !newPassword}>Change password</button>
-        </div>
-      </form>
+          <label>
+            New password
+            <input
+              type="password"
+              bind:value={newPassword}
+              autocomplete="new-password"
+              minlength={LIMITS.password.min}
+              maxlength={LIMITS.password.max}
+            />
+          </label>
+
+          <label>
+            Confirm new password
+            <input
+              type="password"
+              bind:value={confirmPassword}
+              autocomplete="new-password"
+              minlength={LIMITS.password.min}
+              maxlength={LIMITS.password.max}
+            />
+          </label>
+
+          <p class="muted">Changing your password signs out every other device. Ask an admin if you have forgotten it.</p>
+
+          {#if passwordError}<p class="form-error">{passwordError}</p>{/if}
+          {#if passwordMessage}<p class="ok-text">{passwordMessage}</p>{/if}
+
+          <div class="editor-actions">
+            <button type="submit" disabled={changingPassword || !currentPassword || !newPassword}>
+              Change password
+            </button>
+          </div>
+        </form>
+      {/if}
     </div>
   </div>
 </div>

@@ -13,10 +13,11 @@ import type {
 } from '@harmony/shared';
 import { ApiError, api } from './api';
 import { emojis } from './emojis.svelte';
-import { mergeLatest } from './messages';
+import { mentionsUser, mergeLatest } from './messages';
 import { members } from './members.svelte';
 import { roster } from './roster.svelte';
 import { session } from './session.svelte';
+import { playNotification } from './sounds';
 import { GatewayClient, type GatewayFrame } from './gateway';
 
 /** How many messages one history page holds, for both directions. */
@@ -382,10 +383,32 @@ class ChatStore {
     }
   }
 
+  /**
+   * Plays the sound a new message deserves, if the member wants one. Nothing is
+   * played for their own messages, and nothing ever leaves the page: this is the
+   * in-app sound, not a device notification.
+   */
+  #notify(message: Message): void {
+    const me = session.user;
+    if (!me || message.author?.id === me.id) return;
+
+    // A mention is aimed at this person wherever they happen to be looking, so
+    // it is worth the louder sound even from another channel.
+    if (mentionsUser(message, me.id, (name) => members.byUsername.get(name.toLowerCase()))) {
+      if (me.notifyMajor) playNotification('major');
+      return;
+    }
+
+    // Anything else only counts in the channel being read. Otherwise a busy
+    // instance would chirp once per message in every channel at once.
+    if (message.channelId === this.activeChannelId && me.notifyMinor) playNotification('minor');
+  }
+
   #handleEvent(frame: GatewayFrame): void {
     switch (frame.t) {
       case 'MESSAGE_CREATE': {
         const message = frame.d as Message;
+        this.#notify(message);
         if (message.channelId !== this.activeChannelId) break;
         if (this.messages.some((existing) => existing.id === message.id)) break;
         // A history import can deliver older messages, so insert by timestamp

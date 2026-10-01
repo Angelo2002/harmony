@@ -285,4 +285,18 @@ export const migrations: Migration[] = [
       db.exec(`ALTER TABLE channels ADD COLUMN slowmode_seconds INTEGER NOT NULL DEFAULT 0`);
     },
   },
+  {
+    version: 13,
+    name: 'user_notification_sounds',
+    up(db) {
+      /*
+       * The two in-app notification sounds. Both default to on, and neither is
+       * about device notifications: nothing is ever pushed off the page.
+       */
+      db.exec(`
+        ALTER TABLE users ADD COLUMN notify_major INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE users ADD COLUMN notify_minor INTEGER NOT NULL DEFAULT 1;
+      `);
+    },
+  },
 ];

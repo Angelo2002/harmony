@@ -19,7 +19,15 @@ import { HttpError } from '../http/errors.ts';
 import { createBlobStore } from '../storage/blobs.ts';
 
 export interface UserService {
-  updateProfile(userId: string, patch: { displayName?: string | null; showTyping?: boolean }): UserRow;
+  updateProfile(
+    userId: string,
+    patch: {
+      displayName?: string | null;
+      showTyping?: boolean;
+      notifyMajor?: boolean;
+      notifyMinor?: boolean;
+    },
+  ): UserRow;
   /** Changes a member's own password after checking the one they already have. */
   changePassword(userId: string, currentPassword: string, nextPassword: string): Promise<void>;
   /**
@@ -84,13 +92,20 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
 
     updateProfile(userId, patch) {
       const row = require(userId);
-      const clean: { displayName?: string | null; showTyping?: boolean } = {};
+      const clean: {
+        displayName?: string | null;
+        showTyping?: boolean;
+        notifyMajor?: boolean;
+        notifyMinor?: boolean;
+      } = {};
       if (patch.displayName !== undefined) {
         // Empty means "go back to the username".
         clean.displayName =
           patch.displayName && patch.displayName.trim().length > 0 ? patch.displayName.trim() : null;
       }
       if (patch.showTyping !== undefined) clean.showTyping = patch.showTyping;
+      if (patch.notifyMajor !== undefined) clean.notifyMajor = patch.notifyMajor;
+      if (patch.notifyMinor !== undefined) clean.notifyMinor = patch.notifyMinor;
       updateUserProfile(sqlite, row.id, clean);
       return require(userId);
     },

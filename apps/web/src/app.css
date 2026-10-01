@@ -2132,7 +2132,8 @@ button.danger {
 }
 
 .profile-panel {
-  width: min(520px, 96vw);
+  /* Wider than the old single-form panel, because the tab list takes a column. */
+  width: min(620px, 96vw);
   height: auto;
   max-height: 94vh;
 }
@@ -2311,15 +2312,6 @@ button.danger {
   align-items: center;
   gap: 1rem;
   margin-bottom: 1rem;
-}
-
-/* Separates the password form from the profile form above it. */
-.profile-section-title {
-  margin: 0;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--h-bg-elevated);
-  color: var(--h-text);
-  font-size: 0.95rem;
 }
 
 /* ---- Mobile layout ---- */

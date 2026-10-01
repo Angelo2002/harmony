@@ -156,6 +156,8 @@ type User = {
   createdAt: string;
   timedOutUntil: string | null; // end of an active timeout, else null
   showTyping: boolean;          // typing indicators on/off for this user
+  notifyMajor: boolean;         // in-app sound for a message that mentions this user
+  notifyMinor: boolean;         // in-app sound for other messages
   discordId: string | null;     // set only on Discord stand-in accounts
 };
 
@@ -859,12 +861,24 @@ Returns `503 bridge_offline` when the bridge is not connected.
 #### `PATCH /api/v1/users/@me` — auth
 
 ```json
-{ "displayName": "Alice the Great", "showTyping": true }
+{
+  "displayName": "Alice the Great",
+  "showTyping": true,
+  "notifyMajor": true,
+  "notifyMinor": false
+}
 ```
 
-`displayName` and `showTyping` are both optional, but at least one is required. `displayName` may be
-up to 32 characters; `null` or `""` clears it. `showTyping` turns typing indicators off entirely for
-the user: they neither send nor see them. Returns `MeResponse`.
+Every field is optional, but at least one is required. `displayName` may be up to 32 characters; `null`
+or `""` clears it. `showTyping` turns typing indicators off entirely for the user: they neither send
+nor see them. `notifyMajor` and `notifyMinor` cover the client's two notification sounds, both on by
+default: the first for a message that mentions the user, by reply or by name, and the second for
+other messages in the channel being read.
+
+These are **in-app sounds only**. Harmony sends nothing to a device: there is no push, no service
+worker involvement and no permission prompt, and a sound can only play while a client of some kind is
+open and connected. A client decides for itself what to play, which is why the server stores two
+booleans rather than performing any delivery. Returns `MeResponse`.
 
 #### `PATCH /api/v1/users/@me/password` — auth
 

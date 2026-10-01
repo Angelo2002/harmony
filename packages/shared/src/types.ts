@@ -24,6 +24,13 @@ export interface User {
    */
   showTyping: boolean;
   /**
+   * Whether the louder sound plays for a message that mentions this user, by
+   * reply or by name. In-app only: nothing is ever pushed to a device.
+   */
+  notifyMajor: boolean;
+  /** Whether the quieter sound plays for other messages. In-app only. */
+  notifyMinor: boolean;
+  /**
    * The Discord account this stand-in represents, or null for a real member.
    * Only ever set on accounts the bridge created for the other side of a link.
    */

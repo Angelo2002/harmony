@@ -14,6 +14,8 @@ export interface UserRow {
   discord_id: string | null;
   timed_out_until: string | null;
   show_typing: number;
+  notify_major: number;
+  notify_minor: number;
 }
 
 export function toUser(row: UserRow, roleColor: number | null): User {
@@ -28,6 +30,8 @@ export function toUser(row: UserRow, roleColor: number | null): User {
     createdAt: row.created_at,
     timedOutUntil: row.timed_out_until,
     showTyping: row.show_typing === 1,
+    notifyMajor: row.notify_major === 1,
+    notifyMinor: row.notify_minor === 1,
     discordId: row.discord_id,
   };
 }
@@ -94,7 +98,13 @@ export function updateUserAccount(
 export function updateUserProfile(
   sqlite: DatabaseSync,
   id: string,
-  patch: { displayName?: string | null; avatarHash?: string | null; showTyping?: boolean },
+  patch: {
+    displayName?: string | null;
+    avatarHash?: string | null;
+    showTyping?: boolean;
+    notifyMajor?: boolean;
+    notifyMinor?: boolean;
+  },
 ): void {
   const sets: string[] = [];
   const values: Array<string | number | null> = [];
@@ -109,6 +119,14 @@ export function updateUserProfile(
   if (patch.showTyping !== undefined) {
     sets.push('show_typing = ?');
     values.push(patch.showTyping ? 1 : 0);
+  }
+  if (patch.notifyMajor !== undefined) {
+    sets.push('notify_major = ?');
+    values.push(patch.notifyMajor ? 1 : 0);
+  }
+  if (patch.notifyMinor !== undefined) {
+    sets.push('notify_minor = ?');
+    values.push(patch.notifyMinor ? 1 : 0);
   }
   if (sets.length === 0) return;
 

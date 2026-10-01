@@ -266,10 +266,19 @@ export const updateProfileSchema = z
     displayName: z.string().trim().max(LIMITS.displayName.max).nullable().optional(),
     /** When false the user neither sends nor sees typing indicators. */
     showTyping: z.boolean().optional(),
+    /** Whether a message that mentions the user plays the louder sound. */
+    notifyMajor: z.boolean().optional(),
+    /** Whether any other message plays the quieter sound. */
+    notifyMinor: z.boolean().optional(),
   })
-  .refine((value) => value.displayName !== undefined || value.showTyping !== undefined, {
-    message: 'Nothing to update.',
-  });
+  .refine(
+    (value) =>
+      value.displayName !== undefined ||
+      value.showTyping !== undefined ||
+      value.notifyMajor !== undefined ||
+      value.notifyMinor !== undefined,
+    { message: 'Nothing to update.' },
+  );
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
 /** A signed-in member changing their own password. */

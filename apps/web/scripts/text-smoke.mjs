@@ -3,7 +3,7 @@
 //
 // Run with: npm run smoke:text
 import { parseMessage } from '../src/lib/message-text.ts';
-import { mergeLatest } from '../src/lib/messages.ts';
+import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
 
 let failures = 0;
 function check(name, condition) {
@@ -147,6 +147,25 @@ check(
 );
 check('catching up on an empty channel loads the page', mergeLatest([], [message('1')]).length === 1);
 check('an empty catch-up page changes nothing', mergeLatest([message('1')], []).length === 1);
+
+// --- Whether a message is aimed at you ---
+// This decides the louder notification sound, so it is worth being exact about.
+check('naming you counts', mentionsUser(message('1', { content: 'hey @alice' }), 'u1', mentionOf));
+check('naming somebody else does not', !mentionsUser(message('1', { content: 'hey @bob' }), 'u1', mentionOf));
+check(
+  'a reply to you counts even without your name',
+  mentionsUser(message('1', { content: 'sure', replyTo: { author: alice } }), 'u1', mentionOf),
+);
+check(
+  'a reply to somebody else does not',
+  !mentionsUser(message('1', { content: 'sure', replyTo: { author: { id: 'u2' } } }), 'u1', mentionOf),
+);
+check(
+  'your name in a code block is a quotation, not a mention',
+  !mentionsUser(message('1', { content: '```\n@alice\n```' }), 'u1', mentionOf),
+);
+check('a reserved mention is never yours', !mentionsUser(message('1', { content: '@everyone' }), 'u1', mentionOf));
+check('an ordinary message is not a mention', !mentionsUser(message('1', { content: 'good morning' }), 'u1', mentionOf));
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

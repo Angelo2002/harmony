@@ -772,6 +772,39 @@ try {
   check('typing can be turned back on', typingBackOn.json?.user?.showTyping === true);
   typingWatcher.ws.close();
 
+  // --- Notification sounds ---
+  check(
+    'notification sounds default to on',
+    owner.json?.user?.notifyMajor === true && owner.json?.user?.notifyMinor === true,
+  );
+
+  const soundsOff = await req('/users/@me', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { notifyMajor: false, notifyMinor: false },
+  });
+  check(
+    'both notification sounds can be turned off',
+    soundsOff.json?.user?.notifyMajor === false && soundsOff.json?.user?.notifyMinor === false,
+  );
+  check(
+    'the choice is stored rather than just echoed back',
+    (await req('/auth/me', { token: ownerToken })).json?.user?.notifyMinor === false,
+  );
+
+  const majorBackOn = await req('/users/@me', { method: 'PATCH', token: ownerToken, body: { notifyMajor: true } });
+  check(
+    'one sound can be turned back on without disturbing the other',
+    majorBackOn.json?.user?.notifyMajor === true && majorBackOn.json?.user?.notifyMinor === false,
+  );
+
+  // Leave the account as it was found, for the checks that follow.
+  await req('/users/@me', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { notifyMajor: true, notifyMinor: true },
+  });
+
   // --- Link previews ---
   check('embeddable urls are found', listEmbeddableUrls('see https://example.com/a').includes('https://example.com/a'));
   check('masked links are not unfurled', listEmbeddableUrls('[x](https://example.com/a)').length === 0);

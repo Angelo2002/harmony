@@ -228,6 +228,13 @@ resolution is skipped when the link has not actually changed. Anything with a nu
 uploaded by a person and belongs to the message; anything else is a copy of somebody else's file and
 follows the text.
 
+It also makes the second and later postings of the same link free. Blobs are content-addressed, so
+the bytes were only ever stored once; the row is what is per-message, and a row is a few hundred
+bytes. What the column adds is the ability to notice before fetching that this instance already holds
+the file, so a gif posted every morning is downloaded on the first morning and copied from the shelf
+on every morning after. The trade is that a link is assumed to keep pointing at what it pointed at
+the first time, which is how Discord, Slack and every other client treats them too.
+
 The two also differ in what happens when they cannot be had. An image too large for the instance's
 owner-configured upload limit is left as a card pointing at it through the proxy, rather than being
 stored; a page's preview image is always only a reference. Nothing is kept that an upload of the same

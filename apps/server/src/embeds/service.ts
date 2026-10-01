@@ -8,7 +8,7 @@ import {
   type Message,
 } from '@harmony/shared';
 import type { AttachmentService } from '../attachments/service.ts';
-import { deleteAttachment, listLinkedAttachments } from '../db/attachments.ts';
+import { deleteAttachment, listLinkedAttachments, type AttachmentRow } from '../db/attachments.ts';
 import { setMessageEmbed } from '../db/messages.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
@@ -51,7 +51,17 @@ export interface EmbedServiceDeps {
  */
 type Outcome =
   | { kind: 'embed'; embed: LinkEmbed | null }
-  | { kind: 'media'; url: string; contentType: string; data: Buffer };
+  /** Fetched just now. */
+  | { kind: 'image'; url: string; contentType: string; data: Buffer }
+  /** Already here, from somebody else posting the same link. */
+  | { kind: 'copy'; url: string; from: AttachmentRow };
+
+/** How a resolution ended, for the log. */
+const OUTCOME_LABEL = {
+  embed: 'resolved a link preview',
+  image: 'kept a linked image',
+  copy: 'reused an image already stored',
+} as const;
 
 /**
  * Resolves one link a message contains, and puts the result on the message.
@@ -133,18 +143,26 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
   async function applyOutcome(messageId: string, outcome: Outcome): Promise<void> {
     dropLinkedImages(messageId);
 
-    if (outcome.kind === 'media') {
-      const stored = await deps.attachments.storeLinkedImage({
-        messageId,
-        uploaderId: deps.renderMessage(messageId)?.author?.id ?? null,
-        sourceUrl: outcome.url,
-        filename: filenameFor(outcome.url, outcome.contentType),
-        contentType: outcome.contentType,
-        data: outcome.data,
-      });
-      // A picture we could not keep leaves the link as plain text, rather than
-      // becoming a card that would have to fetch it all over again.
-      if (stored) log('kept a linked image', { messageId, url: outcome.url });
+    if (outcome.kind !== 'embed') {
+      const uploaderId = deps.renderMessage(messageId)?.author?.id ?? null;
+      if (outcome.kind === 'image') {
+        await deps.attachments.storeLinkedImage({
+          messageId,
+          uploaderId,
+          sourceUrl: outcome.url,
+          filename: filenameFor(outcome.url, outcome.contentType),
+          contentType: outcome.contentType,
+          data: outcome.data,
+        });
+      } else {
+        deps.attachments.copyLinkedImage({
+          messageId,
+          uploaderId,
+          sourceUrl: outcome.url,
+          from: outcome.from,
+        });
+      }
+      log(OUTCOME_LABEL[outcome.kind], { messageId, url: outcome.url });
     }
 
     // A card is only for pages. When the picture is on the message itself there
@@ -171,6 +189,14 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
       // The same link as last time: the picture is already here, and an edit
       // elsewhere in the text must not fetch it a second time.
       if (linked.some((attachment) => attachment.source_url === url)) return;
+
+      // Nor must a second message. A community posts the same handful of gifs
+      // over and over, and this instance is very likely already holding it.
+      const reusable = deps.attachments.reusableForUrl(url);
+      if (reusable) {
+        void applyOutcome(messageId, { kind: 'copy', url, from: reusable });
+        return;
+      }
 
       const userAgent = deps.settings.get().previewUserAgent ?? USER_AGENT;
       void resolveOutcome(url, userAgent)
@@ -258,7 +284,7 @@ async function fetchOutcome(
       // which is better than nothing at all.
       if (isStorableImage(contentType)) {
         const data = await readCappedBody(response, maxImageBytes);
-        if (data) return { kind: 'media', url: target.toString(), contentType, data };
+        if (data) return { kind: 'image', url: target.toString(), contentType, data };
         log('linked image too large to keep', { url: target.toString(), limit: maxImageBytes });
         return { kind: 'embed', embed: bareImageCard(target, contentType) };
       }

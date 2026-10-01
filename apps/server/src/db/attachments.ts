@@ -76,6 +76,19 @@ export function listLinkedAttachments(sqlite: DatabaseSync, messageId: string): 
     .all(messageId) as unknown as AttachmentRow[];
 }
 
+/**
+ * Something already copied from this link, newest first, whoever posted it. Used
+ * to avoid fetching a file this instance is already holding: the same gif comes
+ * round again far more often than a community finds a new one.
+ */
+export function findAttachmentBySourceUrl(sqlite: DatabaseSync, url: string): AttachmentRow | null {
+  return (
+    (sqlite
+      .prepare('SELECT * FROM attachments WHERE source_url = ? ORDER BY created_at DESC, rowid DESC LIMIT 1')
+      .get(url) as AttachmentRow | undefined) ?? null
+  );
+}
+
 export function findAttachment(sqlite: DatabaseSync, id: string): AttachmentRow | null {
   return (sqlite.prepare('SELECT * FROM attachments WHERE id = ?').get(id) as AttachmentRow | undefined) ?? null;
 }

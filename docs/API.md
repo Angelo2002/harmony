@@ -673,6 +673,11 @@ client loads through the proxy below. A picture larger than the instance's `maxI
 an old-style card instead, since keeping it would mean storing something an upload of the same file
 would have been refused.
 
+A link the instance has already fetched is not fetched again. A community posts the same handful of
+gifs over and over, so the first message to arrive with a given link downloads it and every later one
+is given a record of its own pointing at those same bytes. Two messages, one file on disk, no second
+request. A link is assumed to keep pointing at what it pointed at the first time.
+
 Links inside code, masked links (`[text](url)`) and angle-bracket links (`<url>`) are never
 unfurled. The fetch is guarded: `http` and `https` only, the host must resolve to a public address,
 and redirects are limited and re-checked at each hop. Editing a message drops what it previously

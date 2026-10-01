@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import sharp from 'sharp';
 import type { Metadata } from 'sharp';
@@ -15,6 +16,7 @@ import { assertNotTimedOut } from '../auth/guards.ts';
 import {
   attachToMessage,
   findAttachment,
+  findAttachmentBySourceUrl,
   insertAttachment,
   toAttachment,
   type AttachmentRow,
@@ -50,6 +52,20 @@ export interface AttachmentService {
    * bytes are not a usable image, or are too large for this instance.
    */
   storeLinkedImage(input: LinkedImageInput): Promise<Attachment | null>;
+  /**
+   * A picture already copied from this link and still on disk, so it does not have
+   * to be fetched a second time. The same gif comes round again far more often
+   * than a community finds a new one, and refetching it costs bandwidth and a
+   * visible wait for a file this instance is already holding.
+   */
+  reusableForUrl(url: string): AttachmentRow | null;
+  /** Gives another message a picture this instance already holds. No download. */
+  copyLinkedImage(input: {
+    messageId: string;
+    uploaderId: string | null;
+    sourceUrl: string;
+    from: AttachmentRow;
+  }): Attachment;
   find(id: string): AttachmentRow | null;
   /** Absolute path of the on-disk blob for a content hash. */
   filePathFor(hash: string): string;
@@ -75,6 +91,22 @@ export function createAttachmentService(
 ): AttachmentService {
   const blobs = createBlobStore(config);
 
+  /** Inserts one attachment row and hands back its id. */
+  function addRow(input: {
+    uploaderId: string | null;
+    filename: string;
+    contentType: string;
+    size: number;
+    width: number | null;
+    height: number | null;
+    hash: string;
+    sourceUrl: string | null;
+  }): string {
+    const id = randomUUID();
+    insertAttachment(sqlite, { id, ...input, createdAt: new Date().toISOString() });
+    return id;
+  }
+
   return {
     filePathFor: blobs.pathFor,
 
@@ -94,24 +126,48 @@ export function createAttachmentService(
         return null; // Not a real image, whatever the content type claimed.
       }
 
-      const id = randomUUID();
-      insertAttachment(sqlite, {
-        id,
+      const id = addRow({
         uploaderId: input.uploaderId,
         filename: input.filename,
         contentType: input.contentType,
         size: input.data.length,
         width: metadata.width ?? null,
         height: metadata.height ?? null,
-        // Content-addressed, so the same gif pasted twice costs the disk once.
+        // Content-addressed, so the same gif posted twice costs the disk once.
         hash: blobs.save(input.data),
-        createdAt: new Date().toISOString(),
         sourceUrl: input.sourceUrl,
       });
       attachToMessage(sqlite, id, input.messageId);
 
       const row = findAttachment(sqlite, id);
       return row ? toAttachment(row) : null;
+    },
+
+    reusableForUrl(url) {
+      const row = findAttachmentBySourceUrl(sqlite, url);
+      // A row can only outlive its file if somebody pruned the blob by hand.
+      // Pointing a message at nothing would be worse than fetching again.
+      if (!row || !existsSync(blobs.pathFor(row.hash))) return null;
+      return row;
+    },
+
+    copyLinkedImage(input) {
+      // The dimensions and the name are the originals', since the bytes are.
+      const id = addRow({
+        uploaderId: input.uploaderId,
+        filename: input.from.filename,
+        contentType: input.from.content_type,
+        size: input.from.size,
+        width: input.from.width,
+        height: input.from.height,
+        hash: input.from.hash,
+        sourceUrl: input.sourceUrl,
+      });
+      attachToMessage(sqlite, id, input.messageId);
+
+      const row = findAttachment(sqlite, id);
+      if (!row) throw new Error('Failed to give a message a picture already stored');
+      return toAttachment(row);
     },
 
     async upload(auth, file) {

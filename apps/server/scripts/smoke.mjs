@@ -1000,6 +1000,41 @@ try {
       listLinkedAttachments(pictureDb.sqlite, 'm1').every((row) => row.source_url !== null),
     );
 
+    // The same gif comes round again far more often than a community finds a new
+    // one, so a second message should get the one already here rather than
+    // fetching it all over again.
+    const reusable = pictures.reusableForUrl('https://example.com/cat.gif');
+    check('a picture already held can be found for its link', reusable?.hash === stored?.hash);
+    check(
+      'a link nothing was ever fetched from has nothing to reuse',
+      pictures.reusableForUrl('https://example.com/never-seen.gif') === null,
+    );
+
+    insertMessage(pictureDb.sqlite, {
+      id: 'm2',
+      channelId: 'c1',
+      authorId: 'u1',
+      content: 'https://example.com/cat.gif again',
+      createdAt: new Date().toISOString(),
+    });
+    const copied = reusable
+      ? pictures.copyLinkedImage({
+          messageId: 'm2',
+          uploaderId: 'u1',
+          sourceUrl: 'https://example.com/cat.gif',
+          from: reusable,
+        })
+      : null;
+    check(
+      'a second message gets its own record, sharing the same bytes',
+      copied?.hash === stored?.hash && copied?.id !== stored?.id && copied?.messageId === 'm2',
+      JSON.stringify(copied),
+    );
+    check(
+      'and the second message can find it too',
+      listLinkedAttachments(pictureDb.sqlite, 'm2').length === 1,
+    );
+
     pictureDb.close();
     rmSync(pictureDir, { recursive: true, force: true });
   }

@@ -2,12 +2,12 @@
   import { onMount } from 'svelte';
   import { chat } from '../lib/chat.svelte';
   import { dragHasFiles, mediaFilesFrom } from '../lib/files';
-  import { channelGlyph } from '../lib/format';
   import { session } from '../lib/session.svelte';
   import { ui } from '../lib/ui.svelte';
   import { uploads } from '../lib/upload-queue.svelte';
   import ChannelSidebar from './ChannelSidebar.svelte';
   import Composer from './Composer.svelte';
+  import Icon from './Icon.svelte';
   import MemberList from './MemberList.svelte';
   import MessageView from './MessageView.svelte';
 
@@ -93,9 +93,12 @@
           aria-expanded={ui.sidebarOpen}
           onclick={() => ui.toggleSidebar()}
         >
-          ☰
+          <Icon name="menu" size={20} />
         </button>
-        <span class="chat-title">{channelGlyph(chat.activeChannel)} {chat.activeChannel.name}</span>
+        <span class="chat-title">
+          {#if chat.activeChannel.discordChannelId}<Icon name="link" size={15} />{:else}#{/if}
+          {chat.activeChannel.name}
+        </span>
         <button
           type="button"
           class="inbox-open"
@@ -104,7 +107,7 @@
           title="Mentions and replies"
           onclick={() => ui.openInbox()}
         >
-          📥
+          <Icon name="inbox" size={20} />
         </button>
         <button
           type="button"
@@ -113,7 +116,7 @@
           title="Search messages"
           onclick={() => ui.openSearch()}
         >
-          🔍
+          <Icon name="search" size={20} />
         </button>
         <button
           class="drawer-toggle"
@@ -122,7 +125,7 @@
           aria-expanded={ui.rosterOpen}
           onclick={() => ui.toggleRoster()}
         >
-          👥
+          <Icon name="users" size={20} />
         </button>
       </header>
       <MessageView />
@@ -144,7 +147,7 @@
         aria-expanded={ui.sidebarOpen}
         onclick={() => ui.toggleSidebar()}
       >
-        ☰
+        <Icon name="menu" size={20} />
       </button>
       <p class="muted">No channels yet.</p>
     </section>

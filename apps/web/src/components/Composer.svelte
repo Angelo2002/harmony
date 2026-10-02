@@ -20,6 +20,7 @@
   import { uploads } from '../lib/upload-queue.svelte';
   import EmojiPicker from './EmojiPicker.svelte';
   import GifPicker from './GifPicker.svelte';
+  import Icon from './Icon.svelte';
 
   const acceptAttribute = ALLOWED_ATTACHMENT_TYPES.join(',');
   const maxAttachments = LIMITS.attachmentsPerMessage;
@@ -488,15 +489,17 @@
       type="button"
       class="attach"
       title="Add emoji"
+      aria-label="Add emoji"
       onclick={() => {
         showPicker = !showPicker;
         showGifs = false;
-      }}>☺</button
+      }}><Icon name="smile" size={20} /></button
     >
     <button
       type="button"
       class="attach attach-gif"
       title="Add gif"
+      aria-label="Add gif"
       onclick={() => {
         showGifs = !showGifs;
         showPicker = false;
@@ -505,10 +508,11 @@
       type="button"
       class="attach"
       title="Attach image"
+      aria-label="Attach image"
       disabled={uploading || timeoutUntil !== null}
       onclick={() => fileInput?.click()}
     >
-      {uploading ? '…' : '+'}
+      {#if uploading}…{:else}<Icon name="paperclip" size={20} />{/if}
     </button>
     <input class="file-input" type="file" accept={acceptAttribute} multiple bind:this={fileInput} onchange={onFiles} />
     <input

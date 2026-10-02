@@ -4,6 +4,7 @@
   import { ApiError } from '../lib/api';
   import { favoriteUrl, gifs, localUrl } from '../lib/gifs.svelte';
   import { meta } from '../lib/meta.svelte';
+  import Icon from './Icon.svelte';
 
   let { onpick }: { onpick: (attachment: Attachment) => void } = $props();
 
@@ -204,7 +205,11 @@
               disabled={busy === tile.key}
               onclick={() => toggleFavorite(tile)}
             >
-              {tile.favoriteId !== null ? '♥' : '♡'}
+              {#if tile.favoriteId !== null}
+                <Icon name="heart-filled" size={16} />
+              {:else}
+                <Icon name="heart" size={16} />
+              {/if}
             </button>
           </div>
         {/each}

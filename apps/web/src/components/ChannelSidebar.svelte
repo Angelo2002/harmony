@@ -3,10 +3,10 @@
   import { api } from '../lib/api';
   import { avatarUrl, initial } from '../lib/avatar';
   import { chat } from '../lib/chat.svelte';
-  import { channelGlyph } from '../lib/format';
   import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
   import { ui } from '../lib/ui.svelte';
+  import Icon from './Icon.svelte';
 
   const permissions = $derived(BigInt(session.permissions || '0'));
   const canAdmin = $derived(
@@ -63,12 +63,18 @@
             type="button"
             onclick={() => selectChannel(channel.id)}
           >
-            <span class="hash">{channelGlyph(channel)}</span>{channel.name}
+            <span class="hash">
+              {#if channel.discordChannelId}<Icon name="link" size={15} />{:else}#{/if}
+            </span>{channel.name}
             <span class="tail">
               {#if chat.mention.has(channel.id)}
                 <span class="mention-dot" title="You were mentioned"></span>
               {/if}
-              {#if isLocked(channel)}<span class="lock" title="Only members with a certain role can see this">🔒</span>{/if}
+              {#if isLocked(channel)}
+                <span class="lock" title="Only members with a certain role can see this">
+                  <Icon name="lock" size={13} />
+                </span>
+              {/if}
             </span>
           </button>
         {/each}
@@ -83,12 +89,18 @@
         type="button"
         onclick={() => selectChannel(channel.id)}
       >
-        <span class="hash">{channelGlyph(channel)}</span>{channel.name}
+        <span class="hash">
+          {#if channel.discordChannelId}<Icon name="link" size={15} />{:else}#{/if}
+        </span>{channel.name}
         <span class="tail">
           {#if chat.mention.has(channel.id)}
             <span class="mention-dot" title="You were mentioned"></span>
           {/if}
-          {#if isLocked(channel)}<span class="lock" title="Only members with a certain role can see this">🔒</span>{/if}
+          {#if isLocked(channel)}
+            <span class="lock" title="Only members with a certain role can see this">
+              <Icon name="lock" size={13} />
+            </span>
+          {/if}
         </span>
       </button>
     {/each}

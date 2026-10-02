@@ -298,6 +298,15 @@ button.server-name:hover:not(:disabled) {
   border-radius: 8px;
 }
 
+/*
+ * Inline line icons take the color of whatever holds them. The vertical-align
+ * keeps one sitting next to text on the text's baseline rather than above it.
+ */
+.icon {
+  flex: none;
+  vertical-align: -0.125em;
+}
+
 .channels {
   flex: 1;
   min-height: 0;
@@ -346,6 +355,10 @@ button.server-name:hover:not(:disabled) {
 }
 
 .channel .hash {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1em;
   color: var(--h-text-muted);
 }
 
@@ -359,7 +372,8 @@ button.server-name:hover:not(:disabled) {
 
 /* A lock marks a channel only some roles may see. */
 .channel .lock {
-  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
   opacity: 0.75;
 }
 
@@ -1485,6 +1499,9 @@ button.ghost {
 }
 
 .attach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 36px;
   height: 36px;
   padding: 0;
@@ -2387,6 +2404,9 @@ button.danger {
  * picture otherwise. A touch screen has no hover, so there it is always out.
  */
 .gif-heart {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   position: absolute;
   top: 0.25rem;
   right: 0.25rem;
@@ -2465,6 +2485,8 @@ button.danger {
  */
 .chat-header .inbox-open,
 .chat-header .search-open {
+  display: inline-flex;
+  align-items: center;
   padding: 0.3rem 0.5rem;
   /* Icon buttons, like the drawer toggles, not filled actions. */
   background: none;

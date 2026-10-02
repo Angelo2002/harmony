@@ -12,6 +12,7 @@
   import { session } from '../lib/session.svelte';
   import EmojiPicker from './EmojiPicker.svelte';
   import EmbedVideo from './EmbedVideo.svelte';
+  import Icon from './Icon.svelte';
 
   /** Opens the profile card for an author, when there is one to show. */
   function openCard(user: User | null | undefined, element: HTMLElement): void {
@@ -545,7 +546,11 @@
                             : 'Add to favorites'}
                           onclick={() => toggleGifFavorite(attachment)}
                         >
-                          {gifs.byHash.has(attachment.hash) ? '♥' : '♡'}
+                          {#if gifs.byHash.has(attachment.hash)}
+                            <Icon name="heart-filled" size={16} />
+                          {:else}
+                            <Icon name="heart" size={16} />
+                          {/if}
                         </button>
                       {/if}
                     </div>

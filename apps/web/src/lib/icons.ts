@@ -10,6 +10,7 @@ export type IconName =
   | 'users'
   | 'lock'
   | 'link'
+  | 'check'
   | 'smile'
   | 'paperclip'
   | 'heart'

@@ -533,12 +533,20 @@ button.server-name:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-/* Marks a member whose account is linked to a Discord account. */
+/*
+ * Marks a member linked to a Discord account. A stand-in account is the Discord
+ * side itself, so it keeps the link; a real member who has been linked gets a
+ * check in the success color, to tell the two apart at a glance.
+ */
 .roster-linked {
   display: inline-flex;
   align-items: center;
   flex: none;
   color: var(--h-text-muted);
+}
+
+.roster-linked.linked-account {
+  color: var(--h-ok);
 }
 
 /*

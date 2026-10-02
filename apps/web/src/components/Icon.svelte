@@ -45,6 +45,8 @@
   {:else if name === 'link'}
     <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
     <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
+  {:else if name === 'check'}
+    <path d="M5 12.5 9.5 17 19 7.5" />
   {:else if name === 'smile'}
     <circle cx="12" cy="12" r="9" />
     <path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" />

@@ -116,7 +116,13 @@
             {/if}
             <span class="roster-name" style={cssColor(entry.user.roleColor)}>{nameOf(entry)}</span>
             {#if entry.user.discordId}
-              <span class="roster-linked" title="Linked to a Discord account"><Icon name="link" size={12} /></span>
+              {#if entry.user.isBot}
+                <span class="roster-linked" title="A Discord account"><Icon name="link" size={12} /></span>
+              {:else}
+                <span class="roster-linked linked-account" title="Linked to a Discord account">
+                  <Icon name="check" size={12} />
+                </span>
+              {/if}
             {/if}
           </button>
         {/each}

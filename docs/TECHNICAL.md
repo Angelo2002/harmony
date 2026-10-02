@@ -100,6 +100,28 @@ however many times they are posted. The database rows reference blobs by hash, a
 retention pruning removes any blob nothing references any more. Backing up the
 database and the `uploads/` folder together is therefore enough.
 
+## Theming
+
+An instance picks two colors — a background and an accent — and the client derives
+everything else from them in `packages/shared/src/theme.ts`. The derivation works
+in plain RGB and keeps light and dark backgrounds readable on their own: the text
+grays, the surface ladder, the borders and the translucent washes and glows built
+from the accent all come out of that one function, so an admin never has to reason
+about contrast and no component has to carry a fallback color.
+
+The **surface ladder** is the spine of the look. On a dark background surfaces get
+lighter as they rise — a panel above the base, a raised chip above the panel — while
+recessed wells (inputs, code blocks, rows) step the other way. On a light background
+the whole ladder runs the other way, and a near-black background, which has no room
+to darken, climbs instead. The client writes every color token onto `:root` as a
+`--h-*` custom property when the theme loads, and the stylesheet refers to nothing
+but those tokens; the values hardcoded in `app.css` are only the first-paint
+fallbacks for the built-in palette, before the theme is applied.
+
+The one thing deliberately **not** derived is the status colors (ok, warning,
+error): they are semantic, and a green or a red should not shift because an admin
+picked a different accent. Shape, shadow, motion and type are fixed too.
+
 ## Search
 
 Message search is a case-insensitive substring match (`LIKE`) over the text, rather than a full-text

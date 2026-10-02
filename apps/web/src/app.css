@@ -1,43 +1,114 @@
+/* ============================================================
+   HARMONY — Modern Dark UI Redesign
+   Deep elevation, glass surfaces, squircles, purposeful motion.
+   ============================================================ */
+
+/*
+ * Design tokens.
+ *
+ * The color values below are first-paint fallbacks for the built-in dark
+ * palette. At runtime the client derives the whole palette from the two colors
+ * an instance picks and overwrites every `--h-*` color here, so an admin's
+ * background and accent flow through every surface, border, text tone and glow.
+ * Nothing below should hardcode a color that ought to follow the theme; the
+ * fixed parts are shape, shadow, motion and type.
+ */
 :root {
   color-scheme: dark;
 
-  /*
-   * Design tokens. An instance may override the background and accent at
-   * runtime; everything derived from them, plus the hover/active overlays and
-   * the on-accent text, is set alongside these by the client.
-   */
-  --h-bg: #313338;
-  --h-bg-elevated: #2b2d31;
-  --h-bg-deep: #1e1f22;
-  --h-text: #dbdee1;
-  --h-text-muted: #949ba4;
-  --h-accent: #5865f2;
-  /* Text and icons placed on top of an accent-colored surface. */
-  --h-on-accent: #fff;
-  /* Translucent overlays for hover and active states. */
-  --h-hover: rgb(255 255 255 / 4%);
-  --h-active: rgb(255 255 255 / 8%);
-  --h-ok: #23a55a;
-  --h-error: #f23f43;
-  --h-radius: 8px;
+  /* ---- Surface elevation ladder ----
+     Each step is a distinct perceptual distance from the viewer. Depth comes
+     from tint rather than shadow: panels climb the ladder, wells sink below it. */
+  --h-bg:            #12151a;
+  --h-bg-elevated:   #1e2125;
+  --h-bg-raised:     #2a2c31;
+  --h-bg-overlay:    #36383c;
+  --h-bg-deep:       #0d0f12;
 
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  font-size: 16px;
+  /* ---- Text ---- */
+  --h-text:          #e0e1e1;
+  --h-text-muted:    #949698;
+  --h-text-faint:    #6c6e71;
+
+  /* ---- Accent ---- */
+  --h-accent:        #5865f2;
+  --h-accent-hover:  #6c78f4;
+  --h-accent-subtle: rgb(88 101 242 / 12%);
+  --h-accent-glow:   rgb(88 101 242 / 38%);
+  --h-on-accent:     #fff;
+  --h-accent-gradient: linear-gradient(135deg, #5865f2 0%, #8c70f4 100%);
+
+  /* ---- Status: semantic, deliberately not derived from the theme ---- */
+  --h-ok:            #22c55e;
+  --h-warn:          #f59e0b;
+  --h-error:         #ef4444;
+  --h-error-subtle:  rgb(239 68 68 / 12%);
+
+  /* ---- Interaction overlays & separators ---- */
+  --h-hover:         rgb(255 255 255 / 4%);
+  --h-active:        rgb(255 255 255 / 8%);
+  --h-border:        rgb(255 255 255 / 8%);
+  --h-border-strong: rgb(255 255 255 / 14%);
+
+  /* ---- Shape: squircles for things, circles for people ---- */
+  --h-radius-xs:     4px;
+  --h-radius-sm:     6px;
+  --h-radius:        10px;
+  --h-radius-lg:     14px;
+  --h-radius-xl:     18px;
+  --h-radius-full:   999px;
+
+  /* ---- Elevation shadows (used sparingly, on floating layers only) ---- */
+  --h-shadow-sm:     0 1px 3px rgb(0 0 0 / 40%);
+  --h-shadow:        0 4px 16px rgb(0 0 0 / 35%);
+  --h-shadow-lg:     0 12px 40px rgb(0 0 0 / 50%);
+  --h-shadow-xl:     0 24px 64px rgb(0 0 0 / 60%);
+
+  /* ---- Glass ---- */
+  --h-glass-bg:      rgb(30 33 37 / 78%);
+  --h-glass-border:  rgb(255 255 255 / 8%);
+  --h-glass-blur:    16px;
+
+  /* ---- Motion ---- */
+  --h-ease:          cubic-bezier(0.4, 0, 0.2, 1);
+  --h-ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
+  --h-duration:      160ms;
+  --h-duration-slow: 260ms;
+
+  /* ---- Typography ---- */
+  --h-font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --h-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+
+  font-family: var(--h-font);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-* {
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  /* A fixed viewport height lets the sidebar and message list scroll on their
-     own instead of growing the whole page. */
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
   background: var(--h-bg);
   color: var(--h-text);
+  font-family: var(--h-font);
 }
 
 #app {
@@ -45,111 +116,154 @@ body {
   display: flex;
 }
 
-main {
-  margin: auto;
-  width: min(560px, 90vw);
-  padding: 2rem;
-  background: var(--h-bg-elevated);
-  border-radius: var(--h-radius);
-  box-shadow: 0 8px 30px rgb(0 0 0 / 35%);
+/* ============================================================
+   GLOBAL PRIMITIVES
+   ============================================================ */
+
+h1, h2, h3, h4 {
+  letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
 h1 {
   margin: 0 0 0.25rem;
-  font-size: 1.75rem;
-  letter-spacing: -0.02em;
-}
-
-.muted {
-  margin: 0;
-  color: var(--h-text-muted);
-  font-size: 0.9rem;
-}
-
-.status {
-  margin: 1.5rem 0;
-  padding: 0.75rem 1rem;
-  border-radius: var(--h-radius);
-  border-left: 3px solid var(--h-text-muted);
-  background: var(--h-bg-deep);
-  font-size: 0.95rem;
-}
-
-.status.ok {
-  border-left-color: var(--h-ok);
-}
-
-.status.err {
-  border-left-color: var(--h-error);
-}
-
-code {
-  color: var(--h-text-muted);
-}
-
-.placeholder {
-  padding-top: 1rem;
-  border-top: 1px solid var(--h-bg-deep);
-  color: var(--h-text-muted);
-  font-size: 0.9rem;
-}
-
-header {
-  margin-bottom: 1.25rem;
+  font-size: 1.65rem;
+  font-weight: 800;
 }
 
 h2 {
   margin: 0 0 0.5rem;
   color: var(--h-text-muted);
-  font-size: 0.8rem;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
-form {
-  display: grid;
-  gap: 0.85rem;
+h3 {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+  font-weight: 700;
 }
 
-label {
-  display: grid;
-  gap: 0.35rem;
+.muted {
   color: var(--h-text-muted);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
-input {
-  padding: 0.6rem 0.7rem;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: var(--h-bg-deep);
+.ok-text {
+  margin: 0;
+  color: var(--h-ok);
+  font-size: 0.9rem;
+}
+
+code {
+  color: var(--h-text-muted);
+  font-family: var(--h-mono);
+  font-size: 0.875em;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--h-accent) 40%, transparent);
   color: var(--h-text);
-  font: inherit;
 }
 
-input:focus {
-  border-color: var(--h-accent);
-  outline: none;
+/* ---- Scrollbars: thin and unobtrusive ---- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--h-bg-raised) transparent;
 }
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--h-bg-raised);
+  border-radius: var(--h-radius-full);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--h-bg-overlay);
+}
+
+/* ---- Focus rings: consistent and accessible ---- */
+
+:focus-visible {
+  outline: 2px solid var(--h-accent);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   BUTTONS & FORM CONTROLS
+   ============================================================ */
 
 button {
-  padding: 0.65rem 0.9rem;
+  padding: 0.6rem 1rem;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--h-radius-sm);
   background: var(--h-accent);
   color: var(--h-on-accent);
   font: inherit;
   font-weight: 600;
+  font-size: 0.9rem;
   cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              transform var(--h-duration) var(--h-ease),
+              box-shadow var(--h-duration) var(--h-ease);
 }
 
 button:hover:not(:disabled) {
-  filter: brightness(1.1);
+  background: var(--h-accent-hover);
+  box-shadow: 0 0 0 3px var(--h-accent-glow);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 button:disabled {
-  opacity: 0.6;
-  cursor: default;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Primary CTA with gradient */
+button.primary,
+button[type='submit'] {
+  background: var(--h-accent-gradient);
+  box-shadow: 0 4px 20px var(--h-accent-glow);
+}
+
+button.primary:hover:not(:disabled),
+button[type='submit']:hover:not(:disabled) {
+  box-shadow: 0 6px 28px var(--h-accent-glow);
+  background: var(--h-accent-gradient);
+  filter: brightness(1.08);
+}
+
+button.ghost {
+  background: var(--h-bg-raised);
+  color: var(--h-text);
+}
+
+button.ghost:hover:not(:disabled) {
+  background: var(--h-bg-overlay);
+  box-shadow: none;
+}
+
+button.danger {
+  background: var(--h-error);
+}
+
+button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--h-error) 88%, white);
+  box-shadow: 0 0 0 3px var(--h-error-subtle);
 }
 
 button.link {
@@ -157,92 +271,157 @@ button.link {
   background: none;
   color: var(--h-accent);
   font-weight: 500;
-  text-decoration: underline;
-}
-
-/* A link dressed as a filled button, for navigations that leave the app. */
-a.button-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.55rem 0.9rem;
-  border-radius: var(--h-radius);
-  background: var(--h-accent);
-  color: var(--h-on-accent);
-  font-weight: 600;
   text-decoration: none;
 }
 
+button.link:hover:not(:disabled) {
+  color: var(--h-accent-hover);
+  background: none;
+  box-shadow: none;
+  text-decoration: underline;
+}
+
+a.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  border-radius: var(--h-radius-sm);
+  background: var(--h-accent-gradient);
+  color: var(--h-on-accent);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: filter var(--h-duration) var(--h-ease),
+              box-shadow var(--h-duration) var(--h-ease);
+}
+
 a.button-link:hover {
-  filter: brightness(1.08);
+  filter: brightness(1.1);
+  box-shadow: 0 4px 20px var(--h-accent-glow);
 }
 
-button.link:hover {
-  filter: none;
+/* ---- Inputs ---- */
+
+input,
+textarea,
+select {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--h-border);
+  border-radius: var(--h-radius-sm);
+  background: var(--h-bg-deep);
+  color: var(--h-text);
+  font: inherit;
+  font-size: 0.9rem;
+  transition: border-color var(--h-duration) var(--h-ease),
+              box-shadow var(--h-duration) var(--h-ease);
 }
 
-.optional {
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--h-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--h-accent-subtle);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--h-text-faint);
+}
+
+label {
+  display: grid;
+  gap: 0.4rem;
   color: var(--h-text-muted);
-  font-weight: 400;
+  font-size: 0.82rem;
+  font-weight: 500;
 }
 
-.form-error {
+fieldset {
   margin: 0;
-  color: var(--h-error);
-  font-size: 0.9rem;
+  padding: 1rem;
+  border: 1px solid var(--h-border);
+  border-radius: var(--h-radius);
 }
 
-.switch {
-  margin: 1rem 0 0;
+legend {
+  padding: 0 0.5rem;
   color: var(--h-text-muted);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-/* An "or" rule between the password form and the Discord button. */
-.or {
+.checkbox {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  margin: 1.25rem 0;
-  color: var(--h-text-muted);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  gap: 0.5rem;
+  color: var(--h-text);
+  font-size: 0.875rem;
+  cursor: pointer;
 }
 
-.or::before,
-.or::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--h-hover);
+.checkbox input {
+  width: auto;
+  accent-color: var(--h-accent);
 }
 
-/* The sign-in screen's Discord button fills the form's width. */
-main a.button-link {
-  width: 100%;
-  justify-content: center;
+/* ============================================================
+   STATUS / NOTICE / PANELS
+   ============================================================ */
+
+.status {
+  margin: 1.5rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: var(--h-radius);
+  border-left: 3px solid var(--h-text-faint);
+  background: var(--h-bg-deep);
+  font-size: 0.9rem;
 }
 
-/*
- * A one-off message from a Discord sign-in round trip, floating over the app at
- * the top so it shows whether or not anyone is signed in.
- */
+.status.ok {
+  border-left-color: var(--h-ok);
+  background: color-mix(in srgb, var(--h-ok) 8%, var(--h-bg-deep));
+}
+
+.status.err {
+  border-left-color: var(--h-error);
+  background: var(--h-error-subtle);
+}
+
 .notice {
   position: fixed;
-  top: 0.75rem;
+  top: 1rem;
   left: 50%;
-  transform: translateX(-50%);
-  z-index: 40;
+  transform: translateX(-50%) translateY(0);
+  z-index: 60;
   display: flex;
   align-items: center;
   gap: 0.75rem;
   max-width: min(560px, 92vw);
-  padding: 0.6rem 0.9rem;
-  border-radius: var(--h-radius);
-  background: var(--h-bg-elevated);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 45%);
+  padding: 0.75rem 1rem;
+  border-radius: var(--h-radius-lg);
+  background: var(--h-glass-bg);
+  backdrop-filter: blur(var(--h-glass-blur));
+  -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  border: 1px solid var(--h-glass-border);
+  box-shadow: var(--h-shadow-lg);
   font-size: 0.9rem;
+  animation: notice-in var(--h-duration-slow) var(--h-ease-out);
+}
+
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 .notice.error {
@@ -255,57 +434,101 @@ main a.button-link {
   color: var(--h-accent);
   font-weight: 500;
   text-decoration: underline;
+  box-shadow: none;
+}
+
+.notice button:hover {
+  box-shadow: none;
+  background: none;
 }
 
 .panel {
   margin: 1rem 0;
-  padding: 0.9rem 1rem;
+  padding: 1rem 1.1rem;
   border-radius: var(--h-radius);
   background: var(--h-bg-deep);
+  border: 1px solid var(--h-border);
 }
 
 .panel p {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+/* ============================================================
+   AUTH / LANDING
+   ============================================================ */
+
+main {
+  margin: auto;
+  width: min(560px, 90vw);
+  padding: 2.5rem;
+  background: var(--h-bg-elevated);
+  border-radius: var(--h-radius-xl);
+  border: 1px solid var(--h-border);
+  box-shadow: var(--h-shadow-xl);
+}
+
+main header {
+  margin-bottom: 1.5rem;
+}
+
+form {
+  display: grid;
+  gap: 1rem;
+}
+
+.form-error {
   margin: 0;
-  padding: 0;
-  list-style: none;
+  color: var(--h-error);
+  font-size: 0.85rem;
 }
 
-.chips li {
-  padding: 0.2rem 0.5rem;
-  border-radius: 999px;
-  background: var(--h-bg);
-  font-size: 0.8rem;
+.switch {
+  margin: 1rem 0 0;
+  color: var(--h-text-muted);
+  font-size: 0.875rem;
 }
 
-/* A Discord emoji Harmony already has, so the import will skip it. */
-.chips li.imported {
-  opacity: 0.55;
+.optional {
+  color: var(--h-text-faint);
+  font-weight: 400;
 }
 
-.badge {
-  margin-left: 0.4rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  background: var(--h-accent);
-  color: var(--h-on-accent);
-  font-size: 0.7rem;
+.or {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+  color: var(--h-text-faint);
+  font-size: 0.75rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
 }
 
-.actions {
-  margin-top: 1rem;
+.or::before,
+.or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--h-border);
 }
 
-/* ---- Chat layout ---- */
+main a.button-link {
+  width: 100%;
+}
+
+.placeholder {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--h-border);
+  color: var(--h-text-muted);
+  font-size: 0.875rem;
+}
+
+/* ============================================================
+   CHAT LAYOUT
+   ============================================================ */
 
 .layout {
   display: flex;
@@ -315,24 +538,28 @@ main a.button-link {
   min-height: 0;
 }
 
+/* ---- Sidebar ---- */
+
 .sidebar {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  width: 240px;
+  width: 250px;
   height: 100%;
   background: var(--h-bg-elevated);
+  border-right: 1px solid var(--h-border);
 }
 
 .server-name {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 1rem;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem;
   font-weight: 700;
-  box-shadow: 0 1px 0 rgb(0 0 0 / 20%);
-  /* Declared here rather than inherited from the element, which is now a button. */
-  margin-bottom: 1.25rem;
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 1px 0 var(--h-border);
 }
 
 .server-name-text {
@@ -341,43 +568,35 @@ main a.button-link {
   white-space: nowrap;
 }
 
-/*
- * The server name opens the About panel, so it is a button. The chrome of one
- * would look wrong here: the whole row is the control and it should still read
- * as the heading it sits where it does.
- */
 button.server-name {
   width: 100%;
   background: none;
   color: inherit;
   text-align: left;
+  border-radius: 0;
+  font-weight: 700;
 }
 
 button.server-name:hover:not(:disabled) {
-  /* A quiet highlight, rather than the global brightness lift on a bare button. */
-  filter: none;
   background: var(--h-hover);
+  box-shadow: none;
+  filter: none;
 }
 
 .server-icon {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--h-radius-sm);
   object-fit: cover;
 }
 
-/* The larger preview in the admin panel. */
 .server-icon.large {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--h-radius);
 }
 
-/*
- * Inline line icons take the color of whatever holds them. The vertical-align
- * keeps one sitting next to text on the text's baseline rather than above it.
- */
 .icon {
   flex: none;
   vertical-align: -0.125em;
@@ -387,37 +606,41 @@ button.server-name:hover:not(:disabled) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0.75rem 0.5rem;
+  padding: 0.5rem 0.6rem 1rem;
 }
 
 .category {
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .category-name {
   display: block;
-  padding: 0 0.5rem 0.35rem;
-  color: var(--h-text-muted);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  padding: 0 0.6rem 0.4rem;
+  color: var(--h-text-faint);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .channel {
   display: flex;
   position: relative;
-  gap: 0.35rem;
+  align-items: center;
+  gap: 0.4rem;
   width: 100%;
-  padding: 0.35rem 0.5rem;
+  padding: 0.45rem 0.6rem;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--h-radius-sm);
   background: none;
   color: var(--h-text-muted);
   font: inherit;
+  font-size: 0.875rem;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
 }
 
 .channel:hover {
@@ -426,8 +649,21 @@ button.server-name:hover:not(:disabled) {
 }
 
 .channel.active {
-  background: var(--h-active);
+  background: var(--h-accent-subtle);
   color: var(--h-text);
+  font-weight: 600;
+}
+
+.channel.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 55%;
+  border-radius: var(--h-radius-full);
+  background: var(--h-accent);
+  transform: translateY(-50%);
 }
 
 .channel .hash {
@@ -435,10 +671,14 @@ button.server-name:hover:not(:disabled) {
   align-items: center;
   justify-content: center;
   min-width: 1.1em;
-  color: var(--h-text-muted);
+  color: var(--h-text-faint);
+  font-weight: 600;
 }
 
-/* A mark and a lock sit together at a channel's right edge. */
+.channel.active .hash {
+  color: var(--h-accent);
+}
+
 .channel .tail {
   display: flex;
   align-items: center;
@@ -446,42 +686,24 @@ button.server-name:hover:not(:disabled) {
   margin-left: auto;
 }
 
-/* A lock marks a channel only some roles may see. */
 .channel .lock {
   display: inline-flex;
   align-items: center;
-  opacity: 0.75;
+  opacity: 0.6;
 }
 
-/*
- * A red dot beside a channel holding an unread mention or reply, the way Discord
- * shows it. It is drawn in the error color so it stands apart from the neutral
- * unread mark down the channel's left edge.
- */
 .channel .mention-dot {
   flex: none;
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--h-radius-full);
   background: var(--h-error);
+  box-shadow: 0 0 0 2px var(--h-bg-elevated);
 }
 
-.channel.active .hash {
-  color: var(--h-text);
-}
-
-/*
- * A channel holding something this member has not read reads brighter and carries
- * a mark down its left edge, the way Discord shows it. The mark is drawn into the
- * padding so the name does not shift when it appears or goes.
- */
 .channel.unread {
   color: var(--h-text);
   font-weight: 700;
-}
-
-.channel.unread .hash {
-  color: var(--h-text);
 }
 
 .channel.unread::before {
@@ -491,26 +713,40 @@ button.server-name:hover:not(:disabled) {
   left: 0;
   width: 3px;
   height: 9px;
-  border-radius: 999px;
+  border-radius: var(--h-radius-full);
   background: var(--h-text);
   transform: translateY(-50%);
 }
+
+/* ---- User bar ---- */
 
 .user-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.6rem 0.9rem;
+  padding: 0.7rem 0.9rem;
   background: var(--h-bg-deep);
-  font-size: 0.9rem;
+  border-top: 1px solid var(--h-border);
+  font-size: 0.875rem;
 }
 
 .username {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 600;
 }
+
+/* The Admin and Log out links beside the member's own name. */
+.user-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.6rem;
+}
+
+/* ---- Chat area ---- */
 
 .chat {
   position: relative;
@@ -527,376 +763,19 @@ button.server-name:hover:not(:disabled) {
   justify-content: center;
 }
 
-/* Shown while a file is dragged over the chat. */
-.drop-zone {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  display: grid;
-  place-items: center;
-  border: 2px dashed var(--h-accent);
-  border-radius: var(--h-radius);
-  background: color-mix(in srgb, var(--h-bg) 78%, transparent);
-  color: var(--h-text);
-  font-weight: 600;
-  /* Never a drag target itself, so drops always land on the chat. */
-  pointer-events: none;
-}
-
-/* ---- Member list ---- */
-/*
- * Deliberately prefixed with `roster-` rather than reusing `member`: the admin
- * Members section already styles `.member` and `.member-group`, and those rules
- * sit later in this file, so they would win and stack the avatar over the name.
- */
-.roster {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  width: 220px;
-  height: 100%;
-  overflow-y: auto;
-  padding: 0.75rem 0.5rem;
-  background: var(--h-bg-elevated);
-}
-
-.roster-empty {
-  padding: 0 0.5rem;
-}
-
-.roster-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.roster-group + .roster-group {
-  margin-top: 0.9rem;
-}
-
-.roster-group-name {
-  display: block;
-  padding: 0 0.5rem 0.35rem;
-  color: var(--h-text-muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.roster-member {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.3rem 0.5rem;
-  border-radius: 4px;
-}
-
-.roster-member:hover {
-  background: var(--h-hover);
-}
-
-.roster-member.offline {
-  opacity: 0.45;
-}
-
-.roster-name {
-  overflow: hidden;
-  color: var(--h-text);
-  font-size: 0.9rem;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/*
- * Marks a member linked to a Discord account. A stand-in account is the Discord
- * side itself, so it keeps the link; a real member who has been linked gets a
- * check in the success color, to tell the two apart at a glance.
- */
-.roster-linked {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  color: var(--h-text-muted);
-}
-
-.roster-linked.linked-account {
-  color: var(--h-ok);
-}
-
-/*
- * The narrow-screen layout, where the sidebar and member list become drawers,
- * lives at the end of this file so it can override the rules above.
- */
-
-/* ---- Audit log ---- */
-
-.audit {
-  gap: 0.5rem;
-}
-
-.audit-entry {
-  padding: 0.6rem 0.75rem;
-  border-radius: 6px;
-  background: var(--h-bg-deep);
-}
-
-.audit-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  font-size: 0.9rem;
-}
-
-.audit-summary {
-  min-width: 0;
-}
-
-.audit-head time {
-  margin-left: auto;
-  flex-shrink: 0;
-  font-size: 0.75rem;
-}
-
-.audit-kind {
-  flex-shrink: 0;
-  padding: 0.05rem 0.4rem;
-  border-radius: 999px;
-  background: var(--h-bg-elevated);
-  color: var(--h-text-muted);
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-/* Destructive actions read as warnings at a glance. */
-.audit-kind.kind-ban,
-.audit-kind.kind-kick,
-.audit-kind.kind-timeout_add {
-  background: color-mix(in srgb, var(--h-error) 25%, transparent);
-  color: var(--h-text);
-}
-
-.audit-text {
-  max-height: 8em;
-  margin-top: 0.4rem;
-  padding: 0.4rem 0.5rem;
-  overflow-y: auto;
-  border-radius: 4px;
-  background: var(--h-bg);
-  font-size: 0.85rem;
-}
-
-.audit-text p {
-  margin: 0.15rem 0 0;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.audit-label {
-  display: block;
-  margin-top: 0.3rem;
-  color: var(--h-text-muted);
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.audit-reason {
-  margin: 0.35rem 0 0;
-  color: var(--h-text-muted);
-  font-size: 0.85rem;
-}
-
-/* Images that went with a deleted message are still served, so show them. */
-.audit-media {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.4rem;
-}
-
-.audit-media img {
-  width: 72px;
-  height: 72px;
-  object-fit: cover;
-  border-radius: 4px;
-  background: var(--h-bg);
-}
-
-/* ---- Profile card ---- */
-
-.profile-card {
-  position: fixed;
-  /* Above the mobile drawers and their backdrop, so a card opened from the
-     member list is not buried behind the drawer it came from. */
-  z-index: 40;
-  width: 280px;
-  overflow: hidden;
-  border-radius: var(--h-radius);
-  background: var(--h-bg-deep);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
-}
-
-.profile-card-banner {
-  height: 56px;
-}
-
-.profile-card-body {
-  padding: 0 1rem 1rem;
-}
-
-.profile-card-avatar-wrap {
-  margin-top: -40px;
-  margin-bottom: 0.5rem;
-}
-
-.profile-card-avatar-wrap .avatar {
-  width: 80px;
-  height: 80px;
-  border: 4px solid var(--h-bg-deep);
-  font-size: 1.75rem;
-}
-
-.profile-card-names {
-  display: flex;
-  flex-direction: column;
-}
-
-.profile-card-names strong {
-  color: var(--h-text);
-  font-size: 1.05rem;
-}
-
-/*
- * The same mark the roster uses: a link for a Discord stand-in, a check in the
- * success color for a real member linked to Discord.
- */
-.card-linked {
-  display: inline-flex;
-  vertical-align: -0.15em;
-  color: var(--h-text-muted);
-}
-
-.card-linked.linked-account {
-  color: var(--h-ok);
-}
-
-.profile-card-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin-top: 0.9rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--h-bg-elevated);
-}
-
-.profile-field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-}
-
-.profile-field-label {
-  color: var(--h-text-muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.profile-field-value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.profile-card-roles {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin-top: 0.9rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--h-bg-elevated);
-}
-
-.profile-roles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-
-.role-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  background: var(--h-bg-elevated);
-  font-size: 0.8rem;
-}
-
-.role-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-/*
- * Names, avatars and member rows open the profile card. The ones that are
- * buttons have to undo the global button styling so they still read as text.
- */
-button.author,
-button.roster-member,
-button.mention {
-  border: none;
-  font: inherit;
-  cursor: pointer;
-}
-
-button.author {
-  padding: 0;
-  border-radius: 0;
-  background: none;
-  font-weight: 600;
-}
-
-button.roster-member {
-  width: 100%;
-  background: none;
-  color: inherit;
-  font-weight: 500;
-  text-align: left;
-}
-
-button.mention {
-  margin: 0;
-  font-weight: 500;
-}
-
-/* A fallback avatar is a real button in the message list, so drop the chrome. */
-button.avatar.fallback {
-  padding: 0;
-  border: none;
-  font: inherit;
-  font-weight: 700;
-}
-
 .chat-header {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.9rem 1rem;
+  padding: 0.85rem 1.1rem;
   font-weight: 600;
-  box-shadow: 0 1px 0 rgb(0 0 0 / 20%);
+  font-size: 0.95rem;
+  box-shadow: 0 1px 0 var(--h-border);
+  background: var(--h-bg);
+  z-index: 2;
 }
 
-/* Fills the header so the actions sit against the right edge. */
 .chat-title {
   flex: 1;
   min-width: 0;
@@ -905,29 +784,50 @@ button.avatar.fallback {
   white-space: nowrap;
 }
 
-/* The "is typing…" line sits just above the composer. */
-.typing {
-  flex-shrink: 0;
-  display: flex;
+.chat-header .inbox-open,
+.chat-header .search-open {
+  display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  margin: 0;
-  padding: 0 1rem 0.35rem;
+  padding: 0.35rem 0.55rem;
+  background: none;
   color: var(--h-text-muted);
-  font-size: 0.8rem;
+  font-size: 1rem;
+  line-height: 1;
+  border-radius: var(--h-radius-sm);
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
 }
 
-.typing::before {
-  content: '•••';
-  letter-spacing: 0.05em;
-  opacity: 0.7;
+.chat-header .inbox-open:hover,
+.chat-header .search-open:hover {
+  background: var(--h-hover);
+  color: var(--h-text);
+  box-shadow: none;
 }
+
+.chat-header .inbox-open {
+  position: relative;
+}
+
+.chat-header .inbox-open.has-mentions::after {
+  content: '';
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--h-radius-full);
+  background: var(--h-error);
+  box-shadow: 0 0 0 2px var(--h-bg);
+}
+
+/* ---- Messages ---- */
 
 .messages {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 1rem 1.1rem;
 }
 
 .pad {
@@ -937,49 +837,76 @@ button.avatar.fallback {
 .message {
   position: relative;
   display: flex;
-  gap: 0.75rem;
-  /*
-   * The horizontal padding and matching negative margin let the hover and
-   * selected highlights bleed a little past the content without moving it.
-   */
-  padding: 0.1rem 0.5rem;
-  margin: 0 -0.5rem;
-  border-radius: 4px;
-  /* Taps open the actions on touch; long press stays free for text selection. */
+  gap: 0.85rem;
+  padding: 0.15rem 0.6rem;
+  margin: 0 -0.6rem;
+  border-radius: var(--h-radius-sm);
   touch-action: manipulation;
+  transition: background var(--h-duration) var(--h-ease);
 }
 
-/*
- * A message that starts a group gets room above it; one that continues the
- * previous author's group sits tight underneath. Keying this off the row's own
- * class, rather than the previous sibling's, keeps the rhythm consistent.
- */
 .message + .message:not(.grouped) {
-  margin-top: 0.7rem;
+  margin-top: 0.8rem;
 }
 
 .message:hover {
   background: var(--h-hover);
 }
 
-/* A message whose action menu is open stays highlighted. */
 .message.actions-open {
   background: var(--h-active);
+}
+
+.message.mentions-me {
+  border-radius: var(--h-radius-sm);
+  background: color-mix(in srgb, var(--h-accent) 7%, transparent);
+  box-shadow: inset 2px 0 0 var(--h-accent);
+}
+
+.message.selected {
+  background: color-mix(in srgb, var(--h-accent) 16%, transparent);
+  box-shadow: inset 2px 0 0 var(--h-accent);
+}
+
+.message.highlighted {
+  animation: message-flash 3s ease-out;
+}
+
+@keyframes message-flash {
+  0% {
+    background: color-mix(in srgb, var(--h-accent) 35%, transparent);
+    box-shadow: inset 3px 0 0 var(--h-accent);
+  }
+  70% {
+    background: color-mix(in srgb, var(--h-accent) 15%, transparent);
+    box-shadow: inset 3px 0 0 var(--h-accent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 3px 0 0 transparent;
+  }
 }
 
 .avatar {
   flex-shrink: 0;
   width: 40px;
   height: 40px;
+  /* A fallback avatar is a <button> so it can open a profile card; this also
+     strips the button chrome that would otherwise inflate it. */
+  padding: 0;
+  border: none;
   border-radius: 50%;
+  /* A neutral disc behind the artwork, so a transparent picture still reads. */
+  background: var(--h-bg-deep);
 }
 
 .avatar.fallback {
   display: grid;
   place-items: center;
-  background: var(--h-accent);
+  background: var(--h-accent-gradient);
   color: var(--h-on-accent);
   font-weight: 700;
+  font-size: 0.9rem;
 }
 
 img.avatar {
@@ -989,36 +916,30 @@ img.avatar {
 .avatar.small {
   width: 28px;
   height: 28px;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
 }
 
 .avatar.large {
   width: 96px;
   height: 96px;
-  font-size: 2rem;
+  font-size: 1.75rem;
 }
 
-/* Stands in for the avatar on a grouped message, revealing the time on hover. */
 .avatar-spacer {
   display: flex;
   flex-shrink: 0;
   width: 40px;
   justify-content: flex-end;
-  padding-top: 0.15rem;
+  padding-top: 0.2rem;
 }
 
-/*
- * The hover time must stay on one line. If it wraps, the extra line makes the
- * whole row taller, which stretches the message and makes grouped spacing look
- * uneven. It may overflow the 40px gutter to the left (harmless), so it is
- * kept flush right rather than centerd to avoid a right overflow that could add
- * a horizontal scrollbar to the message list.
- */
 .gutter-time {
-  color: var(--h-text-muted);
-  font-size: 0.65rem;
+  color: var(--h-text-faint);
+  font-size: 0.62rem;
+  font-weight: 500;
   white-space: nowrap;
   opacity: 0;
+  transition: opacity var(--h-duration) var(--h-ease);
 }
 
 .message:hover .gutter-time {
@@ -1027,6 +948,7 @@ img.avatar {
 
 .body {
   min-width: 0;
+  flex: 1;
 }
 
 .meta {
@@ -1035,21 +957,47 @@ img.avatar {
   gap: 0.5rem;
 }
 
+/*
+ * The author is a <button> so it can open a profile card, but it has to read as
+ * a name rather than a control: strip the button chrome and let it light up only
+ * on hover, with an underline.
+ */
 .author {
-  font-weight: 600;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
   color: var(--h-text);
+  font: inherit;
+  font-size: 0.925rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.author:hover:not(:disabled) {
+  background: none;
+  box-shadow: none;
+  filter: none;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2px;
 }
 
 .meta time,
 .edited {
-  color: var(--h-text-muted);
-  font-size: 0.75rem;
+  color: var(--h-text-faint);
+  font-size: 0.72rem;
+  font-weight: 500;
 }
 
 .content {
-  margin: 0.1rem 0 0;
+  margin: 0.15rem 0 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 0.925rem;
 }
 
 .content .paragraph {
@@ -1057,143 +1005,144 @@ img.avatar {
 }
 
 .content .md-header {
-  margin: 0;
-  font-weight: 700;
-  font-size: 1.05rem;
+  margin: 0.25rem 0;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .content .md-header.md-h1 {
-  font-size: 1.3rem;
+  font-size: 1.35rem;
 }
 
 .content .md-header.md-h2 {
-  font-size: 1.15rem;
+  font-size: 1.18rem;
 }
 
 .content .quote {
-  margin: 0.15rem 0;
-  padding-left: 0.6rem;
-  border-left: 3px solid var(--h-bg-deep);
+  margin: 0.25rem 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--h-bg-raised);
+  color: var(--h-text-muted);
 }
 
 .content .code-block {
-  margin: 0.2rem 0;
-  padding: 0.5rem 0.65rem;
-  border-radius: 6px;
+  margin: 0.3rem 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: var(--h-radius-sm);
   background: var(--h-bg-deep);
+  border: 1px solid var(--h-border);
   overflow-x: auto;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
+  font-family: var(--h-mono);
+  line-height: 1.6;
 }
 
 .inline-code {
-  padding: 0.05rem 0.3rem;
-  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--h-radius-xs);
   background: var(--h-bg-deep);
-  font-size: 0.85em;
+  border: 1px solid var(--h-border);
+  font-size: 0.84em;
+  font-family: var(--h-mono);
 }
 
 .content .link {
   color: var(--h-accent);
+  text-decoration: none;
   word-break: break-all;
+  text-underline-offset: 2px;
 }
 
 .content .link:hover {
   text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 50%, transparent);
 }
 
-/* Emphasis is applied a segment at a time, so nesting cannot tangle markup. */
-.seg.bold {
-  font-weight: 700;
-}
+/* ---- Text segments ---- */
 
-.seg.italic {
-  font-style: italic;
-}
-
-.seg.underline {
-  text-decoration-line: underline;
-}
-
-.seg.strike {
-  text-decoration-line: line-through;
-}
-
-.seg.underline.strike {
-  text-decoration-line: underline line-through;
-}
+.seg.bold { font-weight: 700; }
+.seg.italic { font-style: italic; }
+.seg.underline { text-decoration-line: underline; }
+.seg.strike { text-decoration-line: line-through; }
+.seg.underline.strike { text-decoration-line: underline line-through; }
 
 .seg.spoiler {
-  border-radius: 4px;
-  background: var(--h-bg-deep);
+  border-radius: var(--h-radius-xs);
+  background: var(--h-bg-raised);
   color: transparent;
+  cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
 }
 
 .seg.spoiler:hover {
-  background: var(--h-bg-elevated);
+  background: var(--h-bg-overlay);
   color: inherit;
 }
 
-/* Link preview card. */
+/* ---- Embeds ---- */
+
 .embed {
   display: block;
-  max-width: 420px;
-  margin: 0.3rem 0 0;
-  padding: 0.6rem 0.75rem;
+  max-width: 440px;
+  margin: 0.4rem 0 0;
+  padding: 0.75rem 0.85rem;
   border-left: 4px solid var(--h-accent);
-  border-radius: 4px;
+  border-radius: var(--h-radius-sm);
   background: var(--h-bg-deep);
+  border: 1px solid var(--h-border);
   text-decoration: none;
+  transition: background var(--h-duration) var(--h-ease),
+              border-color var(--h-duration) var(--h-ease);
 }
 
 .embed:hover {
   background: var(--h-bg-elevated);
+  border-color: var(--h-border-strong);
 }
 
 .embed-site {
   display: block;
   color: var(--h-text-muted);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .embed-title {
   display: block;
-  margin-top: 0.15rem;
+  margin-top: 0.2rem;
   color: var(--h-text);
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 0.95rem;
 }
 
 .embed-description {
   display: block;
-  margin-top: 0.2rem;
+  margin-top: 0.25rem;
   color: var(--h-text-muted);
   font-size: 0.85rem;
+  line-height: 1.5;
 }
 
-/*
- * Preview images are shown whole rather than cropped: a gif is the whole point,
- * so it scales down to fit both limits and keeps its aspect ratio.
- */
 .embed-image {
   display: block;
   max-width: 100%;
   max-height: 320px;
-  margin-bottom: 0.4rem;
-  border-radius: 3px;
+  margin-bottom: 0.5rem;
+  border-radius: var(--h-radius-sm);
   background: var(--h-bg);
 }
 
-/*
- * A player starts as its poster, so nothing is requested from the provider until
- * the viewer asks for it.
- */
 .embed-video {
   position: relative;
   display: block;
   width: 100%;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
   padding: 0;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--h-radius-sm);
   aspect-ratio: 16 / 9;
   overflow: hidden;
   background: #000;
@@ -1212,43 +1161,45 @@ img.avatar {
   display: grid;
   place-items: center;
   color: #fff;
-  font-size: 2.25rem;
-  text-shadow: 0 2px 10px rgb(0 0 0 / 75%);
+  font-size: 2.5rem;
+  text-shadow: 0 2px 16px rgb(0 0 0 / 80%);
 }
 
 .embed-video-frame {
   display: block;
   width: 100%;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--h-radius-sm);
   aspect-ratio: 16 / 9;
   background: #000;
 }
 
-/* Sits under a player, which cannot be wrapped in a link of its own. */
 .embed-body {
   display: block;
   color: inherit;
   text-decoration: none;
 }
 
+/* ---- Reply refs ---- */
+
 .reply-ref {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  margin: 0.1rem 0 0.15rem;
+  gap: 0.4rem;
+  margin: 0.15rem 0 0.2rem;
   color: var(--h-text-muted);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 
 .reply-ref::before {
   content: '↰';
-  opacity: 0.7;
+  opacity: 0.5;
+  font-size: 0.9rem;
 }
 
 .reply-author {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--h-text);
 }
 
@@ -1261,7 +1212,7 @@ img.avatar {
 
 .reply-ref.deleted .reply-text {
   font-style: italic;
-  opacity: 0.75;
+  opacity: 0.6;
 }
 
 .replying {
@@ -1269,9 +1220,10 @@ img.avatar {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.35rem 0.6rem;
-  border-radius: var(--h-radius);
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--h-radius-sm);
   background: var(--h-bg-elevated);
+  border: 1px solid var(--h-border);
   font-size: 0.85rem;
 }
 
@@ -1283,37 +1235,42 @@ img.avatar {
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .remove-reply:hover {
   color: var(--h-text);
-  filter: none;
+  background: none;
+  box-shadow: none;
 }
+
+/* ---- Message actions ---- */
 
 .message-actions {
   position: absolute;
-  top: -0.7rem;
+  top: -0.8rem;
   right: 0.9rem;
   display: flex;
   gap: 0.15rem;
-  padding: 0.15rem;
-  border-radius: 6px;
-  background: var(--h-bg-elevated);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
+  padding: 0.2rem;
+  border-radius: var(--h-radius-sm);
+  background: var(--h-glass-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--h-glass-border);
+  box-shadow: var(--h-shadow);
   opacity: 0;
   pointer-events: none;
+  transition: opacity var(--h-duration) var(--h-ease),
+              transform var(--h-duration) var(--h-ease);
+  transform: translateY(4px);
 }
 
-/*
- * On a device with a real pointer the actions appear on hover. Touch devices
- * get no hover (a tap would leave it stuck), so there a tap opens the menu by
- * adding the `open` class; a tap elsewhere dismisses it. Keyboard focus still
- * reveals it everywhere.
- */
 @media (hover: hover) and (pointer: fine) {
   .message:hover .message-actions {
     opacity: 1;
     pointer-events: auto;
+    transform: translateY(0);
   }
 }
 
@@ -1321,21 +1278,23 @@ img.avatar {
 .message-actions.open {
   opacity: 1;
   pointer-events: auto;
+  transform: translateY(0);
 }
 
 .message-actions button {
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--h-radius-xs);
   background: none;
   color: var(--h-text-muted);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
+  box-shadow: none;
 }
 
 .message-actions button:hover:not(:disabled) {
   background: var(--h-active);
   color: var(--h-text);
-  filter: none;
+  box-shadow: none;
 }
 
 .message-actions button.danger {
@@ -1343,26 +1302,36 @@ img.avatar {
   color: #fff;
 }
 
+.message-actions button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--h-error) 88%, white);
+}
+
+/* ---- Edit form ---- */
+
 .edit-form {
   display: grid;
-  gap: 0.35rem;
-  margin: 0.15rem 0 0;
+  gap: 0.4rem;
+  margin: 0.2rem 0 0;
 }
 
 .edit-box {
   width: 100%;
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--h-bg-deep);
-  border-radius: var(--h-radius);
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--h-border);
+  border-radius: var(--h-radius-sm);
   background: var(--h-bg-elevated);
   color: var(--h-text);
   font: inherit;
+  font-size: 0.9rem;
   resize: vertical;
+  transition: border-color var(--h-duration) var(--h-ease),
+              box-shadow var(--h-duration) var(--h-ease);
 }
 
 .edit-box:focus {
   border-color: var(--h-accent);
   outline: none;
+  box-shadow: 0 0 0 3px var(--h-accent-subtle);
 }
 
 .edit-actions {
@@ -1371,45 +1340,46 @@ img.avatar {
 }
 
 .edit-actions button {
-  padding: 0.35rem 0.7rem;
-  font-size: 0.85rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
 }
 
-button.ghost {
-  background: var(--h-bg-elevated);
-  color: var(--h-text);
-}
+/* ---- Reactions ---- */
 
 .reactions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-top: 0.35rem;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
 }
 
 .reaction {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.1rem 0.45rem;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--h-radius-full);
   background: var(--h-bg-elevated);
   color: var(--h-text-muted);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
+  transition: border-color var(--h-duration) var(--h-ease),
+              background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
 }
 
 .reaction:hover:not(:disabled) {
-  border-color: var(--h-text-muted);
-  filter: none;
+  border-color: var(--h-border-strong);
+  background: var(--h-bg-raised);
+  box-shadow: none;
 }
 
 .reaction.me {
   border-color: var(--h-accent);
-  background: color-mix(in srgb, var(--h-accent) 18%, transparent);
+  background: var(--h-accent-subtle);
   color: var(--h-text);
 }
 
@@ -1424,14 +1394,786 @@ button.ghost {
 }
 
 .reaction-count {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
 }
 
 .reaction-picker {
-  margin-top: 0.35rem;
+  margin-top: 0.4rem;
 }
 
-/* ---- Emoji autocomplete ---- */
+/* ============================================================
+   MENTIONS
+   ============================================================ */
+
+.mention {
+  padding: 0 0.2rem;
+  border-radius: var(--h-radius-xs);
+  background: var(--h-accent-subtle);
+  color: color-mix(in srgb, var(--h-accent) 55%, var(--h-text));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.mention {
+  margin: 0;
+  padding: 0 0.2rem;
+  border: none;
+  /* The shorthand resets weight, so it has to come before the explicit weight. */
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+button.mention:hover {
+  background: color-mix(in srgb, var(--h-accent) 22%, transparent);
+  box-shadow: none;
+}
+
+/* ============================================================
+   COMPOSER
+   ============================================================ */
+
+.typing {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0 1.1rem 0.4rem;
+  color: var(--h-text-muted);
+  font-size: 0.78rem;
+}
+
+.typing::before {
+  content: '•••';
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 0.5rem;
+  padding: 0 1.1rem 1.1rem;
+}
+
+.composer form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.composer form button {
+  flex-shrink: 0;
+}
+
+.file-input {
+  display: none;
+}
+
+.text-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--h-border);
+  border-radius: var(--h-radius-lg);
+  background: var(--h-bg-elevated);
+  color: var(--h-text);
+  font: inherit;
+  font-size: 0.925rem;
+  transition: border-color var(--h-duration) var(--h-ease),
+              box-shadow var(--h-duration) var(--h-ease),
+              background var(--h-duration) var(--h-ease);
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: var(--h-accent);
+  background: var(--h-bg);
+  box-shadow: 0 0 0 3px var(--h-accent-subtle);
+}
+
+.text-input::placeholder {
+  color: var(--h-text-faint);
+}
+
+.text-input::-webkit-search-cancel-button,
+.text-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.attach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--h-bg-elevated);
+  color: var(--h-text-muted);
+  font-size: 1.3rem;
+  line-height: 1;
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease),
+              transform var(--h-duration) var(--h-ease);
+}
+
+.attach:hover:not(:disabled) {
+  background: var(--h-bg-raised);
+  color: var(--h-text);
+  box-shadow: none;
+  transform: scale(1.05);
+}
+
+.attach-gif {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* ---- Pending attachments ---- */
+
+.pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pending-item {
+  position: relative;
+}
+
+.pending-item img,
+.pending-item video {
+  display: block;
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: var(--h-radius-sm);
+  border: 1px solid var(--h-border);
+}
+
+.pending-item video {
+  background: #000;
+}
+
+.pending-item .remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--h-error);
+  color: #fff;
+  font-size: 0.75rem;
+  line-height: 1;
+  box-shadow: var(--h-shadow-sm);
+}
+
+.pending-item .remove:hover {
+  background: color-mix(in srgb, var(--h-error) 88%, white);
+  box-shadow: var(--h-shadow-sm);
+  transform: scale(1.1);
+}
+
+/* ---- Attachments ---- */
+
+.attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.attachments img,
+.attachments video {
+  max-width: min(440px, 100%);
+  max-height: 380px;
+  height: auto;
+  border-radius: var(--h-radius);
+  border: 1px solid var(--h-border);
+}
+
+.attachments video {
+  background: #000;
+  object-fit: contain;
+}
+
+.attachment-picture {
+  position: relative;
+  align-self: flex-start;
+  max-width: min(440px, 100%);
+}
+
+.attachment-picture.sized {
+  width: var(--picture-width);
+  aspect-ratio: var(--picture-ratio);
+}
+
+.attachment-picture.sized img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ============================================================
+   DROP ZONE
+   ============================================================ */
+
+.drop-zone {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--h-accent);
+  border-radius: var(--h-radius);
+  background: color-mix(in srgb, var(--h-bg) 82%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: var(--h-text);
+  font-weight: 700;
+  font-size: 1.05rem;
+  pointer-events: none;
+  animation: drop-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes drop-pulse {
+  0%, 100% { border-color: var(--h-accent); }
+  50% { border-color: var(--h-accent-hover); }
+}
+
+/* ============================================================
+   MEMBER LIST (ROSTER)
+   ============================================================ */
+
+.roster {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 230px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0.75rem 0.6rem;
+  background: var(--h-bg-elevated);
+  border-left: 1px solid var(--h-border);
+}
+
+.roster-empty {
+  padding: 0 0.6rem;
+}
+
+.roster-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.roster-group + .roster-group {
+  margin-top: 1rem;
+}
+
+.roster-group-name {
+  display: block;
+  padding: 0 0.6rem 0.4rem;
+  color: var(--h-text-faint);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.roster-member {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--h-radius-sm);
+  transition: background var(--h-duration) var(--h-ease);
+}
+
+.roster-member:hover {
+  background: var(--h-hover);
+}
+
+.roster-member.offline {
+  opacity: 0.4;
+}
+
+.roster-name {
+  overflow: hidden;
+  color: var(--h-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roster-linked {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--h-text-muted);
+}
+
+.roster-linked.linked-account {
+  color: var(--h-ok);
+}
+
+button.roster-member {
+  width: 100%;
+  background: none;
+  color: inherit;
+  font-weight: 600;
+  text-align: left;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+button.roster-member:hover {
+  background: var(--h-hover);
+  box-shadow: none;
+}
+
+/* ============================================================
+   PROFILE CARD
+   ============================================================ */
+
+.profile-card {
+  position: fixed;
+  z-index: 60;
+  width: 300px;
+  overflow: hidden;
+  border-radius: var(--h-radius-xl);
+  background: var(--h-glass-bg);
+  backdrop-filter: blur(var(--h-glass-blur));
+  -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  border: 1px solid var(--h-glass-border);
+  box-shadow: var(--h-shadow-xl);
+  animation: card-in var(--h-duration-slow) var(--h-ease-out);
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.profile-card-banner {
+  height: 64px;
+  background: var(--h-accent-gradient);
+}
+
+.profile-card-body {
+  padding: 0 1.1rem 1.1rem;
+}
+
+.profile-card-avatar-wrap {
+  margin-top: -44px;
+  margin-bottom: 0.6rem;
+}
+
+.profile-card-avatar-wrap .avatar {
+  width: 88px;
+  height: 88px;
+  border: 4px solid var(--h-bg-elevated);
+  font-size: 1.75rem;
+  box-shadow: var(--h-shadow);
+}
+
+.profile-card-names {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.profile-card-names strong {
+  color: var(--h-text);
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.card-linked {
+  display: inline-flex;
+  vertical-align: -0.15em;
+  color: var(--h-text-muted);
+}
+
+.card-linked.linked-account {
+  color: var(--h-ok);
+}
+
+.profile-card-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--h-border);
+}
+
+.profile-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.84rem;
+}
+
+.profile-field-label {
+  color: var(--h-text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-field-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-card-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--h-border);
+}
+
+.profile-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--h-radius-full);
+  background: var(--h-bg-raised);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.role-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* ============================================================
+   EMOJI PICKER
+   ============================================================ */
+
+.emoji {
+  display: inline;
+  height: 1.375em;
+  width: auto;
+  margin: 0 1px;
+  vertical-align: -0.25em;
+}
+
+.emoji-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(360px, 100%);
+  max-height: 320px;
+  padding: 0.6rem;
+  border-radius: var(--h-radius-lg);
+  background: var(--h-glass-bg);
+  backdrop-filter: blur(var(--h-glass-blur));
+  -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  border: 1px solid var(--h-glass-border);
+  box-shadow: var(--h-shadow-lg);
+  animation: picker-in var(--h-duration) var(--h-ease-out);
+}
+
+@keyframes picker-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.emoji-picker-head {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 0.5rem;
+}
+
+.emoji-search {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--h-border);
+  border-radius: var(--h-radius-sm);
+  background: var(--h-bg-deep);
+  color: var(--h-text);
+  font: inherit;
+  font-size: 0.84rem;
+  min-width: 0;
+}
+
+.emoji-search:focus {
+  border-color: var(--h-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--h-accent-subtle);
+}
+
+.emoji-tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.emoji-tab {
+  padding: 0.3rem 0.7rem;
+  border: none;
+  border-radius: var(--h-radius-sm);
+  background: none;
+  color: var(--h-text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
+}
+
+.emoji-tab:hover:not(:disabled) {
+  background: var(--h-hover);
+  color: var(--h-text);
+  box-shadow: none;
+}
+
+.emoji-tab.active {
+  background: var(--h-active);
+  color: var(--h-text);
+}
+
+.emoji-picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.emoji-quick {
+  display: flex;
+  gap: 0.2rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--h-border);
+}
+
+.emoji-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+}
+
+.emoji-group-name {
+  display: block;
+  padding: 0 0.2rem 0.35rem;
+  color: var(--h-text-faint);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.emoji-empty {
+  margin: 0.25rem 0;
+  font-size: 0.84rem;
+}
+
+.emoji-option {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: none;
+  border-radius: var(--h-radius-sm);
+  background: none;
+  cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              transform var(--h-duration) var(--h-ease);
+}
+
+.emoji-option:hover {
+  background: var(--h-active);
+  box-shadow: none;
+  transform: scale(1.1);
+}
+
+.emoji-option img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+
+.emoji-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.emoji-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--h-radius-sm);
+  background: var(--h-bg-deep);
+  border: 1px solid var(--h-border);
+}
+
+.emoji-card img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.inline input[type='file'] {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.emoji-card button {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+/* ============================================================
+   GIF PICKER
+   ============================================================ */
+
+.gif-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(360px, 100%);
+  height: min(360px, 52vh);
+  padding: 0.6rem;
+  border-radius: var(--h-radius-lg);
+  background: var(--h-glass-bg);
+  backdrop-filter: blur(var(--h-glass-blur));
+  -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  border: 1px solid var(--h-glass-border);
+  box-shadow: var(--h-shadow-lg);
+  animation: picker-in var(--h-duration) var(--h-ease-out);
+}
+
+.gif-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.5rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.gif-grid {
+  columns: 2;
+  column-gap: 0.4rem;
+}
+
+@media (min-width: 420px) {
+  .gif-grid {
+    columns: 3;
+  }
+}
+
+.gif-tile {
+  position: relative;
+  break-inside: avoid;
+  margin-bottom: 0.4rem;
+}
+
+.gif-send {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border-radius: var(--h-radius-sm);
+  overflow: hidden;
+  background: var(--h-bg);
+  line-height: 0;
+  box-shadow: none;
+}
+
+.gif-send:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow: none;
+}
+
+.gif-send img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.gif-heart {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 60%);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity var(--h-duration) var(--h-ease),
+              background var(--h-duration) var(--h-ease);
+}
+
+.gif-heart.on,
+.gif-heart:focus-visible,
+.gif-send:focus-visible + .gif-heart,
+.gif-tile:hover .gif-heart,
+.attachment-picture:hover .gif-heart,
+.attachment-picture:focus-within .gif-heart {
+  opacity: 1;
+}
+
+.gif-heart:hover:not(:disabled) {
+  background: var(--h-accent);
+  box-shadow: none;
+}
+
+@media (hover: none) {
+  .gif-tile .gif-heart {
+    opacity: 1;
+  }
+}
+
+/* ============================================================
+   AUTOCOMPLETE
+   ============================================================ */
 
 .autocomplete {
   display: flex;
@@ -1439,12 +2181,15 @@ button.ghost {
   gap: 0.1rem;
   max-height: 220px;
   margin: 0;
-  padding: 0.25rem;
+  padding: 0.3rem;
   overflow-y: auto;
   list-style: none;
   border-radius: var(--h-radius);
-  background: var(--h-bg-elevated);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+  background: var(--h-glass-bg);
+  backdrop-filter: blur(var(--h-glass-blur));
+  -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  border: 1px solid var(--h-glass-border);
+  box-shadow: var(--h-shadow-lg);
 }
 
 .autocomplete-item {
@@ -1452,19 +2197,22 @@ button.ghost {
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  padding: 0.3rem 0.5rem;
+  padding: 0.35rem 0.6rem;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--h-radius-xs);
   background: none;
   color: var(--h-text);
   font: inherit;
+  font-size: 0.875rem;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease);
 }
 
 .autocomplete-item:hover {
-  filter: none;
+  background: var(--h-hover);
+  box-shadow: none;
 }
 
 .autocomplete-item.active {
@@ -1488,11 +2236,11 @@ button.ghost {
 .autocomplete-detail {
   margin-left: auto;
   color: var(--h-text-muted);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 
 .autocomplete-item.active .autocomplete-detail {
-  color: color-mix(in srgb, var(--h-on-accent) 80%, transparent);
+  color: color-mix(in srgb, var(--h-on-accent) 75%, transparent);
 }
 
 .autocomplete-initial {
@@ -1502,360 +2250,153 @@ button.ghost {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: var(--h-accent);
+  background: var(--h-accent-gradient);
   color: var(--h-on-accent);
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-size: 0.68rem;
+  font-weight: 800;
 }
 
-/* ---- Mentions ---- */
-
-.mention {
-  padding: 0 0.15rem;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--h-accent) 22%, transparent);
-  color: color-mix(in srgb, var(--h-accent) 60%, var(--h-text));
-  font-weight: 500;
-}
-
-/* An inset shadow avoids shifting the layout when a message mentions you. */
-.message.mentions-me {
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--h-accent) 8%, transparent);
-  box-shadow: inset 2px 0 0 var(--h-accent);
-}
-
-/* The message being replied to stays lit up, brighter than a hover. */
-.message.selected {
-  background: color-mix(in srgb, var(--h-accent) 18%, transparent);
-  box-shadow: inset 2px 0 0 var(--h-accent);
-}
-
-/* A search result landing on a message flashes it, then settles back. */
-.message.highlighted {
-  animation: message-flash 3s ease-out;
-}
-
-@keyframes message-flash {
-  0% {
-    background: color-mix(in srgb, var(--h-accent) 40%, transparent);
-    box-shadow: inset 3px 0 0 var(--h-accent);
-  }
-  70% {
-    background: color-mix(in srgb, var(--h-accent) 18%, transparent);
-    box-shadow: inset 3px 0 0 var(--h-accent);
-  }
-  100% {
-    background: transparent;
-    box-shadow: inset 3px 0 0 transparent;
-  }
-}
-
-.composer {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  gap: 0.5rem;
-  padding: 0 1rem 1rem;
-}
-
-.composer form {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-/* Keep the round buttons round instead of squeezing them into ovals. */
-.composer form button {
-  flex-shrink: 0;
-}
-
-.file-input {
-  display: none;
-}
-
-.text-input {
-  flex: 1;
-  /* Without this the input's content sets a floor and squeezes its siblings. */
-  min-width: 0;
-  padding: 0.7rem 0.9rem;
-  border: none;
-  border-radius: var(--h-radius);
-  background: var(--h-bg-elevated);
-  color: var(--h-text);
-  font: inherit;
-}
-
-.text-input:focus {
-  outline: none;
-}
-
-/*
- * The message box is a search field on purpose. Android's autofill picks what it
- * will offer from how a field looks rather than from `autocomplete` alone, and a
- * plain text field in a form gets offered passwords, payment methods and
- * addresses — none of which belong over a chat box. A search field is left
- * alone, which is why the app's other boxes never showed it. The clear button
- * that comes with the type is hidden, since sending already empties it.
- */
-.text-input::-webkit-search-cancel-button,
-.text-input::-webkit-search-decoration {
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.attach {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border-radius: 50%;
-  background: var(--h-bg-elevated);
-  color: var(--h-text-muted);
-  font-size: 1.3rem;
-  line-height: 1;
-}
-
-.attach:hover:not(:disabled) {
-  color: var(--h-text);
-  filter: none;
-}
-
-.pending {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.pending-item {
-  position: relative;
-}
-
-.pending-item img {
-  display: block;
-  width: 80px;
-  height: 80px;
-  object-fit: cover;
-  border-radius: 6px;
-}
-
-.pending-item video {
-  display: block;
-  width: 80px;
-  height: 80px;
-  object-fit: cover;
-  border-radius: 6px;
-  background: #000;
-}
-
-.pending-item .remove {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border-radius: 50%;
-  background: var(--h-error);
-  color: #fff;
-  font-size: 0.8rem;
-  line-height: 1;
-}
-
-.attachments {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin-top: 0.4rem;
-}
-
-/*
- * Attachments are capped in both directions. A width alone is not enough: a tall
- * phone recording or a long screenshot would keep its aspect ratio and run the
- * full height of the window. The browser keeps the ratio while fitting inside
- * these, and clicking opens the original.
- */
-.attachments img,
-.attachments video {
-  max-width: min(420px, 100%);
-  max-height: 360px;
-  height: auto;
-  border-radius: var(--h-radius);
-}
-
-.attachments video {
-  background: #000;
-  /* Insurance against a stretched frame if a browser sizes the box itself. */
-  object-fit: contain;
-}
-
-/*
- * A picture with its heart. Sized to the picture rather than to the column, so
- * the heart lands on the picture's own corner instead of the far side of the
- * message list.
- */
-.attachment-picture {
-  position: relative;
-  align-self: flex-start;
-  max-width: min(420px, 100%);
-}
-
-/*
- * A picture whose size is known gets a box of exactly that size, from the custom
- * properties the message sets. The ratio keeps the shape when a narrow screen
- * caps the width, and the picture fills the box, so nothing is letterboxed and
- * the heart sits on the picture whichever way round the picture is.
- */
-.attachment-picture.sized {
-  width: var(--picture-width);
-  aspect-ratio: var(--picture-ratio);
-}
-
-.attachment-picture.sized img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-/* ---- Admin panel ---- */
-
-.user-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-select {
-  padding: 0.45rem 0.6rem;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: var(--h-bg-deep);
-  color: var(--h-text);
-  font: inherit;
-  font-size: 0.9rem;
-}
+/* ============================================================
+   ADMIN PANEL
+   ============================================================ */
 
 .admin-overlay {
   position: fixed;
   inset: 0;
-  z-index: 10;
+  z-index: 100;
   display: flex;
   padding: 2vh 2vw;
-  background: rgb(0 0 0 / 65%);
+  background: rgb(0 0 0 / 70%);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: overlay-in var(--h-duration) var(--h-ease);
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .admin {
   display: flex;
   margin: auto;
-  width: min(920px, 96vw);
-  height: min(720px, 94vh);
+  width: min(940px, 96vw);
+  height: min(740px, 94vh);
   overflow: hidden;
-  border-radius: var(--h-radius);
-  background: var(--h-bg);
+  border-radius: var(--h-radius-xl);
+  background: var(--h-bg-elevated);
+  border: 1px solid var(--h-glass-border);
+  box-shadow: var(--h-shadow-xl);
+  animation: modal-in var(--h-duration-slow) var(--h-ease-out);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .admin-nav {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.3rem;
   flex-shrink: 0;
-  width: 180px;
-  padding: 1rem 0.75rem;
+  width: 200px;
+  padding: 1.1rem 0.8rem;
   background: var(--h-bg-deep);
+  border-right: 1px solid var(--h-border);
 }
 
 .admin-nav h2 {
-  margin: 0 0 0.75rem;
-  padding: 0 0.4rem;
+  margin: 0 0 0.9rem;
+  padding: 0 0.5rem;
   color: var(--h-text);
   font-size: 0.95rem;
-  letter-spacing: 0;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   text-transform: none;
 }
 
 .admin-tab {
-  padding: 0.4rem 0.5rem;
+  padding: 0.5rem 0.7rem;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--h-radius-sm);
   background: none;
   color: var(--h-text-muted);
   font: inherit;
-  font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
 }
 
 .admin-tab:hover {
   background: var(--h-hover);
   color: var(--h-text);
-  filter: none;
+  box-shadow: none;
 }
 
 .admin-tab.active {
-  background: var(--h-active);
+  background: var(--h-accent-subtle);
   color: var(--h-text);
 }
 
 .admin-close {
   margin-top: auto;
-  padding: 0.4rem 0.5rem;
-  border: 1px solid var(--h-bg-elevated);
-  border-radius: 4px;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--h-border);
+  border-radius: var(--h-radius-sm);
   background: none;
   color: var(--h-text-muted);
   font: inherit;
+  font-size: 0.875rem;
   cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
 }
 
 .admin-close:hover {
   color: var(--h-text);
-  filter: none;
+  background: var(--h-hover);
+  box-shadow: none;
 }
 
 .admin-body {
   flex: 1;
   overflow-y: auto;
-  padding: 1.25rem 1.5rem;
+  padding: 1.5rem 1.75rem;
 }
 
-.admin-body h3 {
-  margin: 0 0 1rem;
-  font-size: 1.1rem;
-}
-
-/*
- * A full-bleed button behind the panel, so the dimmed area is a real close
- * control a keyboard can reach rather than an unlabeled click target.
- */
 .overlay-close {
   position: absolute;
   inset: 0;
   padding: 0;
   border-radius: 0;
   background: none;
+  box-shadow: none;
 }
 
 .overlay-close:hover:not(:disabled) {
-  /* Nothing to brighten; the dimming belongs to the overlay underneath. */
-  filter: none;
+  background: none;
+  box-shadow: none;
 }
 
-/*
- * The About panel is a small card rather than the full admin shell, so it drops
- * the fixed height the other panels use and takes only the width it needs.
- */
 .about {
-  width: min(360px, 92vw);
+  width: min(380px, 92vw);
   height: auto;
 }
 
 .about-head {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.85rem;
 }
 
 .about-head h3 {
@@ -1866,24 +2407,31 @@ select {
 
 .about-powered {
   margin: 1rem 0 0.4rem;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .about-link {
   display: inline-block;
-  margin-bottom: 0.9rem;
+  margin-bottom: 1rem;
   color: var(--h-accent);
+  text-decoration: none;
+}
+
+.about-link:hover {
+  text-decoration: underline;
 }
 
 .about-version {
   margin: 0 0 1rem;
 }
 
+/* ---- Admin forms & rows ---- */
+
 .inline {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
 .inline input {
@@ -1894,14 +2442,14 @@ select {
 .inline-forms {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
 }
 
 .rows {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1910,10 +2458,11 @@ select {
 .row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: 6px;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--h-radius-sm);
   background: var(--h-bg-deep);
+  border: 1px solid var(--h-border);
 }
 
 .row .grow {
@@ -1925,38 +2474,36 @@ select {
 }
 
 .row button:not(.row-main) {
-  padding: 0.35rem 0.6rem;
-  font-size: 0.85rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.82rem;
 }
 
-/*
- * A channel row packs a reorder pair, a name, two selects and two buttons, so
- * it may wrap on a narrow panel. The arrows keep the compact square shape of
- * the role reorder buttons rather than the roomier row-button padding.
- */
 .channel-row {
   flex-wrap: wrap;
 }
 
 .channel-row button.move {
   padding: 0;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
 }
 
 .row-main {
   display: flex;
   align-items: center;
   flex: 1;
-  gap: 0.5rem;
-  padding: 0.4rem 0.6rem;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--h-radius-sm);
   background: var(--h-bg-deep);
   color: var(--h-text);
   font: inherit;
+  font-size: 0.875rem;
   text-align: left;
   cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
 }
 
 .row-main.active {
@@ -1967,51 +2514,55 @@ select {
 .role-item {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.3rem;
 }
 
 .move {
   flex-shrink: 0;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--h-radius-xs);
   background: var(--h-bg-deep);
   color: var(--h-text-muted);
   font: inherit;
   line-height: 1;
   cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
 }
 
 .move:hover:not(:disabled) {
   color: var(--h-text);
-  filter: none;
+  background: var(--h-bg-raised);
+  box-shadow: none;
 }
 
 .move:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
 }
 
 .swatch {
   display: inline-block;
   flex-shrink: 0;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
+  border: 1px solid var(--h-border);
 }
 
 .split {
   display: grid;
-  grid-template-columns: minmax(180px, 220px) 1fr;
+  grid-template-columns: minmax(190px, 230px) 1fr;
   align-items: start;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .editor {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.9rem;
 }
 
 .editor-actions {
@@ -2019,31 +2570,27 @@ select {
   gap: 0.5rem;
 }
 
-/* Instance icon preview in the admin panel. */
 .server-icon-editor {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
-/*
- * A stand-in for what a home screen does to an installed icon: round, because
- * that is the crop the padding is there to survive.
- */
 .icon-preview {
   flex-shrink: 0;
-  width: 72px;
-  height: 72px;
+  width: 76px;
+  height: 76px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--h-bg-deep);
+  border: 2px solid var(--h-border);
 }
 
 .icon-preview-row {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin: 0.75rem 0;
+  gap: 1.25rem;
+  margin: 0.85rem 0;
 }
 
 .icon-preview-row .muted {
@@ -2052,79 +2599,73 @@ select {
 
 .perms {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 0.3rem;
-}
-
-.checkbox {
-  display: flex;
-  align-items: center;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 0.4rem;
-  color: var(--h-text);
-  font-size: 0.85rem;
 }
 
-.checkbox input {
-  width: auto;
-}
-
-fieldset {
-  margin: 0;
-  padding: 0.75rem;
-  border: 1px solid var(--h-bg-deep);
-  border-radius: 6px;
-}
-
-legend {
-  padding: 0 0.35rem;
-  color: var(--h-text-muted);
-  font-size: 0.78rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-button.danger {
-  background: var(--h-error);
-}
-
-.ok-text {
-  margin: 0;
-  color: var(--h-ok);
-  font-size: 0.9rem;
-}
+/* ---- Members section ---- */
 
 .member {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.6rem 0.75rem;
-  border-radius: 6px;
+  gap: 0.5rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--h-radius-sm);
   background: var(--h-bg-deep);
+  border: 1px solid var(--h-border);
 }
 
 .member-head {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
-/* Pushes the account editor toggle to the right edge of the row. */
+/* Small uppercase pills: "owner", "Discord", and the like. */
+.badge {
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--h-radius-full);
+  background: var(--h-bg-raised);
+  color: var(--h-text-muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* A wrapping list of plain values, e.g. the Discord channels an import found. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chips li {
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--h-radius-full);
+  background: var(--h-bg-raised);
+  color: var(--h-text-muted);
+  font-size: 0.78rem;
+}
+
 .member-head .member-edit-toggle {
   margin-left: auto;
-  padding: 0.3rem 0.55rem;
-  font-size: 0.8rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.78rem;
 }
 
 .member-editor {
-  padding-top: 0.35rem;
-  border-top: 1px solid var(--h-bg-elevated);
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--h-border);
 }
 
-/* A tick-list for choosing what to import from Discord. */
 .import-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 0.25rem 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 0.3rem 1rem;
   margin: 0.5rem 0 0;
   padding: 0;
   list-style: none;
@@ -2138,17 +2679,17 @@ button.danger {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.45rem;
 }
 
 .member-group {
-  margin-top: 1.25rem;
+  margin-top: 1.5rem;
 }
 
 .member-group > summary {
   cursor: pointer;
   color: var(--h-text);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .member-group > summary .muted {
@@ -2156,28 +2697,28 @@ button.danger {
 }
 
 .member-group > p {
-  margin: 0.5rem 0;
+  margin: 0.6rem 0;
 }
 
 .member-moderation {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.45rem;
 }
 
 .member-moderation button,
 .member-moderation select {
-  padding: 0.3rem 0.55rem;
-  font-size: 0.8rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.78rem;
 }
 
-/* ---- Admin media gallery ---- */
+/* ---- Media gallery ---- */
 
 .media-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.85rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -2186,34 +2727,42 @@ button.danger {
 .media-card {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.5rem;
-  border-radius: 6px;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border-radius: var(--h-radius-sm);
   background: var(--h-bg-deep);
+  border: 1px solid var(--h-border);
+  transition: border-color var(--h-duration) var(--h-ease),
+              transform var(--h-duration) var(--h-ease);
+}
+
+.media-card:hover {
+  border-color: var(--h-border-strong);
+  transform: translateY(-1px);
 }
 
 .media-card img {
   width: 100%;
-  height: 120px;
+  height: 130px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: var(--h-radius-xs);
   background: var(--h-bg);
 }
 
 .media-card video {
   width: 100%;
-  height: 120px;
+  height: 130px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: var(--h-radius-xs);
   background: #000;
 }
 
 .media-meta {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.15rem;
   min-width: 0;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 
 .media-name {
@@ -2225,18 +2774,18 @@ button.danger {
 }
 
 .media-card button {
-  padding: 0.3rem 0.55rem;
-  font-size: 0.8rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.78rem;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  background: var(--h-bg);
-  font-size: 0.8rem;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--h-radius-full);
+  background: var(--h-bg-raised);
+  font-size: 0.78rem;
 }
 
 .chip-remove {
@@ -2246,403 +2795,146 @@ button.danger {
   color: var(--h-text-muted);
   font: inherit;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .chip-remove:hover {
   color: var(--h-text);
-  filter: none;
+  background: none;
+  box-shadow: none;
 }
 
 .group {
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .group-head {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
-}
-
-.invite-code {
-  padding: 0.15rem 0.4rem;
-  border-radius: 4px;
-  background: var(--h-bg);
-  font-size: 0.85rem;
-}
-
-/* ---- Custom emoji ---- */
-
-.emoji {
-  display: inline;
-  height: 1.375em;
-  width: auto;
-  margin: 0 1px;
-  vertical-align: -0.25em;
-}
-
-/*
- * A column rather than a wrapping row: the search box and the tabs are the head,
- * and everything below them scrolls, so both stay put while a long list moves.
- */
-.emoji-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: min(340px, 100%);
-  max-height: 300px;
-  padding: 0.5rem;
-  border-radius: var(--h-radius);
-  background: var(--h-bg-elevated);
-}
-
-.emoji-picker-head {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  gap: 0.4rem;
-}
-
-.emoji-search {
-  padding: 0.35rem 0.55rem;
-  border: none;
-  border-radius: 4px;
-  background: var(--h-bg);
-  color: var(--h-text);
-  font: inherit;
-  font-size: 0.85rem;
-  min-width: 0;
-}
-
-.emoji-tabs {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.emoji-tab {
-  padding: 0.25rem 0.6rem;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: var(--h-text-muted);
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.emoji-tab:hover:not(:disabled) {
-  filter: none;
-  background: var(--h-hover);
-  color: var(--h-text);
-}
-
-.emoji-tab.active {
-  background: var(--h-active);
-  color: var(--h-text);
-}
-
-.emoji-picker-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-/* The handful of reactions almost everybody reaches for first. */
-.emoji-quick {
-  display: flex;
-  gap: 0.15rem;
-  padding-bottom: 0.45rem;
-  border-bottom: 1px solid var(--h-bg);
-}
-
-.emoji-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.15rem;
-}
-
-.emoji-group-name {
-  display: block;
-  padding: 0 0.15rem 0.3rem;
-  color: var(--h-text-muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.emoji-empty {
-  margin: 0.25rem 0;
-  font-size: 0.85rem;
-}
-
-.emoji-option {
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  cursor: pointer;
-}
-
-.emoji-option:hover {
-  background: var(--h-active);
-  filter: none;
-}
-
-.emoji-option img {
-  width: 26px;
-  height: 26px;
-  object-fit: contain;
-}
-
-.emoji-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-}
-
-.emoji-card {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: 6px;
-  background: var(--h-bg-deep);
-}
-
-.emoji-card img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-}
-
-.inline input[type='file'] {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
-.emoji-card button {
-  padding: 0.3rem 0.55rem;
-  font-size: 0.8rem;
-}
-
-/* The GIF button's label has to fit the same circle as the emoji one. */
-.attach-gif {
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-/*
- * The gif picker. Built like the emoji one — a fixed head over a body that
- * scrolls — but with a definite height rather than a maximum one: tabs hold
- * different amounts of content, and a box that grew and shrank with them would
- * move the composer's buttons every time somebody switched.
- */
-.gif-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: min(340px, 100%);
-  height: min(340px, 50vh);
-  padding: 0.5rem;
-  border-radius: var(--h-radius);
-  background: var(--h-bg-elevated);
-}
-
-.gif-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  gap: 0.5rem;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-/* Columns rather than a grid: gifs are all different shapes, and a column flow
-   packs them without leaving gaps the way even rows would. */
-.gif-grid {
-  columns: 2;
-  column-gap: 0.4rem;
-}
-
-@media (min-width: 420px) {
-  .gif-grid {
-    columns: 3;
-  }
-}
-
-.gif-tile {
-  position: relative;
-  break-inside: avoid;
+  gap: 0.6rem;
   margin-bottom: 0.4rem;
 }
 
-.gif-send {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--h-bg);
-  line-height: 0;
+.invite-code {
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--h-radius-xs);
+  background: var(--h-bg-raised);
+  font-family: var(--h-mono);
+  font-size: 0.82rem;
 }
 
-.gif-send:hover:not(:disabled) {
-  filter: brightness(1.12);
+/* ============================================================
+   AUDIT LOG
+   ============================================================ */
+
+.audit {
+  gap: 0.6rem;
 }
 
-.gif-send img {
-  display: block;
-  width: 100%;
-  height: auto;
+.audit-entry {
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--h-radius-sm);
+  background: var(--h-bg-deep);
+  border: 1px solid var(--h-border);
 }
 
-/*
- * The heart keeps a gif. It sits over the top corner and only comes out when the
- * tile is hovered, or when the gif is already saved, so it does not sit on the
- * picture otherwise. A touch screen has no hover, so there it is always out.
- */
-.gif-heart {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  position: absolute;
-  top: 0.25rem;
-  right: 0.25rem;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border-radius: 50%;
-  background: rgb(0 0 0 / 60%);
-  color: #fff;
-  font-size: 0.85rem;
-  line-height: 1;
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-.gif-heart.on,
-.gif-heart:focus-visible,
-.gif-send:focus-visible + .gif-heart,
-.gif-tile:hover .gif-heart,
-.attachment-picture:hover .gif-heart,
-.attachment-picture:focus-within .gif-heart {
-  opacity: 1;
-}
-
-.gif-heart:hover:not(:disabled) {
-  background: var(--h-accent);
-  filter: none;
-}
-
-/*
- * A touch screen has no hover, so the picker's hearts are always out. A gif in
- * the chat keeps its heart hidden there instead: a heart on every gif in a
- * conversation is a lot of furniture, and the picker is where it is reached.
- */
-@media (hover: none) {
-  .gif-tile .gif-heart {
-    opacity: 1;
-  }
-}
-
-/* ---- Profile ---- */
-
-.user-button {
+.audit-head {
   display: flex;
-  align-items: center;
-  flex: 1;
+  align-items: baseline;
   gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.audit-summary {
   min-width: 0;
-  padding: 0.15rem 0.25rem;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
 }
 
-.user-button:hover {
-  background: var(--h-hover);
-  filter: none;
+.audit-head time {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--h-text-faint);
+  font-size: 0.72rem;
 }
 
-.profile-panel {
-  /* Wider than the old single-form panel, because the tab list takes a column. */
-  width: min(620px, 96vw);
-  height: auto;
-  max-height: 94vh;
-}
-
-/* ---- Search ---- */
-
-/*
- * The header's icon buttons: mentions and search. The title before them takes
- * the free space, so they sit together at the right, as on Discord.
- */
-.chat-header .inbox-open,
-.chat-header .search-open {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.3rem 0.5rem;
-  /* Icon buttons, like the drawer toggles, not filled actions. */
-  background: none;
+.audit-kind {
+  flex-shrink: 0;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--h-radius-full);
+  background: var(--h-bg-raised);
   color: var(--h-text-muted);
-  font-size: 1rem;
-  line-height: 1;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.chat-header .inbox-open {
-  /* Anchors the unread dot to the button's corner. */
-  position: relative;
+.audit-kind.kind-ban,
+.audit-kind.kind-kick,
+.audit-kind.kind-timeout_add {
+  background: var(--h-error-subtle);
+  color: var(--h-error);
 }
 
-.chat-header .inbox-open.has-mentions::after {
-  content: '';
-  position: absolute;
-  top: 0.1rem;
-  right: 0.1rem;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--h-error);
+.audit-text {
+  max-height: 8em;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  overflow-y: auto;
+  border-radius: var(--h-radius-xs);
+  background: var(--h-bg);
+  border: 1px solid var(--h-border);
+  font-size: 0.82rem;
 }
 
-.chat-header .inbox-open:hover,
-.chat-header .search-open:hover {
-  background: var(--h-hover);
-  color: var(--h-text);
-  filter: none;
+.audit-text p {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
-/* The member toggle sits after the search button, so it is not the last child. */
-.chat-header .search-open + .drawer-toggle {
-  margin-left: 0.25rem;
+.audit-label {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--h-text-faint);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
+
+.audit-reason {
+  margin: 0.4rem 0 0;
+  color: var(--h-text-muted);
+  font-size: 0.82rem;
+}
+
+.audit-media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.audit-media img {
+  width: 76px;
+  height: 76px;
+  object-fit: cover;
+  border-radius: var(--h-radius-xs);
+  background: var(--h-bg);
+}
+
+/* ============================================================
+   SEARCH & INBOX
+   ============================================================ */
 
 .inbox-panel {
-  width: min(680px, 96vw);
+  width: min(700px, 96vw);
   height: auto;
   max-height: 94vh;
-}
-
-/* An entry that has not been read yet carries a red edge, like the channel dot. */
-.search-result.unread {
-  background: color-mix(in srgb, var(--h-accent) 12%, var(--h-bg-deep));
-  box-shadow: inset 3px 0 0 var(--h-error);
 }
 
 .search-panel {
-  width: min(720px, 96vw);
+  width: min(740px, 96vw);
   height: auto;
   max-height: 94vh;
 }
@@ -2650,8 +2942,8 @@ button.danger {
 .search-head {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
 }
 
 .search-head h3 {
@@ -2662,8 +2954,8 @@ button.danger {
 .search-results {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  margin: 0.75rem 0 0;
+  gap: 0.45rem;
+  margin: 0.85rem 0 0;
   padding: 0;
   list-style: none;
 }
@@ -2671,87 +2963,102 @@ button.danger {
 .search-result {
   display: block;
   width: 100%;
-  padding: 0.55rem 0.7rem;
-  border: none;
-  border-radius: 6px;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--h-border);
+  border-radius: var(--h-radius-sm);
   background: var(--h-bg-deep);
   color: var(--h-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              border-color var(--h-duration) var(--h-ease);
 }
 
 .search-result:hover {
   background: var(--h-bg-elevated);
-  filter: none;
+  border-color: var(--h-border-strong);
+  box-shadow: none;
+}
+
+.search-result.unread {
+  background: var(--h-accent-subtle);
+  box-shadow: inset 3px 0 0 var(--h-error);
 }
 
 .search-result-head {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  font-size: 0.85rem;
+  gap: 0.45rem;
+  font-size: 0.82rem;
 }
 
 .search-result-head time {
   margin-left: auto;
-  font-size: 0.75rem;
+  color: var(--h-text-faint);
+  font-size: 0.72rem;
 }
 
 .search-result-text {
   display: block;
-  margin-top: 0.25rem;
-  /* Long words in a result should not widen the panel. */
+  margin-top: 0.3rem;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+  font-size: 0.875rem;
 }
 
 .search-result-text mark {
   border-radius: 2px;
-  background: color-mix(in srgb, var(--h-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--h-accent) 40%, transparent);
   color: var(--h-text);
+  padding: 0 0.15rem;
 }
 
-/* ---- First-run setup wizard ---- */
+/* ============================================================
+   SETUP WIZARD
+   ============================================================ */
 
 .setup-wizard {
-  width: min(640px, 96vw);
+  width: min(660px, 96vw);
   height: auto;
   max-height: 94vh;
 }
 
-/* The step rail: a row of labels, the current one lit, the passed ones dimmed. */
 .wizard-steps {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: 0 0 1.25rem;
+  gap: 0.4rem;
+  margin: 0 0 1.5rem;
   padding: 0;
   list-style: none;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
 }
 
 .wizard-steps li {
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--h-radius-full);
   background: var(--h-bg-deep);
+  border: 1px solid var(--h-border);
   color: var(--h-text-muted);
+  font-weight: 600;
 }
 
 .wizard-steps li.done {
   color: var(--h-text);
+  border-color: var(--h-border-strong);
 }
 
 .wizard-steps li.active {
   background: var(--h-accent);
+  border-color: var(--h-accent);
   color: var(--h-on-accent);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .wizard-colors {
   display: flex;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .wizard-colors label {
@@ -2759,60 +3066,95 @@ button.danger {
 }
 
 .wizard-colors input[type='color'] {
-  height: 2.5rem;
-  padding: 0.2rem;
+  height: 2.75rem;
+  padding: 0.25rem;
   cursor: pointer;
+  border-radius: var(--h-radius-sm);
 }
 
 .wizard-help {
-  margin: 0 0 1rem;
-  padding-left: 1.25rem;
+  margin: 0 0 1.25rem;
+  padding-left: 1.35rem;
   color: var(--h-text-muted);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
 }
 
 .wizard-help li {
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
 }
 
-/* A quiet back link under the primary actions. */
 .wizard-footer {
-  margin-top: 1rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--h-bg-elevated);
+  margin-top: 1.25rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--h-border);
 }
 
 .wizard-footer button {
-  padding: 0.3rem 0.6rem;
-  font-size: 0.8rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+}
+
+/* ============================================================
+   PROFILE PANEL
+   ============================================================ */
+
+.user-button {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.2rem 0.3rem;
+  border: none;
+  border-radius: var(--h-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease);
+  box-shadow: none;
+}
+
+.user-button:hover {
+  background: var(--h-hover);
+  box-shadow: none;
+}
+
+.profile-panel {
+  width: min(640px, 96vw);
+  height: auto;
+  max-height: 94vh;
 }
 
 .profile-avatar {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
 }
 
-/* ---- Mobile layout ---- */
+/* ============================================================
+   MOBILE LAYOUT
+   ============================================================ */
 
-/*
- * On narrow screens the sidebar and member list stop sharing the row and slide
- * in over the chat as drawers, toggled from the chat header. While closed they
- * are hidden from the tab order too, so focus cannot land on an off-screen menu.
- */
 .drawer-toggle {
   display: none;
-  padding: 0.3rem 0.5rem;
+  padding: 0.35rem 0.55rem;
   background: none;
   color: var(--h-text-muted);
   font-size: 1.15rem;
   line-height: 1;
+  border-radius: var(--h-radius-sm);
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
 }
 
 .drawer-toggle:hover:not(:disabled) {
-  filter: none;
+  background: var(--h-hover);
   color: var(--h-text);
+  box-shadow: none;
 }
 
 .drawer-backdrop {
@@ -2825,23 +3167,24 @@ button.danger {
     position: fixed;
     top: 0;
     bottom: 0;
-    z-index: 30;
-    width: min(82vw, 320px);
+    z-index: 80;
+    width: min(84vw, 320px);
     visibility: hidden;
-    transition: transform 0.2s ease, visibility 0.2s;
+    transition: transform var(--h-duration-slow) var(--h-ease-out),
+                visibility var(--h-duration-slow);
   }
 
   .sidebar {
     left: 0;
     transform: translateX(-100%);
-    box-shadow: 2px 0 24px rgb(0 0 0 / 45%);
+    box-shadow: 4px 0 32px rgb(0 0 0 / 50%);
   }
 
   .roster {
     right: 0;
     transform: translateX(100%);
-    padding: 0.75rem 0.5rem;
-    box-shadow: -2px 0 24px rgb(0 0 0 / 45%);
+    padding: 0.75rem 0.6rem;
+    box-shadow: -4px 0 32px rgb(0 0 0 / 50%);
   }
 
   .sidebar.open,
@@ -2854,11 +3197,13 @@ button.danger {
     display: block;
     position: fixed;
     inset: 0;
-    z-index: 25;
+    z-index: 75;
     padding: 0;
     border: none;
     border-radius: 0;
-    background: rgb(0 0 0 / 55%);
+    background: rgb(0 0 0 / 60%);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     cursor: default;
   }
 
@@ -2868,20 +3213,20 @@ button.danger {
   }
 
   .chat-header {
-    padding: 0.6rem 0.9rem;
+    padding: 0.7rem 0.9rem;
   }
 
   .messages {
-    padding: 0.75rem;
+    padding: 0.8rem;
   }
 
-  /* 16px keeps iOS Safari from zooming the page when a field gains focus. */
+  /* 16px prevents iOS Safari from zooming on focus */
   input,
-  textarea {
+  textarea,
+  select {
     font-size: 16px;
   }
 
-  /* The admin panel and the profile editor take the whole screen. */
   .admin-overlay {
     padding: 0;
   }
@@ -2892,22 +3237,24 @@ button.danger {
     height: 100dvh;
     max-height: none;
     border-radius: 0;
+    border: none;
   }
 
-  /* The About card stays a card: there is too little in it to fill a phone. */
   .about {
-    width: min(360px, 92vw);
+    width: min(380px, 92vw);
     height: auto;
-    border-radius: var(--h-radius);
+    border-radius: var(--h-radius-xl);
   }
 
   .admin-nav {
     flex-direction: row;
     flex-wrap: nowrap;
     width: 100%;
-    padding: 0.5rem;
-    gap: 0.25rem;
+    padding: 0.6rem;
+    gap: 0.3rem;
     overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--h-border);
   }
 
   .admin-nav h2 {
@@ -2921,5 +3268,18 @@ button.danger {
 
   .admin-close {
     margin-top: 0;
+  }
+
+  main {
+    padding: 1.75rem;
+    border-radius: var(--h-radius-lg);
+  }
+
+  .split {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-card {
+    width: min(320px, 92vw);
   }
 }

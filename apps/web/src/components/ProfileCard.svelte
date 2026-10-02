@@ -3,6 +3,7 @@
   import { avatarUrl, initial } from '../lib/avatar';
   import { profileCard } from '../lib/profile-card.svelte';
   import { roster } from '../lib/roster.svelte';
+  import Icon from './Icon.svelte';
 
   let card = $state<HTMLDivElement | null>(null);
   let left = $state(0);
@@ -95,7 +96,18 @@
       </div>
 
       <div class="profile-card-names">
-        <strong>{user.displayName ?? user.username}</strong>
+        <strong>
+          {user.displayName ?? user.username}
+          {#if user.discordId}
+            {#if user.isBot}
+              <span class="card-linked" title="A Discord account"><Icon name="link" size={13} /></span>
+            {:else}
+              <span class="card-linked linked-account" title="Linked to a Discord account">
+                <Icon name="check" size={13} />
+              </span>
+            {/if}
+          {/if}
+        </strong>
         <span class="muted">@{user.username}</span>
       </div>
 

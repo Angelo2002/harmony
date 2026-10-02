@@ -694,6 +694,20 @@ button.server-name:hover:not(:disabled) {
   font-size: 1.05rem;
 }
 
+/*
+ * The same mark the roster uses: a link for a Discord stand-in, a check in the
+ * success color for a real member linked to Discord.
+ */
+.card-linked {
+  display: inline-flex;
+  vertical-align: -0.15em;
+  color: var(--h-text-muted);
+}
+
+.card-linked.linked-account {
+  color: var(--h-ok);
+}
+
 .profile-card-fields {
   display: flex;
   flex-direction: column;

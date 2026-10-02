@@ -4,6 +4,15 @@
    ============================================================ */
 
 /*
+ * Order matters for vendor-prefixed properties: write the prefixed form BEFORE
+ * the standard one (`-webkit-backdrop-filter` then `backdrop-filter`). The
+ * production build minifies with Lightning CSS, which keeps only the last of an
+ * aliased pair; with the usual standard-first order it drops `backdrop-filter`
+ * and the glass blur silently vanishes in the built client, while dev — which
+ * never minifies — still shows it. Keep every such pair in this order.
+ */
+
+/*
  * Design tokens.
  *
  * The color values below are first-paint fallbacks for the built-in dark
@@ -405,8 +414,8 @@ legend {
   padding: 0.75rem 1rem;
   border-radius: var(--h-radius-lg);
   background: var(--h-glass-bg);
-  backdrop-filter: blur(var(--h-glass-blur));
   -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  backdrop-filter: blur(var(--h-glass-blur));
   border: 1px solid var(--h-glass-border);
   box-shadow: var(--h-shadow-lg);
   font-size: 0.9rem;
@@ -1255,8 +1264,8 @@ img.avatar {
   padding: 0.2rem;
   border-radius: var(--h-radius-sm);
   background: var(--h-glass-bg);
-  backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--h-glass-border);
   box-shadow: var(--h-shadow);
   opacity: 0;
@@ -1636,8 +1645,8 @@ button.mention:hover {
   border: 2px dashed var(--h-accent);
   border-radius: var(--h-radius);
   background: color-mix(in srgb, var(--h-bg) 82%, transparent);
-  backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
   color: var(--h-text);
   font-weight: 700;
   font-size: 1.05rem;
@@ -1755,8 +1764,8 @@ button.roster-member:hover {
   overflow: hidden;
   border-radius: var(--h-radius-xl);
   background: var(--h-glass-bg);
-  backdrop-filter: blur(var(--h-glass-blur));
   -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  backdrop-filter: blur(var(--h-glass-blur));
   border: 1px solid var(--h-glass-border);
   box-shadow: var(--h-shadow-xl);
   animation: card-in var(--h-duration-slow) var(--h-ease-out);
@@ -1902,8 +1911,8 @@ button.roster-member:hover {
   padding: 0.6rem;
   border-radius: var(--h-radius-lg);
   background: var(--h-glass-bg);
-  backdrop-filter: blur(var(--h-glass-blur));
   -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  backdrop-filter: blur(var(--h-glass-blur));
   border: 1px solid var(--h-glass-border);
   box-shadow: var(--h-shadow-lg);
   animation: picker-in var(--h-duration) var(--h-ease-out);
@@ -2074,8 +2083,8 @@ button.roster-member:hover {
   padding: 0.6rem;
   border-radius: var(--h-radius-lg);
   background: var(--h-glass-bg);
-  backdrop-filter: blur(var(--h-glass-blur));
   -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  backdrop-filter: blur(var(--h-glass-blur));
   border: 1px solid var(--h-glass-border);
   box-shadow: var(--h-shadow-lg);
   animation: picker-in var(--h-duration) var(--h-ease-out);
@@ -2141,8 +2150,8 @@ button.roster-member:hover {
   padding: 0;
   border-radius: 50%;
   background: rgb(0 0 0 / 60%);
-  backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
   color: #fff;
   font-size: 0.85rem;
   line-height: 1;
@@ -2186,8 +2195,8 @@ button.roster-member:hover {
   list-style: none;
   border-radius: var(--h-radius);
   background: var(--h-glass-bg);
-  backdrop-filter: blur(var(--h-glass-blur));
   -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  backdrop-filter: blur(var(--h-glass-blur));
   border: 1px solid var(--h-glass-border);
   box-shadow: var(--h-shadow-lg);
 }
@@ -2267,8 +2276,8 @@ button.roster-member:hover {
   display: flex;
   padding: 2vh 2vw;
   background: rgb(0 0 0 / 70%);
-  backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   animation: overlay-in var(--h-duration) var(--h-ease);
 }
 
@@ -3205,8 +3214,8 @@ button.roster-member:hover {
     border: none;
     border-radius: 0;
     background: rgb(0 0 0 / 60%);
-    backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
     cursor: default;
   }
 

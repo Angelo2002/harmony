@@ -235,6 +235,27 @@ export interface MessageReference {
   deleted: boolean;
 }
 
+/** How a message came to be aimed at someone. */
+export type MentionKind = 'mention' | 'reply';
+
+/**
+ * One entry in a member's own inbox: a message that named them or answered
+ * theirs. It is private to the recipient, in the same spirit as the read marker:
+ * nobody else can see what has been collected here.
+ */
+export interface Mention {
+  /** The message that did the mentioning, ready to render. */
+  message: Message;
+  /** Whether a reply or a name brought it about. */
+  kind: MentionKind;
+  /**
+   * Whether the caller has not read the channel since, so it is still new. It
+   * follows the channel's read cursor rather than a second one of its own: a
+   * mention is read exactly when the channel it landed in is.
+   */
+  unread: boolean;
+}
+
 export interface Emoji {
   id: SnowflakeId;
   name: string;

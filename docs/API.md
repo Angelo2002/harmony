@@ -25,6 +25,7 @@ code wins — please open an issue.
   - [Channels and categories](#channels-and-categories)
   - [Messages](#messages)
   - [Search](#search)
+  - [Mentions and replies](#mentions-and-replies)
   - [Reactions](#reactions)
   - [Attachments](#attachments)
   - [Media gallery](#media-gallery)
@@ -470,6 +471,7 @@ Invalidates the current session and clears the cookie. Returns `{ "ok": true }`.
   "categories": [ /* Category */ ],
   "channels": [ /* Channel */ ],
   "unreadChannelIds": [ "..." ],
+  "mentionChannelIds": [ "..." ],
   "defaultChannelId": "..."
 }
 ```
@@ -483,6 +485,11 @@ the same channel is unread for one person and read for another — which is why 
 channels rather than on them. Read state is kept by the server, so it survives a reload and follows a
 member between devices, and it is nobody else's business: it is not a read receipt, and no other
 member can tell what you have seen.
+
+`mentionChannelIds` is the same list narrowed to the channels holding an unread mention or reply for
+the caller, which is what draws the red mark beside a channel. A channel drops off it exactly when it
+is read, so it moves together with `unreadChannelIds`. See
+[Mentions and replies](#mentions-and-replies).
 
 #### `POST /api/v1/channels/:id/read` — `ViewChannels`
 
@@ -801,6 +808,48 @@ already have, its `createdAt` plus its `id`.
 
 Matches are returned as full `Message` objects, ready to render, so a client can show them the same
 way it shows a channel.
+
+### Mentions and replies
+
+Every message that names someone with `@username` or replies to them is noted for that member as it
+is written, so their inbox can be listed without ever re-reading message text. A message that both
+replies to someone and names them is a single entry, a reply winning.
+
+The inbox is private to its owner, in the same spirit as the [read marker](#get-apiv1channels--viewchannels):
+nobody else can see what has been collected, and it is not a record of who summoned whom. Nothing is
+collected for a member's own message, and nothing is collected for the stand-in accounts kept for
+Discord users, since they can never sign in. An edit does not add or remove an entry — a mention
+counts at the moment it is sent, exactly as the notification does.
+
+#### `GET /api/v1/mentions` — `ViewChannels`
+
+```json
+{
+  "mentions": [
+    {
+      "message": { /* Message */ },
+      "kind": "mention",
+      "unread": true
+    }
+  ]
+}
+```
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `limit` | integer 1–100 | 50 | |
+| `before` | ISO 8601 string | — | Return mentions older than this timestamp |
+| `beforeId` | string | — | Id of the message `before` came from |
+
+Returns the caller's own mentions and replies, newest first. `kind` is `"mention"` when they were
+named and `"reply"` when the message answered theirs. `unread` is `true` while the channel it landed
+in has not been read since, so it follows the channel's read cursor rather than a second one of its
+own: reading the channel — including jumping to the message from the inbox — clears it.
+
+Only the channels the caller can see are included, so a mention in a channel that has since been
+locked away disappears from the list. Deleted messages are never returned. Paging works like
+[message search](#get-apiv1search--viewchannels): the cursor is the oldest entry you already have,
+its message's `createdAt` plus its `id`.
 
 ### Reactions
 

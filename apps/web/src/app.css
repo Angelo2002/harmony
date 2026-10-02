@@ -349,11 +349,31 @@ button.server-name:hover:not(:disabled) {
   color: var(--h-text-muted);
 }
 
+/* A mark and a lock sit together at a channel's right edge. */
+.channel .tail {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
 /* A lock marks a channel only some roles may see. */
 .channel .lock {
-  margin-left: auto;
   font-size: 0.75rem;
   opacity: 0.75;
+}
+
+/*
+ * A red dot beside a channel holding an unread mention or reply, the way Discord
+ * shows it. It is drawn in the error color so it stands apart from the neutral
+ * unread mark down the channel's left edge.
+ */
+.channel .mention-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--h-error);
 }
 
 .channel.active .hash {
@@ -2439,25 +2459,58 @@ button.danger {
 
 /* ---- Search ---- */
 
+/*
+ * The header's icon buttons: mentions and search. The title before them takes
+ * the free space, so they sit together at the right, as on Discord.
+ */
+.chat-header .inbox-open,
 .chat-header .search-open {
-  margin-left: auto;
   padding: 0.3rem 0.5rem;
-  /* An icon button, like the drawer toggles, not a filled action. */
+  /* Icon buttons, like the drawer toggles, not filled actions. */
   background: none;
   color: var(--h-text-muted);
   font-size: 1rem;
   line-height: 1;
 }
 
+.chat-header .inbox-open {
+  /* Anchors the unread dot to the button's corner. */
+  position: relative;
+}
+
+.chat-header .inbox-open.has-mentions::after {
+  content: '';
+  position: absolute;
+  top: 0.1rem;
+  right: 0.1rem;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--h-error);
+}
+
+.chat-header .inbox-open:hover,
 .chat-header .search-open:hover {
   background: var(--h-hover);
   color: var(--h-text);
   filter: none;
 }
 
-/* The member toggle sits after it, so the search button is not the last child. */
+/* The member toggle sits after the search button, so it is not the last child. */
 .chat-header .search-open + .drawer-toggle {
   margin-left: 0.25rem;
+}
+
+.inbox-panel {
+  width: min(680px, 96vw);
+  height: auto;
+  max-height: 94vh;
+}
+
+/* An entry that has not been read yet carries a red edge, like the channel dot. */
+.search-result.unread {
+  background: color-mix(in srgb, var(--h-accent) 12%, var(--h-bg-deep));
+  box-shadow: inset 3px 0 0 var(--h-error);
 }
 
 .search-panel {

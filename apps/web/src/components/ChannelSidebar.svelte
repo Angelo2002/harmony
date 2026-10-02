@@ -64,7 +64,12 @@
             onclick={() => selectChannel(channel.id)}
           >
             <span class="hash">{channelGlyph(channel)}</span>{channel.name}
-            {#if isLocked(channel)}<span class="lock" title="Only members with a certain role can see this">🔒</span>{/if}
+            <span class="tail">
+              {#if chat.mention.has(channel.id)}
+                <span class="mention-dot" title="You were mentioned"></span>
+              {/if}
+              {#if isLocked(channel)}<span class="lock" title="Only members with a certain role can see this">🔒</span>{/if}
+            </span>
           </button>
         {/each}
       </div>
@@ -79,7 +84,12 @@
         onclick={() => selectChannel(channel.id)}
       >
         <span class="hash">{channelGlyph(channel)}</span>{channel.name}
-        {#if isLocked(channel)}<span class="lock" title="Only members with a certain role can see this">🔒</span>{/if}
+        <span class="tail">
+          {#if chat.mention.has(channel.id)}
+            <span class="mention-dot" title="You were mentioned"></span>
+          {/if}
+          {#if isLocked(channel)}<span class="lock" title="Only members with a certain role can see this">🔒</span>{/if}
+        </span>
       </button>
     {/each}
   </nav>

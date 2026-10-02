@@ -131,6 +131,10 @@ export type MessageHistoryQuery = z.infer<typeof messageHistoryQuerySchema>;
 export const auditQuerySchema = cursorQuerySchema;
 export type AuditQuery = z.infer<typeof auditQuerySchema>;
 
+/** A member's own inbox pages the same way, newest first. */
+export const mentionQuerySchema = cursorQuerySchema;
+export type MentionQuery = z.infer<typeof mentionQuerySchema>;
+
 export const mediaQuerySchema = cursorQuerySchema;
 export type MediaQuery = z.infer<typeof mediaQuerySchema>;
 

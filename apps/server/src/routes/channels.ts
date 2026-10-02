@@ -47,6 +47,7 @@ import {
   type ChannelRow,
 } from '../db/channels.ts';
 import { listUnreadChannelIds, markChannelRead } from '../db/channel_reads.ts';
+import { listChannelsWithUnreadMentions } from '../db/mentions.ts';
 import type { Database } from '../db/index.ts';
 import { newestMessageAt } from '../db/messages.ts';
 import { findRole } from '../db/roles.ts';
@@ -117,6 +118,13 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
       // Only the channels just listed are asked about, so a channel this member
       // cannot see is not even considered, let alone reported as having news.
       unreadChannelIds: listUnreadChannelIds(
+        db.sqlite,
+        auth.user.id,
+        channels.map((channel) => channel.id),
+      ),
+      // The same list, narrowed to the channels that hold an unread mention or
+      // reply, which is what draws the red mark beside a channel.
+      mentionChannelIds: listChannelsWithUnreadMentions(
         db.sqlite,
         auth.user.id,
         channels.map((channel) => channel.id),

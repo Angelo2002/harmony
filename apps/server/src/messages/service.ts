@@ -5,7 +5,11 @@ import {
   Permission,
   bypassesSlowmode,
   hasPermission,
+  listMentionUsernames,
   type Attachment,
+  type Mention,
+  type MentionListResponse,
+  type MentionQuery,
   type Message,
   type MessageDeletePayload,
   type MessageHistoryQuery,
@@ -24,6 +28,7 @@ import { attachToMessage, findAttachment, listAttachmentsForMessages } from '../
 import { markChannelRead } from '../db/channel_reads.ts';
 import { findChannel, type ChannelRow } from '../db/channels.ts';
 import { findEmoji } from '../db/emojis.ts';
+import { insertMention, listMentions, type MentionRow } from '../db/mentions.ts';
 import {
   findMessage,
   insertMessage,
@@ -42,7 +47,7 @@ import {
   insertReaction,
   listReactionsForMessages,
 } from '../db/reactions.ts';
-import { findUserById, presentUser } from '../db/users.ts';
+import { findUserById, findUserByUsername, presentUser } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 
@@ -57,6 +62,8 @@ export interface MessageService {
   history(channelId: string, query: MessageHistoryQuery, viewerId: string): MessageListResponse;
   /** Message search across the channels the caller can see, newest first. */
   search(auth: AuthContext, query: SearchQuery): MessageListResponse;
+  /** The caller's own inbox: messages that named them or answered theirs. */
+  mentions(auth: AuthContext, query: MentionQuery): MentionListResponse;
   create(
     auth: AuthContext,
     channelId: string,
@@ -231,6 +238,40 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     return { emoji: `:${row.name}:`, emojiId: row.id };
   }
 
+  /**
+   * Notes who a message is aimed at, so the inbox can list it later without
+   * re-reading anyone's text. A reply to someone counts, and so does naming them;
+   * a message that does both writes a single row, the reply winning. Nobody is
+   * told about their own message, and the stand-in accounts kept for Discord
+   * users are skipped: they can never sign in to read what was collected.
+   */
+  function recordMentions(
+    messageId: string,
+    channelId: string,
+    authorId: string,
+    content: string,
+    replyToId: string | null,
+    createdAt: string,
+  ): void {
+    const targets = new Map<string, 'mention' | 'reply'>();
+
+    if (replyToId) {
+      const parent = findMessage(sqlite, replyToId);
+      const target = parent?.author_id ? findUserById(sqlite, parent.author_id) : null;
+      if (target && target.id !== authorId && !target.discord_id) targets.set(target.id, 'reply');
+    }
+
+    for (const username of listMentionUsernames(content)) {
+      const user = findUserByUsername(sqlite, username);
+      if (!user || user.id === authorId || user.discord_id) continue;
+      if (!targets.has(user.id)) targets.set(user.id, 'mention');
+    }
+
+    for (const [userId, kind] of targets) {
+      insertMention(sqlite, { messageId, userId, channelId, kind, createdAt });
+    }
+  }
+
   function insertWithAttachments(
     channelId: string,
     authorId: string,
@@ -253,16 +294,19 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     }
 
     const id = randomUUID();
+    const postedAt = createdAt ?? new Date().toISOString();
+    const resolvedReplyTo = resolveReplyTo(channelId, replyToId);
     insertMessage(sqlite, {
       id,
       channelId,
       authorId,
       content,
       // Imported history keeps its original Discord timestamp.
-      createdAt: createdAt ?? new Date().toISOString(),
-      replyToId: resolveReplyTo(channelId, replyToId),
+      createdAt: postedAt,
+      replyToId: resolvedReplyTo,
     });
     for (const attachmentId of attachmentIds) attachToMessage(sqlite, attachmentId, id);
+    recordMentions(id, channelId, authorId, content, resolvedReplyTo, postedAt);
 
     // A brand new message has no reactions yet.
     return toMessage(requireMessage(id), attachmentsFor(id), []);
@@ -328,6 +372,19 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     };
   }
 
+  /** Turns a page of mention rows into the inbox entries a client renders. */
+  function renderMentions(rows: MentionRow[], viewerId: string): MentionListResponse {
+    const ids = rows.map((row) => row.id);
+    const byMessage = listAttachmentsForMessages(sqlite, ids);
+    const reactions = listReactionsForMessages(sqlite, ids, viewerId);
+    const mentions: Mention[] = rows.map((row) => ({
+      kind: row.mention_kind === 'reply' ? 'reply' : 'mention',
+      unread: row.mention_unread === 1,
+      message: toMessage(row, byMessage.get(row.id) ?? [], reactions.get(row.id) ?? []),
+    }));
+    return { mentions };
+  }
+
   return {
     history(channelId, query, viewerId) {
       requireChannel(channelId);
@@ -364,6 +421,20 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
         beforeId: query.beforeId,
       });
       return renderPage(rows, auth.user.id);
+    },
+
+    mentions(auth, query) {
+      // Only the channels this member can see are asked about, so a mention in a
+      // channel that has since been locked away cannot be read back here either.
+      const visible = visibleChannels(sqlite, channelAccessFor(sqlite, auth.user.id)).map(
+        (channel) => channel.id,
+      );
+      const rows = listMentions(sqlite, auth.user.id, visible, {
+        limit: query.limit,
+        before: query.before,
+        beforeId: query.beforeId,
+      });
+      return renderMentions(rows, auth.user.id);
     },
 
     create(auth, channelId, content, attachmentIds, replyToId) {

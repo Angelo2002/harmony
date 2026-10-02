@@ -86,6 +86,14 @@ class ChatStore {
   unreadChannelIds = $state<string[]>([]);
   unread = $derived(new Set(this.unreadChannelIds));
   /**
+   * Channels holding an unread mention or reply for this member, which is what
+   * draws the red mark beside a channel. Like `unreadChannelIds` it is per
+   * member and kept by the server, and a channel drops off it exactly when it is
+   * read.
+   */
+  mentionChannelIds = $state<string[]>([]);
+  mention = $derived(new Set(this.mentionChannelIds));
+  /**
    * Bumped when a jump wants the message list to scroll to its end. An explicit
    * signal because replacing the list looks like a prepend to the view, which it
    * deliberately refuses to scroll for.
@@ -136,6 +144,7 @@ class ChatStore {
     this.loadingOlder = false;
     this.highlightedId = null;
     this.unreadChannelIds = [];
+    this.mentionChannelIds = [];
     if (this.#highlightTimer) clearTimeout(this.#highlightTimer);
     this.#highlightTimer = null;
     if (this.#readTimer) clearTimeout(this.#readTimer);
@@ -188,6 +197,7 @@ class ChatStore {
     this.categories = data.categories;
     this.channels = data.channels;
     this.unreadChannelIds = data.unreadChannelIds;
+    this.mentionChannelIds = data.mentionChannelIds;
 
     // Keep the current selection if it still exists. Otherwise open the
     // admin-configured default channel, falling back to the first channel and
@@ -214,6 +224,10 @@ class ChatStore {
   #markRead(channelId: string, soon: boolean): void {
     if (this.unread.has(channelId)) {
       this.unreadChannelIds = this.unreadChannelIds.filter((id) => id !== channelId);
+    }
+    // Reading a channel reads the mentions in it too, so the mark goes with it.
+    if (this.mention.has(channelId)) {
+      this.mentionChannelIds = this.mentionChannelIds.filter((id) => id !== channelId);
     }
     this.#readPending.add(channelId);
 
@@ -317,6 +331,9 @@ class ChatStore {
     this.replyTarget = null;
     this.highlightedId = null;
     this.#clearTyping();
+    // Jumping into a channel is opening it, so it counts as read: this is what
+    // clears a search result's channel and the inbox entry that led here.
+    this.#markRead(channelId, false);
 
     this.loading = true;
     try {
@@ -460,6 +477,17 @@ class ChatStore {
   }
 
   /**
+   * Whether a message is aimed at the signed-in member, by a reply or by name.
+   * It is the same question the sound and the channel mark both ask, so the two
+   * can never disagree about what counts as a mention.
+   */
+  #mentionsMe(message: Message): boolean {
+    const me = session.user;
+    if (!me || message.author?.id === me.id) return false;
+    return mentionsUser(message, me.id, (name) => members.byUsername.get(name.toLowerCase()));
+  }
+
+  /**
    * Plays the sound a new message deserves, if the member wants one. Nothing is
    * played for their own messages, and nothing ever leaves the page: this is the
    * in-app sound, not a device notification.
@@ -470,7 +498,7 @@ class ChatStore {
 
     // A mention is aimed at this person wherever they happen to be looking, so
     // it is worth the louder sound even from another channel.
-    if (mentionsUser(message, me.id, (name) => members.byUsername.get(name.toLowerCase()))) {
+    if (this.#mentionsMe(message)) {
       if (me.notifyMajor) playNotification('major');
       return;
     }
@@ -493,6 +521,17 @@ class ChatStore {
           this.#markRead(message.channelId, true);
         } else if (!this.unread.has(message.channelId)) {
           this.unreadChannelIds = [...this.unreadChannelIds, message.channelId];
+        }
+
+        // A mention aims at this member wherever they are, so it earns the red
+        // mark even in a channel they are not looking at. Reading it clears the
+        // mark, so the open-and-visible case is left to #markRead above.
+        if (
+          !(active && document.visibilityState === 'visible') &&
+          this.#mentionsMe(message) &&
+          !this.mention.has(message.channelId)
+        ) {
+          this.mentionChannelIds = [...this.mentionChannelIds, message.channelId];
         }
 
         if (!active) break;

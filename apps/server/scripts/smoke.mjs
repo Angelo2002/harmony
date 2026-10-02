@@ -2738,6 +2738,116 @@ try {
   await req(`/channels/${secretChannel.json.id}`, { method: 'DELETE', token: ownerToken });
   await req(`/roles/${secretRole.json.id}`, { method: 'DELETE', token: ownerToken });
 
+  // --- Mentions and the inbox ---
+  const mentionChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'mentionroom' },
+  });
+  const mentionChannelId = mentionChannel.json.id;
+  const replyChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'replyroom' },
+  });
+  const replyChannelId = replyChannel.json.id;
+  const postIn = (channelId, token, body) =>
+    req(`/channels/${channelId}/messages`, { method: 'POST', token, body });
+  const inboxFor = (token, query = {}) => req(`/mentions?${new URLSearchParams(query)}`, { token });
+  const channelsFor = (token) => req('/channels', { token });
+
+  // Two messages naming bob, and one from bob that owner replies to. Bob never
+  // posts in mentionroom, so his read marker there stays behind the mentions.
+  await postIn(mentionChannelId, ownerToken, { content: 'hey @bob look at this' });
+  await postIn(mentionChannelId, ownerToken, { content: 'also @bob check the docs' });
+  const bobRoot = await postIn(replyChannelId, bobToken, { content: 'any news?' });
+  await postIn(replyChannelId, ownerToken, { content: 'later', replyToId: bobRoot.json.id });
+  // Neither a self-mention nor an unknown name is a mention of anyone.
+  await postIn(mentionChannelId, ownerToken, { content: 'note @owner to self' });
+  await postIn(mentionChannelId, ownerToken, { content: 'hello @nobodyhere' });
+
+  const bobInbox = (await inboxFor(bobToken)).json.mentions;
+  const bobMentions = bobInbox.filter((entry) => entry.message.channelId === mentionChannelId);
+  const bobReplies = bobInbox.filter((entry) => entry.message.channelId === replyChannelId);
+  check(
+    'name mentions reach the inbox, newest first',
+    bobMentions.length === 2 &&
+      bobMentions[0].message.content === 'also @bob check the docs' &&
+      bobMentions[1].message.content === 'hey @bob look at this' &&
+      bobMentions.every((entry) => entry.kind === 'mention'),
+  );
+  check(
+    'a reply reaches the inbox of the one replied to',
+    bobReplies.length === 1 && bobReplies[0].kind === 'reply' && bobReplies[0].message.content === 'later',
+  );
+  check('an inbox entry in an unread channel starts unread', bobInbox.every((entry) => entry.unread === true));
+  check(
+    'mentioning yourself is not a mention',
+    !(await inboxFor(ownerToken)).json.mentions.some((entry) => entry.message.content.includes('@owner')),
+  );
+  check(
+    'an unknown name is not a mention',
+    !bobInbox.some((entry) => entry.message.content.includes('@nobodyhere')),
+  );
+  const bobChannelList = (await channelsFor(bobToken)).json.mentionChannelIds;
+  check(
+    'a channel holding an unread mention is marked',
+    bobChannelList.includes(mentionChannelId) && bobChannelList.includes(replyChannelId),
+  );
+
+  const mentionPageOne = (await inboxFor(bobToken, { limit: '2' })).json.mentions;
+  const mentionPageTwo = (
+    await inboxFor(bobToken, {
+      limit: '2',
+      before: mentionPageOne.at(-1).message.createdAt,
+      beforeId: mentionPageOne.at(-1).message.id,
+    })
+  ).json.mentions;
+  check(
+    'the inbox pages backwards with the cursor',
+    mentionPageOne.length === 2 &&
+      mentionPageTwo.length === 1 &&
+      !mentionPageOne.some((page) => mentionPageTwo.some((older) => older.message.id === page.message.id)),
+  );
+
+  await req(`/channels/${mentionChannelId}/read`, { method: 'POST', token: bobToken });
+  await req(`/channels/${replyChannelId}/read`, { method: 'POST', token: bobToken });
+  const bobChannelsAfterRead = (await channelsFor(bobToken)).json.mentionChannelIds;
+  check(
+    'reading the channel clears its mention mark',
+    !bobChannelsAfterRead.includes(mentionChannelId) && !bobChannelsAfterRead.includes(replyChannelId),
+  );
+  check(
+    'reading the channel marks its mentions read',
+    (await inboxFor(bobToken)).json.mentions.every((entry) => entry.unread === false),
+  );
+
+  // A deleted message leaves the inbox, though its row is only soft-deleted.
+  await postIn(mentionChannelId, ownerToken, { content: '@bob this will go' });
+  const vanishing = (await inboxFor(bobToken)).json.mentions.find((entry) =>
+    entry.message.content.includes('this will go'),
+  );
+  await req(`/messages/${vanishing.message.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'a deleted mention leaves the inbox',
+    !(await inboxFor(bobToken)).json.mentions.some((entry) => entry.message.content.includes('this will go')),
+  );
+
+  // A locked channel's mention must not show up for someone who cannot see it.
+  const inboxLockRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Inbox' } });
+  const inboxLocked = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'inboxsecret', requiredRoleId: inboxLockRole.json.id },
+  });
+  await postIn(inboxLocked.json.id, ownerToken, { content: 'psst @bob hidden away' });
+  check(
+    'a mention in a channel the member cannot see stays out of the inbox',
+    !(await inboxFor(bobToken)).json.mentions.some((entry) => entry.message.content.includes('hidden away')),
+  );
+  await req(`/channels/${inboxLocked.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${inboxLockRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
   // --- Audit log ---
   check('the audit log needs ManageServer (403)', (await req('/audit', { token: bobToken })).status === 403);
 

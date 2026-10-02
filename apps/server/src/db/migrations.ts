@@ -366,4 +366,34 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 17,
+    name: 'mentions',
+    up(db) {
+      /*
+       * Every message that named or replied to a member, recorded as the message
+       * is written so the inbox can be listed and its badge drawn without ever
+       * scanning message text. Rows follow their message: a hard delete
+       * (retention) takes them along, while a soft delete leaves them for the
+       * message's own deleted filter to hide.
+       *
+       * Like the read marker, this is one member's own list and nobody else's
+       * business: it is not a public record of who was summoned by whom.
+       */
+      db.exec(`
+        CREATE TABLE mentions (
+          message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          /* Denormalized so a per-channel lookup needs no join onto the message. */
+          channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+          /* 'mention' when named, 'reply' when the message answered theirs. */
+          kind       TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (message_id, user_id)
+        );
+        CREATE INDEX idx_mentions_user_created ON mentions(user_id, created_at DESC);
+        CREATE INDEX idx_mentions_user_channel ON mentions(user_id, channel_id);
+      `);
+    },
+  },
 ];

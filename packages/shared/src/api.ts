@@ -1,4 +1,16 @@
-import type { Attachment, AuditEntry, Ban, Category, Channel, Emoji, Invite, Message, Role, User } from './types.ts';
+import type {
+  Attachment,
+  AuditEntry,
+  Ban,
+  Category,
+  Channel,
+  Emoji,
+  Invite,
+  Mention,
+  Message,
+  Role,
+  User,
+} from './types.ts';
 import type { ThemeSettings } from './theme.ts';
 
 /** Response for a successful register or login. */
@@ -35,8 +47,19 @@ export interface ChannelListResponse {
    * unread for one person and read for another.
    */
   unreadChannelIds: string[];
+  /**
+   * Channels holding an unread mention or reply for this member, which is what
+   * puts a red mark beside them. A channel drops off this list exactly when it is
+   * read, so it moves together with `unreadChannelIds`.
+   */
+  mentionChannelIds: string[];
   /** Channel a client should open on load, or null to fall back to the first one. */
   defaultChannelId: string | null;
+}
+
+/** Response for `GET /api/v1/mentions`. */
+export interface MentionListResponse {
+  mentions: Mention[];
 }
 
 /** Response for `GET /api/v1/channels/:id/messages`. */

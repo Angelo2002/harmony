@@ -9,6 +9,7 @@
   import AboutPanel from './components/AboutPanel.svelte';
   import AuthPanel from './components/AuthPanel.svelte';
   import Chat from './components/Chat.svelte';
+  import InboxPanel from './components/InboxPanel.svelte';
   import ProfileCard from './components/ProfileCard.svelte';
   import ProfilePanel from './components/ProfilePanel.svelte';
   import SearchPanel from './components/SearchPanel.svelte';
@@ -75,6 +76,9 @@
   {/if}
   {#if ui.searchOpen}
     <SearchPanel onclose={() => ui.closeSearch()} />
+  {/if}
+  {#if ui.inboxOpen}
+    <InboxPanel onclose={() => ui.closeInbox()} />
   {/if}
   {#if setupOpen}
     <SetupWizard onclose={() => (setupOpen = false)} />

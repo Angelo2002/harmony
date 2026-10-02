@@ -222,6 +222,30 @@ messages that arrived while nobody was looking stayed marked, which is what make
 something. Posting marks a channel read on the server side, since whatever else was waiting there has
 plainly been seen by whoever just wrote in it.
 
+## Mentions and the inbox
+
+A message that names someone with `@username` or replies to them is recorded for that member in a
+`mentions` table as the message is written, one row per message and recipient. The inbox can then be
+listed and the red mark beside a channel drawn without ever scanning message text, and a row follows
+its message: retention's hard delete takes it along, while a soft delete leaves it for the message's
+own deleted filter to hide. A message that both replies to someone and names them is a single entry,
+a reply winning; an edit changes nothing, since a mention counts at the moment it is sent, exactly as
+the notification does.
+
+Like the read marker, an inbox is one member's own list — it is not a public record of who was
+summoned by whom — and it is filtered to the channels the member can see, so a mention in a channel
+that has since been locked away disappears from it. Nothing is collected for a member's own message,
+and nothing is collected for the Discord stand-in accounts, since they can never sign in.
+
+There is deliberately **no second read cursor**. A mention is unread while the channel it landed in
+is unread, so reading the channel — including jumping to the message from the inbox — clears the red
+mark and the entry's unread state together. That is why `mentionChannelIds` in the channel list is
+just `unreadChannelIds` narrowed to the channels that hold one.
+
+Which messages count as a mention is decided by the same parser that renders them, and the inbox uses
+one definition of "aimed at me" throughout: the same check drives the louder notification sound, the
+red channel mark, and what the server records, so they cannot disagree.
+
 ## Notification sounds
 
 Two sounds ship with the client, in `apps/web/public/sounds`: a louder one for a

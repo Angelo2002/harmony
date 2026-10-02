@@ -98,6 +98,16 @@
         <span class="chat-title">{channelGlyph(chat.activeChannel)} {chat.activeChannel.name}</span>
         <button
           type="button"
+          class="inbox-open"
+          class:has-mentions={chat.mentionChannelIds.length > 0}
+          aria-label="Mentions and replies"
+          title="Mentions and replies"
+          onclick={() => ui.openInbox()}
+        >
+          📥
+        </button>
+        <button
+          type="button"
           class="search-open"
           aria-label="Search messages"
           title="Search messages"

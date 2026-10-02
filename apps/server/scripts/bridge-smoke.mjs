@@ -171,6 +171,15 @@ const config = {
 const db = new Database(config);
 const settings = createSettingsService(db.sqlite, { serverName: 'Test', requireInvite: false });
 const hub = new GatewayHub();
+// Record what the gateway broadcasts, so a history import can be shown never to
+// arrive as a live message (which is what used to ring clients' notification
+// sounds for old, already-read mentions on every restart).
+const broadcasts = [];
+const dispatchOriginal = hub.dispatch.bind(hub);
+hub.dispatch = (event, payload, visibility) => {
+  broadcasts.push({ event, payload });
+  dispatchOriginal(event, payload, visibility);
+};
 const audit = createAuditService(db.sqlite);
 const messages = createMessageService(db.sqlite, hub, audit);
 const attachments = createAttachmentService(db.sqlite, config, settings);
@@ -291,6 +300,10 @@ try {
     existsSync(join(config.uploadDir, ingested.attachments[0].hash.slice(0, 2), ingested.attachments[0].hash)),
   );
   check('ingested messages are not mirrored back', transport.state.mirrors.length === mirrorsBeforeIngest);
+  check(
+    'a live discord message is broadcast to clients',
+    broadcasts.some((entry) => entry.event === 'MESSAGE_CREATE' && entry.payload?.content === 'hi harmony'),
+  );
   check(
     'a bridged message resolves a link preview',
     previews.some((entry) => entry.messageId === ingested?.id),
@@ -539,6 +552,14 @@ try {
     importedHistory.find((message) => message.content === 'and a reply')?.replyTo?.content === 'the first ever message',
   );
   check('importing again adds nothing', (await bridge.importChannel(channelId)) === 0);
+  check(
+    'imported history is never broadcast as a live message',
+    !broadcasts.some(
+      (entry) =>
+        entry.event === 'MESSAGE_CREATE' &&
+        (entry.payload?.content === 'the first ever message' || entry.payload?.content === 'and a reply'),
+    ),
+  );
 
   // 7e. Reactions flow back in, and are attributed to a ghost user.
   const targetDiscordId = findBridgeMessageByHarmonyId(db.sqlite, target.id)?.discord_message_id;

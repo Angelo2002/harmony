@@ -71,7 +71,12 @@ export interface MessageService {
     attachmentIds: string[],
     replyToId: string | null,
   ): Message;
-  /** Inserts a message on behalf of the bridge, skipping permission checks. */
+  /**
+   * Inserts a message on behalf of the bridge, skipping permission checks. With
+   * `silent`, the message is stored but never broadcast: a history import is not
+   * a live event, so clients pick it up by fetching history instead of being told
+   * about it as if it just happened.
+   */
   createBridged(
     channelId: string,
     authorId: string,
@@ -79,6 +84,7 @@ export interface MessageService {
     attachmentIds: string[],
     replyToId: string | null,
     createdAt?: string,
+    silent?: boolean,
   ): Message;
   edit(auth: AuthContext, messageId: string, content: string): Message;
   /** Applies a bridged edit, without notifying the outbound listeners. */
@@ -454,12 +460,14 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       return message;
     },
 
-    createBridged(channelId, authorId, content, attachmentIds, replyToId, createdAt) {
+    createBridged(channelId, authorId, content, attachmentIds, replyToId, createdAt, silent = false) {
       requireChannel(channelId);
       const message = insertWithAttachments(channelId, authorId, content, attachmentIds, replyToId, createdAt);
       // Broadcast to clients, but do not announce: this came from Discord and
-      // must not be mirrored straight back.
-      hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
+      // must not be mirrored straight back. A history import is left unspoken:
+      // broadcasting it would let an old, already-read message ring a client's
+      // notification sound as though it had just arrived.
+      if (!silent) hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
       return message;
     },
 

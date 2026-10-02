@@ -102,6 +102,8 @@ class ChatStore {
 
   #gateway = new GatewayClient(GatewayClient.defaultUrl());
   #started = false;
+  /** Whether a READY has already been seen, to tell a first connect from a reconnect. */
+  #connected = false;
   #typingTimer: ReturnType<typeof setInterval> | null = null;
   #highlightTimer: ReturnType<typeof setTimeout> | null = null;
   /** Channels whose read marker is waiting to be sent. */
@@ -133,6 +135,7 @@ class ChatStore {
 
   stop(): void {
     this.#started = false;
+    this.#connected = false;
     this.#gateway.close();
     document.removeEventListener('visibilitychange', this.#onVisibility);
     this.categories = [];
@@ -602,6 +605,14 @@ class ChatStore {
         roster.applyPresence(frame.d as PresenceUpdatePayload);
         break;
       case 'READY':
+        // A reconnect means the socket was away. Anything the bridge backfilled
+        // meanwhile is delivered as fetched history rather than live events, so
+        // pull what changed instead of waiting for the next channel switch.
+        if (this.#connected) {
+          void this.resync();
+          break;
+        }
+        this.#connected = true;
         // Closes the gap between the first roster load and the gateway connecting.
         void roster.load();
         break;

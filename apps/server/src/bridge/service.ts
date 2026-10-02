@@ -587,7 +587,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     }
   }
 
-  async function ingest(message: DiscordIncomingMessage): Promise<boolean> {
+  async function ingest(message: DiscordIncomingMessage, silent = false): Promise<boolean> {
     const active = transport;
     // Ignore bots, including our own mirrored webhook messages.
     if (!active || message.fromBot) return false;
@@ -633,6 +633,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       attachmentIds,
       replyToId,
       message.createdAt,
+      silent,
     );
     insertBridgeMessage(deps.sqlite, {
       harmonyMessageId: created.id,
@@ -669,7 +670,10 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
 
     let imported = 0;
     for (const message of messages) {
-      if (await ingest(message)) imported++;
+      // Imported as history, never as a live event: the messages are old, so
+      // they must not be broadcast or they would ring notifications for content
+      // the clients already have (or already read).
+      if (await ingest(message, true)) imported++;
     }
     if (imported > 0) logger.info('imported discord history', { channelId, imported });
     return imported;

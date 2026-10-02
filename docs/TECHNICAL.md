@@ -190,7 +190,10 @@ channel becomes `#name` on the way in. A reference with no counterpart on the ot
 side is left as plain text, the same as an unknown user mention.
 Linking a channel, or starting the bridge, backfills the Discord channel's recent
 history (bounded, idempotent, oldest first); there is also an **Admin → Bridge**
-button to pull it again on demand.
+button to pull it again on demand. Imported history is stored quietly: it is never
+broadcast to connected clients as a live `MESSAGE_CREATE`, so a backfill can never
+ring a notification sound for a message that was already read. The message itself
+is still there, arriving the ordinary way through history fetches and unread marks.
 
 Two limitations come from mirroring through a single app account: Discord webhooks
 cannot post real replies, so a Harmony reply is mirrored as a quoted line, and

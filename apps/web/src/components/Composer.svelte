@@ -45,7 +45,8 @@
 
   type Trigger =
     | { kind: 'emoji'; start: number; query: string }
-    | { kind: 'mention'; start: number; query: string };
+    | { kind: 'mention'; start: number; query: string }
+    | { kind: 'channel'; start: number; query: string };
 
   /** One row in the autocomplete popup, whichever kind it is. */
   interface Suggestion {
@@ -244,6 +245,14 @@
       return { kind: 'mention', start: caret - query.length - 1, query };
     }
 
+    // A channel name may contain a space, but the query stops at one: typing
+    // `#off` offers `Off Topic` rather than trying to pass the space through.
+    const channel = /(?:^|\s)#([^\s#]{0,63})$/.exec(before);
+    if (channel) {
+      const query = channel[1] ?? '';
+      return { kind: 'channel', start: caret - query.length - 1, query };
+    }
+
     return null;
   }
 
@@ -310,6 +319,25 @@
         imageUrl: `/api/v1/emojis/${emoji.id}`,
         initial: null,
         insert: `:${emoji.name}: `,
+      }));
+    }
+
+    if (trigger.kind === 'channel') {
+      const matches = chat.channels
+        .filter((channel) => channel.name.toLowerCase().includes(needle))
+        .sort((a, b) => {
+          const aPrefix = a.name.toLowerCase().startsWith(needle) ? 0 : 1;
+          const bPrefix = b.name.toLowerCase().startsWith(needle) ? 0 : 1;
+          return aPrefix - bPrefix || a.name.localeCompare(b.name);
+        })
+        .slice(0, maxSuggestions);
+      return matches.map((channel) => ({
+        key: `channel:${channel.id}`,
+        label: `#${channel.name}`,
+        detail: null,
+        imageUrl: null,
+        initial: null,
+        insert: `#${channel.name} `,
       }));
     }
 

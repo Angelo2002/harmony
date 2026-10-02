@@ -351,6 +351,15 @@
         >
           @{segment.user.displayName ?? segment.user.username}
         </button>
+      {:else if segment.type === 'channel'}
+        <button
+          type="button"
+          class="channel-mention"
+          title={`#${segment.channel.name}`}
+          onclick={() => chat.selectChannel(segment.channel.id)}
+        >
+          #{segment.channel.name}
+        </button>
       {:else if segment.type === 'link'}
         <a class="link" href={segment.href} target="_blank" rel="noreferrer noopener">{segment.value}</a>
       {:else if segment.type === 'code'}
@@ -391,8 +400,11 @@
         message.author?.roleColor == null
           ? null
           : `#${message.author.roleColor.toString(16).padStart(6, '0')}`}
-      {@const blocks = parseMessage(message.content, emojis.lookup, (name) =>
-        members.byUsername.get(name.toLowerCase()),
+      {@const blocks = parseMessage(
+        message.content,
+        emojis.lookup,
+        (name) => members.byUsername.get(name.toLowerCase()),
+        chat.channels,
       )}
       {@const mentionsMe = blocks.some(
         (block) =>

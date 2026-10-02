@@ -1,4 +1,4 @@
-import { RESERVED_MENTIONS, USERNAME_PATTERN, cleanUrl, type Emoji, type User } from '@harmony/shared';
+import { RESERVED_MENTIONS, USERNAME_PATTERN, cleanUrl, matchChannelName, type Channel, type Emoji, type User } from '@harmony/shared';
 
 /** Inline emphasis that can apply to a run of text. */
 export interface TextStyles {
@@ -29,6 +29,13 @@ export interface MentionSegment {
   styles?: TextStyles;
 }
 
+export interface ChannelSegment {
+  type: 'channel';
+  value: string;
+  channel: Channel;
+  styles?: TextStyles;
+}
+
 export interface LinkSegment {
   type: 'link';
   value: string;
@@ -44,7 +51,7 @@ export interface CodeSegment {
   styles?: TextStyles;
 }
 
-export type InlineSegment = TextSegment | EmojiSegment | MentionSegment | LinkSegment | CodeSegment;
+export type InlineSegment = TextSegment | EmojiSegment | MentionSegment | ChannelSegment | LinkSegment | CodeSegment;
 
 /** A block-level chunk of a message. Inline content is always inside one. */
 export type MessageBlock =
@@ -110,11 +117,56 @@ function pushText(out: InlineSegment[], value: string, styles: TextStyles): void
   out.push({ type: 'text', value, styles: normalized });
 }
 
+// What may not touch a `#` reference on either side.
+const CHANNEL_NAME_CHAR = /[a-zA-Z0-9_-]/;
+
+/**
+ * Appends a stretch of plain text, splitting out any `#channel` references into
+ * their own segments. A name with a space is handled here rather than in the
+ * grammar, since only the channels that exist can say where a name ends.
+ */
+function emitText(
+  out: InlineSegment[],
+  value: string,
+  styles: TextStyles,
+  channels: readonly Channel[],
+): void {
+  if (channels.length === 0) {
+    pushText(out, value, styles);
+    return;
+  }
+
+  const names = channels.map((channel) => channel.name);
+  let cursor = 0;
+  let index = 0;
+  while (index < value.length) {
+    const hash = value.indexOf('#', index);
+    if (hash === -1) break;
+    const before = hash > 0 ? value[hash - 1] : undefined;
+    if (before !== undefined && CHANNEL_NAME_CHAR.test(before)) {
+      index = hash + 1;
+      continue;
+    }
+    const name = matchChannelName(value.slice(hash + 1), names);
+    const channel = name === null ? undefined : channels.find((entry) => entry.name === name);
+    if (!channel) {
+      index = hash + 1;
+      continue;
+    }
+    pushText(out, value.slice(cursor, hash), styles);
+    out.push({ type: 'channel', value: name ?? channel.name, channel, styles: normalizeStyles(styles) });
+    index = hash + 1 + channel.name.length;
+    cursor = index;
+  }
+  pushText(out, value.slice(cursor), styles);
+}
+
 /** Splits one stretch of text into styled inline segments. */
 function parseInline(
   text: string,
   emojiLookup: Map<string, Emoji>,
   mentionLookup: (username: string) => User | undefined,
+  channels: readonly Channel[],
   styles: TextStyles,
   depth: number,
 ): InlineSegment[] {
@@ -126,15 +178,15 @@ function parseInline(
   let match = pattern.exec(text);
 
   while (match !== null) {
-    if (match.index > cursor) pushText(out, text.slice(cursor, match.index), styles);
+    if (match.index > cursor) emitText(out, text.slice(cursor, match.index), styles, channels);
 
     const group = match.groups ?? {};
     const nested = (inner: string, extra: TextStyles): void => {
-      out.push(...parseInline(inner, emojiLookup, mentionLookup, { ...styles, ...extra }, depth + 1));
+      out.push(...parseInline(inner, emojiLookup, mentionLookup, channels, { ...styles, ...extra }, depth + 1));
     };
 
     if (group.esc !== undefined) {
-      pushText(out, group.esc, styles);
+      emitText(out, group.esc, styles, channels);
     } else if (group.code !== undefined) {
       out.push({ type: 'code', value: group.code, styles: normalizeStyles(styles) });
     } else if (group.bold !== undefined) {
@@ -166,25 +218,25 @@ function parseInline(
     } else if (group.emojiName !== undefined) {
       const emoji = emojiLookup.get(group.emojiName);
       if (emoji) out.push({ type: 'emoji', value: group.emojiName, emoji, styles: normalizeStyles(styles) });
-      else pushText(out, match[0], styles);
+      else emitText(out, match[0], styles, channels);
     } else if (group.mentionName !== undefined) {
       const user = RESERVED_MENTIONS.has(group.mentionName.toLowerCase())
         ? undefined
         : mentionLookup(group.mentionName);
       if (user) out.push({ type: 'mention', value: group.mentionName, user, styles: normalizeStyles(styles) });
-      else pushText(out, match[0], styles);
+      else emitText(out, match[0], styles, channels);
     } else if (group.bareUrl !== undefined) {
       const href = cleanUrl(group.bareUrl);
       out.push({ type: 'link', value: href, href, styles: normalizeStyles(styles) });
       // Anything the cleanup trimmed belongs to the surrounding text.
-      pushText(out, group.bareUrl.slice(href.length), styles);
+      emitText(out, group.bareUrl.slice(href.length), styles, channels);
     }
 
     cursor = match.index + match[0].length;
     match = pattern.exec(text);
   }
 
-  if (cursor < text.length) pushText(out, text.slice(cursor), styles);
+  if (cursor < text.length) emitText(out, text.slice(cursor), styles, channels);
   return out;
 }
 
@@ -203,9 +255,10 @@ export function parseMessage(
   content: string,
   emojiLookup: Map<string, Emoji>,
   mentionLookup: (username: string) => User | undefined,
+  channels: readonly Channel[] = [],
 ): MessageBlock[] {
   const inline = (text: string): InlineSegment[] =>
-    parseInline(text, emojiLookup, mentionLookup, {}, 0);
+    parseInline(text, emojiLookup, mentionLookup, channels, {}, 0);
 
   const lines = content.split('\n');
   const blocks: MessageBlock[] = [];

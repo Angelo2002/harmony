@@ -6,6 +6,7 @@ import type { Metadata } from 'sharp';
 import {
   ALLOWED_IMAGE_TYPES,
   GatewayEvent,
+  rewriteChannelMentions,
   rewriteMentions,
   unwrapSuppressedLinks,
   type BridgeResponse,
@@ -205,6 +206,19 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   }
 
   /**
+   * Discord's `<#id>` channel mention becomes a Harmony `#name` when that channel
+   * is bridged here, so it reads as a channel to click. A mention of a Discord
+   * channel we do not mirror is left alone, the same as an unknown user mention.
+   */
+  function rewriteInboundChannelMentions(content: string): string {
+    if (!content.includes('<#')) return content;
+    return content.replace(/<#(\d+)>/g, (whole, discordId: string) => {
+      const channel = findChannelByDiscordId(deps.sqlite, discordId);
+      return channel ? `#${channel.name}` : whole;
+    });
+  }
+
+  /**
    * Discord webhooks cannot post real replies (Execute Webhook has no
    * message_reference), so a reply is mirrored as a quoted line above the text.
    * Discord renders `> ` as a blockquote, which reads like a reply.
@@ -213,7 +227,8 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     message: Message,
   ): Promise<{ content: string; allowedUserMentions: string[] }> {
     const { text, discordIds } = rewriteOutboundMentions(message.content.trim());
-    const translated = await translateOutboundEmoji(text);
+    const withChannels = rewriteOutboundChannelMentions(text);
+    const translated = await translateOutboundEmoji(withChannels);
     const reply = message.replyTo;
     const content = reply ? `${quoteFor(reply)}\n${translated}`.trim() : translated;
     return { content, allowedUserMentions: discordIds };
@@ -233,6 +248,24 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       return `<@${row.discord_id}>`;
     });
     return { text: rewritten, discordIds };
+  }
+
+  /**
+   * A `#channel` naming a bridged Harmony channel becomes a real Discord channel
+   * mention, `<#id>`, so it reads as a channel and links on the other side. A
+   * reference to a channel with no Discord counterpart is left as plain text.
+   */
+  function rewriteOutboundChannelMentions(text: string): string {
+    const bridged = listChannels(deps.sqlite).filter((channel) => channel.discord_channel_id);
+    if (bridged.length === 0) return text;
+
+    const byName = new Map(
+      bridged.map((channel) => [channel.name.toLowerCase(), channel.discord_channel_id as string]),
+    );
+    return rewriteChannelMentions(text, bridged.map((channel) => channel.name), (name) => {
+      const discordId = byName.get(name.toLowerCase());
+      return discordId ? `<#${discordId}>` : null;
+    });
   }
 
   function quoteFor(reply: MessageReference): string {
@@ -579,7 +612,9 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     // Discord hides the preview of a suppressed link by wrapping it in angle
     // brackets; drop them so the link unfurls here exactly as a typed one does.
     const content = [
-      rewriteInboundMentions(unwrapSuppressedLinks(translateInboundEmoji(message.content)), message.mentions),
+      rewriteInboundChannelMentions(
+        rewriteInboundMentions(unwrapSuppressedLinks(translateInboundEmoji(message.content)), message.mentions),
+      ),
       ...skipped,
     ]
       .filter((part) => part.trim().length > 0)

@@ -5,6 +5,7 @@
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { matchChannelName, rewriteChannelMentions } from '@harmony/shared';
 import { parseMessage } from '../src/lib/message-text.ts';
 import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
@@ -22,19 +23,21 @@ const noEmoji = new Map();
 const noMention = () => undefined;
 
 /** Every inline segment of a message, skipping code blocks. */
-function inline(text, emoji = noEmoji, mention = noMention) {
-  return parseMessage(text, emoji, mention).flatMap((block) => (block.type === 'code' ? [] : block.segments));
+function inline(text, emoji = noEmoji, mention = noMention, channels = []) {
+  return parseMessage(text, emoji, mention, channels).flatMap((block) =>
+    block.type === 'code' ? [] : block.segments,
+  );
 }
 
 /** The concatenated visible text, ignoring styling. */
-function plain(text, emoji = noEmoji, mention = noMention) {
-  return inline(text, emoji, mention)
+function plain(text, emoji = noEmoji, mention = noMention, channels = []) {
+  return inline(text, emoji, mention, channels)
     .map((segment) => segment.value)
     .join('');
 }
 
-function parse(text, emoji = noEmoji, mention = noMention) {
-  return parseMessage(text, emoji, mention);
+function parse(text, emoji = noEmoji, mention = noMention, channels = []) {
+  return parseMessage(text, emoji, mention, channels);
 }
 
 const styled = (text, style, value) =>
@@ -126,6 +129,43 @@ check(
 );
 check('an email is not a mention', plain('me@example.com', noEmoji, mentionOf) === 'me@example.com');
 check('a url is not mistaken for an emoji or mention', inline('https://x.com/:YES:').some((segment) => segment.type === 'link'));
+
+// --- Channel references ---
+// A channel name may contain a space, so a reference is resolved against the
+// names that exist rather than matched by shape; longest wins.
+const channels = [
+  { id: 'c1', name: 'general' },
+  { id: 'c2', name: 'Off Topic' },
+  { id: 'c3', name: 'Off' },
+  { id: 'c4', name: 'dev' },
+];
+const channelIn = (text) => inline(text, noEmoji, noMention, channels).find((segment) => segment.type === 'channel');
+
+check('a channel reference resolves', channelIn('see #general now')?.channel.id === 'c1');
+check('a channel reference is case-insensitive', channelIn('#GENERAL')?.channel.name === 'general');
+check('a spaced channel name resolves whole', channelIn('in #Off Topic please')?.channel.id === 'c2');
+check('the longest channel name wins', channelIn('#Off Topic')?.channel.id === 'c2');
+check('a short name still works on its own', channelIn('#Off')?.channel.id === 'c3');
+check('a name running into a word is not a reference', channelIn('#generalissimo') === undefined);
+check('an unknown channel stays literal', plain('see #nope', noEmoji, noMention, channels) === 'see #nope');
+check('a mid-word hash is not a reference', channelIn('issue#42') === undefined);
+// The `#` (like a mention's `@`) is added at render, so rebuild it to compare.
+const rendered = (text) =>
+  inline(text, noEmoji, noMention, channels)
+    .map((segment) => (segment.type === 'channel' ? `#${segment.value}` : segment.value))
+    .join('');
+check('a channel reference keeps its text', rendered('see #general now') === 'see #general now');
+check(
+  'a channel reference inside code is literal',
+  inline('`#general`', noEmoji, noMention, channels).every((segment) => segment.type !== 'channel'),
+);
+
+check('matchChannelName is case-insensitive', matchChannelName('GENERAL rest', ['general']) === 'general');
+check('matchChannelName needs a boundary', matchChannelName('generalx', ['general']) === null);
+check('matchChannelName prefers the longest', matchChannelName('Off Topic', ['Off', 'Off Topic']) === 'Off Topic');
+check('rewriting maps a known name', rewriteChannelMentions('go #general now', ['general'], () => '<#123>') === 'go <#123> now');
+check('rewriting leaves an unknown name', rewriteChannelMentions('go #nope now', ['general'], () => '<#123>') === 'go #nope now');
+check('rewriting leaves a mid-word hash', rewriteChannelMentions('a#general', ['general'], () => 'X') === 'a#general');
 
 // --- Catching up after being away ---
 // A stand-in shape: mergeLatest only ever compares ids and copies references.

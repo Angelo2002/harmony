@@ -378,6 +378,17 @@ a mention. To render one, resolve the token against the `username` field of ever
 match anyone is plain text. A client may also highlight a message whose mentions include its own
 user id.
 
+A **channel reference** is written `#channel-name`. Unlike a username, a channel name may contain a
+space and is not unique, so a reference is resolved against the channels the reader can see —
+longest name first — rather than matched by shape: `#general` becomes a link to that channel, and a
+token matching no channel stays plain text. A reference inside a code span or code block is literal.
+A channel reference is a pointer rather than a summons, so it never appears in the
+[inbox](#mentions-and-replies) and never plays a notification sound.
+
+When the referenced channel is bridged, [the bridge](#discord-bridge) rewrites `#name` to a real
+Discord channel mention `<#id>` on the way out, and a Discord `<#id>` for a bridged channel back to
+`#name` on the way in. A reference with no counterpart on the other side is left as plain text.
+
 ## REST reference
 
 Unless stated otherwise, request bodies are JSON with `Content-Type: application/json`, and

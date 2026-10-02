@@ -184,6 +184,10 @@ way in, rendering the Harmony emoji of the same name. Reactions work both ways t
 Mentions sync as well: a Discord `<@id>` becomes a Harmony `@username` (creating a
 stand-in account if needed), and mentioning a bridged user in Harmony pings them on
 Discord — only bridged users can ever be pinged, so no stray notification escapes.
+Channel references cross too: a `#name` becomes a real Discord channel mention
+`<#id>` when that channel is bridged here, and a Discord `<#id>` for a bridged
+channel becomes `#name` on the way in. A reference with no counterpart on the other
+side is left as plain text, the same as an unknown user mention.
 Linking a channel, or starting the bridge, backfills the Discord channel's recent
 history (bounded, idempotent, oldest first); there is also an **Admin → Bridge**
 button to pull it again on demand.
@@ -304,7 +308,9 @@ just `unreadChannelIds` narrowed to the channels that hold one.
 
 Which messages count as a mention is decided by the same parser that renders them, and the inbox uses
 one definition of "aimed at me" throughout: the same check drives the louder notification sound, the
-red channel mark, and what the server records, so they cannot disagree.
+red channel mark, and what the server records, so they cannot disagree. A `#channel` reference is
+deliberately not one of these: it is a pointer rather than a summons, so it never reaches an inbox,
+and the row the inbox is built from is only ever written for a person.
 
 ## Notification sounds
 

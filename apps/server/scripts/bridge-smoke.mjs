@@ -664,6 +664,38 @@ try {
     String(mentionMirror?.allowedUserMentions),
   );
 
+  // 7i. Channel mentions cross too, but only for a channel that is bridged
+  // here; a reference with no counterpart on the other side stays plain text.
+  transport.emit({
+    id: 'd7',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    content: 'see <#111> and <#999>',
+    attachments: [],
+    fromBot: false,
+  });
+  await sleep(50);
+  const channelRef = messages
+    .history(channelId, { limit: 50 }, userId)
+    .messages.find((message) => message.content.includes('#general'));
+  check(
+    'a discord channel mention becomes a harmony reference',
+    channelRef?.content === 'see #general and <#999>',
+    String(channelRef?.content),
+  );
+
+  messages.create(auth, channelId, 'move to #general, not #random', [], null);
+  await sleep(50);
+  const channelMirror = transport.state.mirrors.at(-1);
+  check(
+    'a harmony channel mention becomes a discord mention',
+    channelMirror?.content === 'move to <#111>, not #random',
+    String(channelMirror?.content),
+  );
+
   // 8. Bots and webhooks never get ingested.
   const before = messages.history(channelId, { limit: 100 }, userId).messages.length;
   transport.emit({

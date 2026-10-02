@@ -1439,6 +1439,28 @@ button.mention:hover {
   box-shadow: none;
 }
 
+/*
+ * A `#channel` reference. A neutral chip rather than the accent-tinted one a
+ * member mention gets, so the two kinds of reference are told apart at a glance.
+ */
+.channel-mention {
+  margin: 0;
+  padding: 0 0.25rem;
+  border: none;
+  border-radius: var(--h-radius-xs);
+  background: var(--h-bg-raised);
+  color: color-mix(in srgb, var(--h-accent) 45%, var(--h-text));
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.channel-mention:hover:not(:disabled) {
+  background: var(--h-bg-overlay);
+  box-shadow: none;
+}
+
 /* ============================================================
    COMPOSER
    ============================================================ */

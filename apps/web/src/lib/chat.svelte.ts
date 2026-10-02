@@ -28,6 +28,8 @@ const historyPageSize = 50;
 const typingTtlMs = 8000;
 /** How often expired typing indicators are cleared away. */
 const typingSweepMs = 2000;
+/** How long a read marker waits when it rides on incoming messages. */
+const readDebounceMs = 1000;
 
 /** Merges a single reaction event into a message's reaction list. */
 function applyReactionDelta(
@@ -77,6 +79,13 @@ class ChatStore {
   /** The message a search result landed on, flashed briefly. */
   highlightedId = $state<string | null>(null);
   /**
+   * Channels with something this member has not read. It is per member, and the
+   * server is what persists it, so it survives a reload and follows them between
+   * devices.
+   */
+  unreadChannelIds = $state<string[]>([]);
+  unread = $derived(new Set(this.unreadChannelIds));
+  /**
    * Bumped when a jump wants the message list to scroll to its end. An explicit
    * signal because replacing the list looks like a prepend to the view, which it
    * deliberately refuses to scroll for.
@@ -87,6 +96,9 @@ class ChatStore {
   #started = false;
   #typingTimer: ReturnType<typeof setInterval> | null = null;
   #highlightTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Channels whose read marker is waiting to be sent. */
+  #readPending = new Set<string>();
+  #readTimer: ReturnType<typeof setTimeout> | null = null;
   /** Guards the channel-list refresh that a denied channel triggers. */
   #healing = false;
 
@@ -102,6 +114,7 @@ class ChatStore {
     if (this.#started) return;
     this.#started = true;
     this.#gateway.onEvent((frame) => this.#handleEvent(frame));
+    document.addEventListener('visibilitychange', this.#onVisibility);
     await this.loadChannels();
     await emojis.load();
     await gifs.loadFavorites();
@@ -113,6 +126,7 @@ class ChatStore {
   stop(): void {
     this.#started = false;
     this.#gateway.close();
+    document.removeEventListener('visibilitychange', this.#onVisibility);
     this.categories = [];
     this.channels = [];
     this.messages = [];
@@ -121,8 +135,12 @@ class ChatStore {
     this.hasMore = false;
     this.loadingOlder = false;
     this.highlightedId = null;
+    this.unreadChannelIds = [];
     if (this.#highlightTimer) clearTimeout(this.#highlightTimer);
     this.#highlightTimer = null;
+    if (this.#readTimer) clearTimeout(this.#readTimer);
+    this.#readTimer = null;
+    this.#readPending.clear();
     this.#clearTyping();
     roster.reset();
   }
@@ -169,6 +187,7 @@ class ChatStore {
     const data = await api<ChannelListResponse>('/channels');
     this.categories = data.categories;
     this.channels = data.channels;
+    this.unreadChannelIds = data.unreadChannelIds;
 
     // Keep the current selection if it still exists. Otherwise open the
     // admin-configured default channel, falling back to the first channel and
@@ -177,8 +196,61 @@ class ChatStore {
     if (!stillExists) {
       const preferred = this.channels.find((channel) => channel.id === data.defaultChannelId)?.id;
       await this.selectChannel(preferred ?? this.channels[0]?.id ?? null);
+    } else if (this.activeChannelId) {
+      // A refresh can arrive with the open channel marked unread, for instance
+      // after a role change brought it back into view. It is open, so it is read.
+      this.#markRead(this.activeChannelId, false);
     }
   }
+
+  /**
+   * Says the open channel has been read: it stops being marked here at once, and
+   * the server is told, which is what makes it stay read across a reload.
+   *
+   * The telling is coalesced when it rides on incoming messages, since a busy
+   * channel would otherwise mean a request per message, and the same request twice
+   * within a moment is the same request.
+   */
+  #markRead(channelId: string, soon: boolean): void {
+    if (this.unread.has(channelId)) {
+      this.unreadChannelIds = this.unreadChannelIds.filter((id) => id !== channelId);
+    }
+    this.#readPending.add(channelId);
+
+    if (this.#readTimer) {
+      clearTimeout(this.#readTimer);
+      this.#readTimer = null;
+    }
+    if (soon) {
+      this.#readTimer = setTimeout(() => {
+        this.#readTimer = null;
+        this.#flushRead();
+      }, readDebounceMs);
+    } else {
+      this.#flushRead();
+    }
+  }
+
+  #flushRead(): void {
+    const ids = [...this.#readPending];
+    this.#readPending.clear();
+    for (const id of ids) {
+      void api(`/channels/${id}/read`, { method: 'POST' }).catch(() => {
+        // Best effort: opening the channel again marks it once more.
+      });
+    }
+  }
+
+  /**
+   * Coming back to a tab with a channel open means its messages have been seen,
+   * so it stops being marked. Anything that arrived while the tab was out of
+   * sight stayed marked until now.
+   */
+  #onVisibility = (): void => {
+    if (document.visibilityState === 'visible' && this.activeChannelId) {
+      this.#markRead(this.activeChannelId, true);
+    }
+  };
 
   async selectChannel(channelId: string | null): Promise<void> {
     this.activeChannelId = channelId;
@@ -187,6 +259,7 @@ class ChatStore {
     this.loadingOlder = false;
     this.replyTarget = null;
     this.highlightedId = null;
+    if (channelId) this.#markRead(channelId, false);
     this.#clearTyping();
     if (channelId) await this.loadHistory(channelId);
   }
@@ -412,7 +485,17 @@ class ChatStore {
       case 'MESSAGE_CREATE': {
         const message = frame.d as Message;
         this.#notify(message);
-        if (message.channelId !== this.activeChannelId) break;
+
+        const active = message.channelId === this.activeChannelId;
+        // An open channel in a tab nobody is looking at has not really been read,
+        // so only the visible case counts. Coming back to the tab readies it again.
+        if (active && document.visibilityState === 'visible') {
+          this.#markRead(message.channelId, true);
+        } else if (!this.unread.has(message.channelId)) {
+          this.unreadChannelIds = [...this.unreadChannelIds, message.channelId];
+        }
+
+        if (!active) break;
         if (this.messages.some((existing) => existing.id === message.id)) break;
         // A history import can deliver older messages, so insert by timestamp
         // rather than always appending, keeping the list chronological.

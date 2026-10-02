@@ -321,6 +321,7 @@ button.server-name:hover:not(:disabled) {
 
 .channel {
   display: flex;
+  position: relative;
   gap: 0.35rem;
   width: 100%;
   padding: 0.35rem 0.5rem;
@@ -357,6 +358,32 @@ button.server-name:hover:not(:disabled) {
 
 .channel.active .hash {
   color: var(--h-text);
+}
+
+/*
+ * A channel holding something this member has not read reads brighter and carries
+ * a mark down its left edge, the way Discord shows it. The mark is drawn into the
+ * padding so the name does not shift when it appears or goes.
+ */
+.channel.unread {
+  color: var(--h-text);
+  font-weight: 700;
+}
+
+.channel.unread .hash {
+  color: var(--h-text);
+}
+
+.channel.unread::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 3px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--h-text);
+  transform: translateY(-50%);
 }
 
 .user-bar {

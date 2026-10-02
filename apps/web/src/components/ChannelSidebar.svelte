@@ -59,6 +59,7 @@
           <button
             class="channel"
             class:active={channel.id === chat.activeChannelId}
+            class:unread={chat.unread.has(channel.id)}
             type="button"
             onclick={() => selectChannel(channel.id)}
           >
@@ -73,6 +74,7 @@
       <button
         class="channel"
         class:active={channel.id === chat.activeChannelId}
+        class:unread={chat.unread.has(channel.id)}
         type="button"
         onclick={() => selectChannel(channel.id)}
       >

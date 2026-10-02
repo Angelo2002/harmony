@@ -21,6 +21,7 @@ import type { AuditService } from '../audit/service.ts';
 import { assertNotTimedOut } from '../auth/guards.ts';
 import { canAccessChannel, channelAccessFor, visibleChannels } from '../access/service.ts';
 import { attachToMessage, findAttachment, listAttachmentsForMessages } from '../db/attachments.ts';
+import { markChannelRead } from '../db/channel_reads.ts';
 import { findChannel, type ChannelRow } from '../db/channels.ts';
 import { findEmoji } from '../db/emojis.ts';
 import {
@@ -371,6 +372,10 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       assertChannelAccess(auth.user.id, channelId);
       assertSlowmode(auth, channel);
       const message = insertWithAttachments(channelId, auth.user.id, content, attachmentIds, replyToId);
+      // Sending is reading: whatever else was waiting in this channel has been seen
+      // by whoever just posted in it, and a message you sent must never come back as
+      // unread for you.
+      markChannelRead(sqlite, auth.user.id, channelId, message.createdAt);
       announce(message);
       return message;
     },

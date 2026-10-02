@@ -300,6 +300,45 @@ try {
     );
     fanout.ws.close();
 
+    // --- Unread channels ---
+    // Read state is per member, and the server is what keeps it so it survives a
+    // reload and follows somebody between devices.
+    const unreadFor = async (token) => (await req('/channels', { token })).json?.unreadChannelIds ?? [];
+    check(
+      'a channel with messages is unread for somebody who never read it',
+      (await unreadFor(bobToken)).includes(general.id),
+    );
+    check(
+      'but not for whoever posted in it',
+      (await unreadFor(ownerToken)).includes(general.id) === false,
+    );
+    check(
+      'marking a channel read is accepted',
+      (await req(`/channels/${general.id}/read`, { method: 'POST', token: bobToken })).status === 204,
+    );
+    check('and then it is read for that member', (await unreadFor(bobToken)).includes(general.id) === false);
+
+    // A channel nobody has said anything in has nothing to be unread about.
+    const quiet = await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'quiet' } });
+    check(
+      'a channel with no messages is not unread',
+      (await unreadFor(bobToken)).includes(quiet.json.id) === false,
+    );
+    await req(`/channels/${quiet.json.id}`, { method: 'DELETE', token: ownerToken });
+
+    await req(`/channels/${general.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'something new' },
+    });
+    check('a new message makes it unread again', (await unreadFor(bobToken)).includes(general.id));
+    await req(`/channels/${general.id}/read`, { method: 'POST', token: bobToken });
+    check('reading again clears it', (await unreadFor(bobToken)).includes(general.id) === false);
+    check(
+      'a read marker cannot be sent for a channel that does not exist (404)',
+      (await req('/channels/does-not-exist/read', { method: 'POST', token: bobToken })).status === 404,
+    );
+
     // --- Replies ---
     const parent = await req(`/channels/${general.id}/messages`, {
       method: 'POST',
@@ -1256,6 +1295,10 @@ try {
   check(
     'reading a locked channel is refused (403)',
     (await req(`/channels/${staffChannel.json.id}/messages`, { token: bobToken })).status === 403,
+  );
+  check(
+    'marking a locked channel read is refused (403)',
+    (await req(`/channels/${staffChannel.json.id}/read`, { method: 'POST', token: bobToken })).status === 403,
   );
   check(
     'posting to a locked channel is refused (403)',

@@ -200,6 +200,14 @@ export function countMessages(sqlite: DatabaseSync): number {
   return row.count;
 }
 
+/** When the newest message in a channel was sent, or null when it has none. */
+export function newestMessageAt(sqlite: DatabaseSync, channelId: string): string | null {
+  const row = sqlite
+    .prepare('SELECT MAX(created_at) AS newest FROM messages WHERE channel_id = ?')
+    .get(channelId) as { newest: string | null } | undefined;
+  return row?.newest ?? null;
+}
+
 /** Retention removes rows outright; attachments cascade via their foreign key. */
 export function deleteMessagesOlderThan(sqlite: DatabaseSync, before: string): number {
   const result = sqlite.prepare('DELETE FROM messages WHERE created_at < ?').run(before);

@@ -29,6 +29,12 @@ export interface ApiErrorBody {
 export interface ChannelListResponse {
   categories: Category[];
   channels: Channel[];
+  /**
+   * Channels holding messages this member has not read. It lives beside the
+   * channels rather than on them because it is per member: the same channel is
+   * unread for one person and read for another.
+   */
+  unreadChannelIds: string[];
   /** Channel a client should open on load, or null to fall back to the first one. */
   defaultChannelId: string | null;
 }

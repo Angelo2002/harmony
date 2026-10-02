@@ -466,12 +466,30 @@ Invalidates the current session and clears the cookie. Returns `{ "ok": true }`.
 #### `GET /api/v1/channels` — `ViewChannels`
 
 ```json
-{ "categories": [ /* Category */ ], "channels": [ /* Channel */ ], "defaultChannelId": "..." }
+{
+  "categories": [ /* Category */ ],
+  "channels": [ /* Channel */ ],
+  "unreadChannelIds": [ "..." ],
+  "defaultChannelId": "..."
+}
 ```
 
 `defaultChannelId` is the channel the server has configured to open on load, or `null` to fall back
 to the first channel. It is read fresh on every request, so a client sees an admin's change on the
 next load.
+
+`unreadChannelIds` lists the channels holding messages the caller has not read. It is per member —
+the same channel is unread for one person and read for another — which is why it sits beside the
+channels rather than on them. Read state is kept by the server, so it survives a reload and follows a
+member between devices, and it is nobody else's business: it is not a read receipt, and no other
+member can tell what you have seen.
+
+#### `POST /api/v1/channels/:id/read` — `ViewChannels`
+
+Records that the caller has read a channel, up to its newest message rather than to the wall clock,
+so a message arriving in the same moment still counts as new. Returns `204`. Posting a message marks
+its channel read by itself, and a channel with no messages is never unread. `403 channel_forbidden`
+for a locked channel, `404` for one that does not exist.
 
 #### `POST /api/v1/channels` — `ManageChannels`
 

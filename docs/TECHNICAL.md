@@ -198,6 +198,30 @@ grouped file, so the shape the picker relies on is asserted by the text smoke te
 against the package itself, which is what would catch an upgrade changing it into
 an empty list with no error anywhere.
 
+## Unread channels
+
+A channel with something new in it is drawn brighter in the sidebar, with a mark down its left edge.
+The state behind that is one row per member and channel, holding the time of the newest message they
+have seen, and a channel is unread when it holds anything newer.
+
+A **timestamp** rather than a message id, from two constraints. Message ids are random here rather
+than ordered, so "newer than this id" means nothing; and history imported from Discord arrives
+carrying its original timestamps, so a channel linked today pulls in months of old messages at once.
+Against a timestamp, that backfill reads as already seen instead of lighting the whole sidebar up.
+The cost is that a message which is genuinely new but was sent long ago — one bridged in late, after
+the bridge was down — reads as seen too, which is the lesser of the two annoyances.
+
+Read state is the server's, not the browser's, so it survives a reload and follows a member between
+devices. It is also strictly per member: it is not a read receipt, nothing about it is ever shown to
+anybody else, and marking a channel read is refused for a channel the member cannot see.
+
+The client keeps the server up to date in three places. Opening a channel marks it at once. A message
+arriving in the open channel marks it shortly after, coalesced, because a busy channel would
+otherwise mean a request per message. And a tab coming back into view marks the open channel again:
+messages that arrived while nobody was looking stayed marked, which is what makes the mark mean
+something. Posting marks a channel read on the server side, since whatever else was waiting there has
+plainly been seen by whoever just wrote in it.
+
 ## Notification sounds
 
 Two sounds ship with the client, in `apps/web/public/sounds`: a louder one for a

@@ -46,7 +46,9 @@ import {
   updateChannel,
   type ChannelRow,
 } from '../db/channels.ts';
+import { listUnreadChannelIds, markChannelRead } from '../db/channel_reads.ts';
 import type { Database } from '../db/index.ts';
+import { newestMessageAt } from '../db/messages.ts';
 import { findRole } from '../db/roles.ts';
 import { HttpError } from '../http/errors.ts';
 import { createRateLimiter } from '../http/rate-limit.ts';
@@ -108,13 +110,39 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     const auth = requirePermission(request, Permission.ViewChannels);
     // Locked channels and categories are left out rather than listed and refused.
     const access = channelAccessFor(db.sqlite, auth.user.id);
+    const channels = visibleChannels(db.sqlite, access);
     const body: ChannelListResponse = {
       categories: visibleCategories(db.sqlite, access).map(toCategory),
-      channels: visibleChannels(db.sqlite, access).map(toChannel),
+      channels: channels.map(toChannel),
+      // Only the channels just listed are asked about, so a channel this member
+      // cannot see is not even considered, let alone reported as having news.
+      unreadChannelIds: listUnreadChannelIds(
+        db.sqlite,
+        auth.user.id,
+        channels.map((channel) => channel.id),
+      ),
       // Freshly read every time, so a client picks up an admin's change on reload.
       defaultChannelId: settings.get().defaultChannelId,
     };
     return body;
+  });
+
+  /**
+   * Records that the caller has read a channel up to now, which is what clears
+   * the mark beside it in their sidebar. Marking is up to the newest message
+   * rather than to the wall clock, so a message that arrives in the same moment
+   * is still counted as new.
+   */
+  app.post('/api/v1/channels/:id/read', async (request, reply) => {
+    const auth = requirePermission(request, Permission.ViewChannels);
+    const { id } = request.params as { id: string };
+    requireChannelRow(id);
+    if (!canAccessChannel(db.sqlite, channelAccessFor(db.sqlite, auth.user.id), id)) {
+      throw new HttpError(403, 'channel_forbidden', 'You do not have access to that channel.');
+    }
+
+    markChannelRead(db.sqlite, auth.user.id, id, newestMessageAt(db.sqlite, id) ?? new Date().toISOString());
+    return reply.status(204).send();
   });
 
   /** The linked Discord server's channel list, for the import picker. */

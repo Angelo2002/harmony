@@ -343,4 +343,27 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 16,
+    name: 'channel_reads',
+    up(db) {
+      /*
+       * How far each member has read each channel, which is what makes a channel
+       * with something new in it stand out in the sidebar. It is deliberately a
+       * timestamp rather than a message id: ids here are random rather than
+       * ordered, and history imported from Discord arrives with its original
+       * timestamps, so an old import reads as already seen instead of lighting a
+       * channel up with months of backfill. Only the member it belongs to ever
+       * sees it; it is not a read receipt and nobody else can tell.
+       */
+      db.exec(`
+        CREATE TABLE channel_reads (
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+          read_at    TEXT NOT NULL,
+          PRIMARY KEY (user_id, channel_id)
+        );
+      `);
+    },
+  },
 ];

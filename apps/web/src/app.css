@@ -533,6 +533,14 @@ button.server-name:hover:not(:disabled) {
   white-space: nowrap;
 }
 
+/* Marks a member whose account is linked to a Discord account. */
+.roster-linked {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--h-text-muted);
+}
+
 /*
  * The narrow-screen layout, where the sidebar and member list become drawers,
  * lives at the end of this file so it can override the rules above.

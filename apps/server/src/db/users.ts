@@ -69,6 +69,100 @@ export function findUserByDiscordId(sqlite: DatabaseSync, discordId: string): Us
   return (sqlite.prepare('SELECT * FROM users WHERE discord_id = ?').get(discordId) as UserRow | undefined) ?? null;
 }
 
+/** Sets or clears the Discord account a member is linked to. */
+export function setUserDiscordId(sqlite: DatabaseSync, id: string, discordId: string | null): void {
+  sqlite.prepare('UPDATE users SET discord_id = ? WHERE id = ?').run(discordId, id);
+}
+
+/**
+ * Folds one account into another and removes it, so a member and the Discord
+ * stand-in built for them become a single identity.
+ *
+ * Everything the outgoing account authored or carried moves to the survivor
+ * before it is deleted, so nothing is orphaned by the `ON DELETE` rules. The
+ * composite-keyed tables (reactions, roles, saved gifs, read markers, mentions,
+ * bans) can collide where the survivor already holds the same row, so the
+ * duplicates are dropped first and the rest moved.
+ *
+ * The whole thing is one transaction: a half-merged pair of accounts would be
+ * worse than either outcome on its own.
+ */
+export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string): void {
+  sqlite.exec('BEGIN');
+  try {
+    // Plain references first, so the delete below has nothing left to null out.
+    sqlite.prepare('UPDATE messages SET author_id = ? WHERE author_id = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE attachments SET uploader_id = ? WHERE uploader_id = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE audit_log SET actor_id = ? WHERE actor_id = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE audit_log SET target_id = ? WHERE target_id = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE emojis SET created_by = ? WHERE created_by = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE invites SET created_by = ? WHERE created_by = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE bans SET banned_by = ? WHERE banned_by = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE sessions SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
+    // Composite keys: drop the outgoing rows the survivor already shadows.
+    sqlite
+      .prepare(
+        `DELETE FROM reactions
+          WHERE user_id = ?
+            AND EXISTS (SELECT 1 FROM reactions r
+                         WHERE r.message_id = reactions.message_id AND r.user_id = ? AND r.emoji = reactions.emoji)`,
+      )
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE reactions SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
+    sqlite
+      .prepare(
+        `DELETE FROM member_roles
+          WHERE user_id = ?
+            AND EXISTS (SELECT 1 FROM member_roles r
+                         WHERE r.user_id = ? AND r.role_id = member_roles.role_id)`,
+      )
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE member_roles SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
+    sqlite
+      .prepare(
+        `DELETE FROM gif_favorites
+          WHERE user_id = ?
+            AND EXISTS (SELECT 1 FROM gif_favorites f WHERE f.user_id = ? AND f.hash = gif_favorites.hash)`,
+      )
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE gif_favorites SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
+    sqlite
+      .prepare(
+        `DELETE FROM channel_reads
+          WHERE user_id = ?
+            AND EXISTS (SELECT 1 FROM channel_reads r
+                         WHERE r.user_id = ? AND r.channel_id = channel_reads.channel_id)`,
+      )
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE channel_reads SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
+    sqlite
+      .prepare(
+        `DELETE FROM mentions
+          WHERE user_id = ?
+            AND EXISTS (SELECT 1 FROM mentions m WHERE m.user_id = ? AND m.message_id = mentions.message_id)`,
+      )
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE mentions SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
+    // A ban is keyed by user id, so keep the survivor's own and drop the other.
+    sqlite
+      .prepare('DELETE FROM bans WHERE user_id = ? AND EXISTS (SELECT 1 FROM bans WHERE user_id = ?)')
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE bans SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
+    sqlite.prepare('DELETE FROM users WHERE id = ?').run(fromId);
+    sqlite.exec('COMMIT');
+  } catch (error) {
+    sqlite.exec('ROLLBACK');
+    throw error;
+  }
+}
+
 /**
  * Updates the account credentials: the login name and the password hash. Kept
  * apart from `updateUserProfile` because these are the fields an administrator

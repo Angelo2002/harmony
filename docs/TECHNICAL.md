@@ -179,6 +179,32 @@ directly from this instance, outbound avatars need a **Public base URL** set in
 **Admin → Bridge** — the address people use to reach the instance from the
 internet. A `localhost` address will not work. Leave it blank to send names only.
 
+### Linking a Discord account
+
+A stand-in account exists only so Discord's side of a bridge can be shown and
+pinged. When the real person has an account here, an administrator can link the
+two by giving the member a **Discord ID** on their account (**Admin → Members →
+Edit**). The moment that id is on the member's own row, the mention machinery
+already does the right thing: `@username` mirrors out as a real `<@id>` ping,
+and an inbound `<@id>` no longer creates a stand-in but resolves to the member.
+Only the id on the row matters; no separate link table is needed.
+
+The stand-in that usually already exists for that Discord id is then retired
+into the member rather than left beside it. That is the point: without it,
+history would show one person twice, an old stand-in name beside the member's
+own. `mergeUsers` reassigns everything the stand-in authored or carried —
+messages, pictures, reactions, saved gifs, roles, read markers, mentions, bans —
+drops the rows that would collide with the member's own, and deletes the
+stand-in, all in one transaction. The composite-keyed tables are where the care
+is: a reaction both accounts left on the same message, or a role both hold, would
+otherwise trip a primary key, so the duplicate is dropped before the rest move.
+
+Assignment is administrator-only for now, deliberately. Typing a Discord id is
+not proof of owning it, so self-service would let anyone claim someone else's
+Discord history; verifying ownership is the job of sign-in with Discord, which
+is where members will set their own id. An id another member already holds is
+refused, and clearing the link stops future attribution without undoing a merge.
+
 ## Emoji
 
 The picker offers two tabs. **Server** holds the instance's own uploaded emoji and

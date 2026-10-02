@@ -351,10 +351,25 @@ export const adminUpdateUserSchema = z
     displayName: z.string().trim().max(LIMITS.displayName.max).nullable().optional(),
     /** Only ever set by someone else; a password is never returned by the API. */
     password: passwordSchema.optional(),
+    /**
+     * The Discord account to link this member to. An empty string or `null`
+     * clears the link. Only an administrator sets this for now; the id is what
+     * the bridge uses to route that person's Discord messages and pings to them.
+     */
+    discordId: z
+      .string()
+      .trim()
+      .max(32)
+      .refine((value) => value === '' || /^\d{17,20}$/.test(value), 'A Discord id is 17 to 20 digits')
+      .nullable()
+      .optional(),
   })
   .refine(
     (value) =>
-      value.username !== undefined || value.displayName !== undefined || value.password !== undefined,
+      value.username !== undefined ||
+      value.displayName !== undefined ||
+      value.password !== undefined ||
+      value.discordId !== undefined,
     { message: 'Nothing to update.' },
   );
 export type AdminUpdateUserInput = z.infer<typeof adminUpdateUserSchema>;

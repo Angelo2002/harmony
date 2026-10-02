@@ -161,7 +161,7 @@ type User = {
   showTyping: boolean;          // typing indicators on/off for this user
   notifyMajor: boolean;         // in-app sound for a message that mentions this user
   notifyMinor: boolean;         // in-app sound for other messages
-  discordId: string | null;     // set only on Discord stand-in accounts
+  discordId: string | null;     // the Discord account this user is linked to, or that a stand-in represents
 };
 
 type Category = {
@@ -1266,14 +1266,21 @@ managed like anyone else's.
 #### `PATCH /api/v1/members/:userId` — `ManageMembers`
 
 ```json
-{ "username": "new-name", "displayName": "New Name", "password": "a-new-secret" }
+{ "username": "new-name", "displayName": "New Name", "password": "a-new-secret", "discordId": "1398164034464776202" }
 ```
 
-Any subset of the three fields. `username` must be free (`409 username_taken` unless it is already
+Any subset of the fields. `username` must be free (`409 username_taken` unless it is already
 this member's). `displayName` may be `null` or `""` to clear it. Setting `password` ends every session
 and connection the member has, so they sign back in with the new one. Returns
 `{ "user": { /* User */ } }` and fires `MEMBER_UPDATE`; the fields that changed are recorded as a
 `member_update` entry, and a password as a `password_reset` entry.
+
+`discordId` links the member to a Discord account, which is how a member and the Discord stand-in
+built for them become one identity — see [Linking a Discord account](#linking-a-discord-account).
+An empty string or `null` clears the link, and a malformed id (it is 17–20 digits) is
+`400 validation_error`. This field is administrator-only for now, so it is deliberately absent from
+[`PATCH /api/v1/users/@me`](#patch-apiv1usersme--auth): a member cannot set their own, and the
+server strips the field if one is sent.
 
 #### `PUT /api/v1/members/:userId/avatar` — `ManageMembers`
 
@@ -1283,6 +1290,33 @@ and connection the member has, so they sign back in with the new one. Returns
 #### `DELETE /api/v1/members/:userId/avatar` — `ManageMembers`
 
 Clears the member's picture and returns `{ "user": { /* User */ } }`, firing `MEMBER_UPDATE`.
+
+### Linking a Discord account
+
+A member can be linked to a Discord account, so the person on Discord and the member here are one
+identity rather than two. An administrator sets it with `discordId` on
+`PATCH /api/v1/members/:userId`; letting members do it themselves, and verifying that a Discord
+account really belongs to them, is left for sign-in with Discord later.
+
+Linking changes what the bridge does for that person:
+
+- Their `@username` in Harmony mirrors to Discord as a real `<@id>` ping. This already happened for
+  any account carrying a `discordId`, so the mention half needs no new bridge code.
+- New messages and mentions from them on Discord are attributed to the member's own account instead
+  of a fresh stand-in, and their Discord presence feeds the member's `online` flag.
+
+When a stand-in account already exists for that Discord id — the common case, since one is created
+the first time somebody speaks or is mentioned in a bridged channel — it is **retired into the
+member**: everything it authored or carried (messages, pictures, reactions, saved gifs, roles, read
+markers, mentions, bans) is reassigned, the rows that would collide with the member's own are
+dropped, and the stand-in is deleted. The whole thing is one transaction, so the two are never left
+half-merged. The member now shows that Discord history as their own, under their current name and
+picture, and is a single entry in every list.
+
+An id another member already holds is refused with `409 discord_id_taken`. Clearing the link
+(`discordId: null`) stops future attribution but does not undo a merge: the history stays with the
+member. A stand-in account is never the target of a link, since its profile is the bridge's to
+manage (`400 externally_managed`).
 
 ### Moderation
 

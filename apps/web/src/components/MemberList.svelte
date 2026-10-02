@@ -5,6 +5,7 @@
   import { profileCard } from '../lib/profile-card.svelte';
   import { roster } from '../lib/roster.svelte';
   import { ui } from '../lib/ui.svelte';
+  import Icon from './Icon.svelte';
 
   interface Group {
     key: string;
@@ -114,6 +115,9 @@
               <span class="avatar small fallback">{initial(entry.user)}</span>
             {/if}
             <span class="roster-name" style={cssColor(entry.user.roleColor)}>{nameOf(entry)}</span>
+            {#if entry.user.discordId}
+              <span class="roster-linked" title="Linked to a Discord account"><Icon name="link" size={12} /></span>
+            {/if}
           </button>
         {/each}
       </div>

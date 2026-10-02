@@ -10,7 +10,10 @@ import type { Config } from '../config.ts';
 import { hashPassword, verifyPassword } from '../auth/passwords.ts';
 import {
   findUserById,
+  findUserByDiscordId,
   findUserByUsername,
+  mergeUsers,
+  setUserDiscordId,
   updateUserAccount,
   updateUserProfile,
   type UserRow,
@@ -36,8 +39,14 @@ export interface UserService {
    */
   adminUpdate(
     userId: string,
-    patch: { username?: string; displayName?: string | null; password?: string },
+    patch: { username?: string; displayName?: string | null; password?: string; discordId?: string | null },
   ): Promise<UserRow>;
+  /**
+   * Links a member to a Discord account, or clears the link. An id another
+   * member already holds is refused. When a stand-in account exists for the id,
+   * it is retired into this one, so the person has a single identity.
+   */
+  linkDiscord(userId: string, discordId: string | null): UserRow;
   updateAvatar(userId: string, file: { contentType: string; data: Buffer }): Promise<UserRow>;
   /**
    * Stores a normalized avatar from raw bytes. Used by the bridge, where the
@@ -85,6 +94,38 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Links a member to a Discord account, or clears the link.
+   *
+   * An id another member already holds is refused. When a stand-in account was
+   * built for that Discord user, it is retired into this account instead: its
+   * messages, pictures, reactions and the rest move over, so the Discord history
+   * and the member become one identity and the bridge starts attributing that
+   * person's new Discord messages here. Only an administrator does this for now;
+   * verifying ownership through Discord is left for account linking later.
+   */
+  function linkDiscord(userId: string, discordId: string | null): UserRow {
+    const row = require(userId);
+    assertEditable(row);
+
+    const next = discordId?.trim() ? discordId.trim() : null;
+    if (next === null) {
+      setUserDiscordId(sqlite, row.id, null);
+      return require(userId);
+    }
+
+    const existing = findUserByDiscordId(sqlite, next);
+    if (existing?.id === row.id) return row;
+    if (existing && existing.is_bot === 0) {
+      throw new HttpError(409, 'discord_id_taken', 'That Discord account is already linked to another member.');
+    }
+    // A stand-in account for this Discord user: fold it in, then take its id.
+    if (existing) mergeUsers(sqlite, existing.id, row.id);
+
+    setUserDiscordId(sqlite, row.id, next);
+    return require(userId);
   }
 
   return {
@@ -138,8 +179,12 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
         updateUserProfile(sqlite, row.id, { displayName: trimmed.length > 0 ? trimmed : null });
       }
 
+      if (patch.discordId !== undefined) linkDiscord(row.id, patch.discordId);
+
       return require(userId);
     },
+
+    linkDiscord,
 
     async updateAvatar(userId, file) {
       const row = require(userId);

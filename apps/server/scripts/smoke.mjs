@@ -2472,6 +2472,38 @@ try {
     (await req(`/members/${editId}`, { method: 'PATCH', token: ownerToken, body: { username: 'alice' } })).status === 409,
   );
 
+  // Linking a member to a Discord account is the administrator's to set for now;
+  // signing in with Discord and letting members do it themselves comes later.
+  const linkedAccount = await req(`/members/${editId}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { discordId: '123456789012345678' },
+  });
+  check(
+    'an administrator can link a member to a Discord id',
+    linkedAccount.status === 200 && linkedAccount.json?.user?.discordId === '123456789012345678',
+  );
+  check(
+    'a malformed Discord id is refused (400)',
+    (await req(`/members/${editId}`, { method: 'PATCH', token: ownerToken, body: { discordId: 'not-a-number' } })).status ===
+      400,
+  );
+  const selfLink = await req('/users/@me', {
+    method: 'PATCH',
+    token: ownToken,
+    body: { discordId: '999999999999999999' },
+  });
+  check(
+    'a member cannot set their own Discord id',
+    selfLink.status === 400 &&
+      (await req('/auth/me', { token: ownToken })).json?.user?.discordId === '123456789012345678',
+  );
+  check(
+    'an administrator can clear a Discord link',
+    (await req(`/members/${editId}`, { method: 'PATCH', token: ownerToken, body: { discordId: null } })).json?.user
+      ?.discordId === null,
+  );
+
   const beforeReset = await req('/auth/login', {
     method: 'POST',
     body: { username: 'renameduser', password: 'brandnewpass1' },
@@ -2552,6 +2584,71 @@ try {
     ghostEditError?.statusCode === 400,
     String(ghostEditError),
   );
+
+  // Linking a member to a Discord account retires the stand-in built for that
+  // Discord user: its history is reassigned and the stand-in is gone, so the
+  // person is one identity. Exercised on its own database, where no bridge is
+  // needed and a collision can be arranged on purpose.
+  insertUser(ghostStore.sqlite, { id: 'member-1', username: 'memberone', passwordHash: 'x', isOwner: false });
+  insertUser(ghostStore.sqlite, { id: 'member-2', username: 'membertwo', passwordHash: 'x', isOwner: false });
+  ghostStore.sqlite
+    .prepare("INSERT INTO channels (id, name, type, position, created_at) VALUES ('chan-1', 'general', 'text', 0, ?)")
+    .run(new Date().toISOString());
+  insertMessage(ghostStore.sqlite, {
+    id: 'msg-1',
+    channelId: 'chan-1',
+    authorId: 'ghost-account',
+    content: 'bridged hello',
+    createdAt: new Date().toISOString(),
+  });
+  // A role both accounts hold, and a reaction left a second time, so the merge
+  // meets genuine key collisions rather than only empty tables.
+  ghostStore.sqlite
+    .prepare("INSERT INTO roles (id, name, position, permissions, created_at) VALUES ('role-1', 'Fan', 0, '0', ?)")
+    .run(new Date().toISOString());
+  ghostStore.sqlite.prepare("INSERT INTO member_roles (user_id, role_id) VALUES ('ghost-account', 'role-1')").run();
+  ghostStore.sqlite.prepare("INSERT INTO member_roles (user_id, role_id) VALUES ('member-1', 'role-1')").run();
+  ghostStore.sqlite
+    .prepare("INSERT INTO reactions (message_id, user_id, emoji, created_at) VALUES ('msg-1', 'ghost-account', '👍', ?)")
+    .run(new Date().toISOString());
+  ghostStore.sqlite
+    .prepare("INSERT INTO reactions (message_id, user_id, emoji, created_at) VALUES ('msg-1', 'member-1', '👍', ?)")
+    .run(new Date().toISOString());
+
+  let mergeError = null;
+  try {
+    ghostUsers.linkDiscord('member-1', '999999');
+  } catch (error) {
+    mergeError = error;
+  }
+  const linkedMember = ghostStore.sqlite.prepare("SELECT * FROM users WHERE id = 'member-1'").get();
+  const ghostRow = ghostStore.sqlite.prepare("SELECT id FROM users WHERE id = 'ghost-account'").get() ?? null;
+  const movedMessage = ghostStore.sqlite.prepare("SELECT author_id FROM messages WHERE id = 'msg-1'").get();
+  const movedReaction = ghostStore.sqlite.prepare("SELECT user_id FROM reactions WHERE message_id = 'msg-1'").get();
+  const roleRows = ghostStore.sqlite
+    .prepare("SELECT COUNT(*) AS n FROM member_roles WHERE user_id = 'member-1' AND role_id = 'role-1'")
+    .get();
+  check('linking a Discord account retires the stand-in', mergeError === null && ghostRow === null, String(mergeError));
+  check('the member takes the Discord id', linkedMember?.discord_id === '999999');
+  check('the stand-in history becomes the member own', movedMessage?.author_id === 'member-1');
+  check('a reaction moves with it', movedReaction?.user_id === 'member-1');
+  check('a role both held is not duplicated', roleRows?.n === 1);
+
+  // An id another member already holds is refused, and clearing works.
+  ghostUsers.linkDiscord('member-2', '888888');
+  let takenError = null;
+  try {
+    ghostUsers.linkDiscord('member-1', '888888');
+  } catch (error) {
+    takenError = error;
+  }
+  check('linking an id another member holds is refused (409)', takenError?.statusCode === 409, String(takenError));
+  ghostUsers.linkDiscord('member-1', null);
+  check(
+    'clearing a Discord link works',
+    ghostStore.sqlite.prepare("SELECT discord_id FROM users WHERE id = 'member-1'").get()?.discord_id === null,
+  );
+
   ghostStore.close();
   rmSync(ghostDir, { recursive: true, force: true });
 

@@ -128,7 +128,7 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
   // including another administrator, because the flat role model offers no safe
   // alternative and the owner must stay recoverable. Every change is logged.
 
-  /** Sets a member's username, display name and/or password. */
+  /** Sets a member's username, display name, password and/or Discord link. */
   app.patch('/api/v1/members/:userId', async (request) => {
     const auth = requirePermission(request, Permission.ManageMembers);
     const { userId } = request.params as { userId: string };
@@ -137,6 +137,7 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     const fields: string[] = [];
     if (input.username !== undefined) fields.push('username');
     if (input.displayName !== undefined) fields.push('display name');
+    if (input.discordId !== undefined) fields.push('Discord link');
 
     const row = await users.adminUpdate(userId, input);
     if (fields.length > 0) audit.memberUpdated(auth.user.id, userId, fields);

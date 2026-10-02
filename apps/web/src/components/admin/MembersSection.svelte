@@ -26,6 +26,7 @@
   let editUsername = $state('');
   let editDisplayName = $state('');
   let editPassword = $state('');
+  let editDiscordId = $state('');
   let editError = $state<string | null>(null);
   let avatarInput = $state<HTMLInputElement | null>(null);
 
@@ -138,6 +139,7 @@
     editUsername = member.user.username;
     editDisplayName = member.user.displayName ?? '';
     editPassword = '';
+    editDiscordId = member.user.discordId ?? '';
     editError = null;
   }
 
@@ -152,6 +154,8 @@
     const displayName = editDisplayName.trim();
     if (displayName !== (member.user.displayName ?? '')) body.displayName = displayName || null;
     if (editPassword) body.password = editPassword;
+    const discordId = editDiscordId.trim();
+    if (discordId !== (member.user.discordId ?? '')) body.discordId = discordId || null;
 
     if (Object.keys(body).length === 0) {
       editingId = null;
@@ -218,6 +222,7 @@
         <strong>{member.user.displayName ?? member.user.username}</strong>
         {#if member.user.displayName}<span class="muted">@{member.user.username}</span>{/if}
         {#if member.user.isOwner}<span class="badge">owner</span>{/if}
+        {#if member.user.discordId}<span class="badge" title="Linked to a Discord account">Discord</span>{/if}
         {#if canEdit && !member.user.isBot}
           <button
             type="button"
@@ -243,6 +248,15 @@
             New password <span class="muted">(leave blank to keep it)</span>
             <input type="password" bind:value={editPassword} minlength={8} maxlength={200} autocomplete="new-password" />
           </label>
+          <label>
+            Discord ID <span class="muted">(optional)</span>
+            <input
+              bind:value={editDiscordId}
+              inputmode="numeric"
+              autocomplete="off"
+              placeholder="e.g. 1398164034464776202"
+            />
+          </label>
 
           <div class="editor-actions">
             <button type="button" onclick={() => avatarInput?.click()} disabled={busy}>Change picture</button>
@@ -265,6 +279,10 @@
             <button type="button" onclick={() => (editingId = null)}>Cancel</button>
           </div>
           <p class="muted">Saving a new password signs the member out everywhere; tell them the new one.</p>
+          <p class="muted">
+            A Discord ID links the member to their Discord account: their existing Discord messages here become
+            theirs, and mentioning them pings them on Discord. Leave it blank to unlink.
+          </p>
         </form>
       {/if}
 

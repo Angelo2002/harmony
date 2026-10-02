@@ -7,6 +7,7 @@ import type { SettingsService } from '../settings/service.ts';
 export function registerMetaRoutes(app: FastifyInstance, deps: { config: Config; settings: SettingsService }): void {
   app.get('/api/v1/meta', async () => {
     const settings = deps.settings.get();
+    const discord = deps.settings.getDiscordAuth();
     const body: InstanceMeta = {
       name: settings.serverName,
       apiVersion: API_VERSION,
@@ -18,6 +19,11 @@ export function registerMetaRoutes(app: FastifyInstance, deps: { config: Config;
       allowedImageTypes: ALLOWED_IMAGE_TYPES,
       allowedVideoTypes: ALLOWED_VIDEO_TYPES,
       klipyConfigured: settings.klipyConfigured,
+      // Offered only when it is configured, switched on, and reachable from the
+      // internet, since Discord has to be able to call us back.
+      discordAuthEnabled:
+        discord.enabled && discord.clientId !== null && discord.clientSecret !== null &&
+        deps.settings.discordRedirectUri() !== null,
       limits: {
         messageLength: LIMITS.messageLength,
         attachmentsPerMessage: LIMITS.attachmentsPerMessage,

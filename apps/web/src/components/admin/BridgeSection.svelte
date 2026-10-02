@@ -5,6 +5,7 @@
     BridgeResponse,
     Channel,
     ChannelListResponse,
+    DiscordAuthResponse,
     DiscordChannelListResponse,
   } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
@@ -25,6 +26,16 @@
   let message = $state<string | null>(null);
   let busy = $state(false);
 
+  // The optional Discord sign-in integration, configured alongside the bot since
+  // it is the very same Discord application.
+  let discordAuth = $state<DiscordAuthResponse | null>(null);
+  let clientId = $state('');
+  let clientSecret = $state('');
+  let authEnabled = $state(false);
+  let authError = $state<string | null>(null);
+  let authMessage = $state<string | null>(null);
+  let authBusy = $state(false);
+
   function apply(data: BridgeResponse): void {
     status = data;
     enabled = data.enabled;
@@ -35,8 +46,33 @@
     error = cause instanceof ApiError ? cause.message : String(cause);
   }
 
+  function applyAuth(data: DiscordAuthResponse): void {
+    discordAuth = data;
+    clientId = data.clientId ?? '';
+    authEnabled = data.enabled;
+  }
+
+  async function saveDiscordAuth(): Promise<void> {
+    authBusy = true;
+    authError = null;
+    authMessage = null;
+    try {
+      const body: Record<string, unknown> = { clientId: clientId.trim(), enabled: authEnabled };
+      // Blank means "keep the saved secret", the same rule as the bot token.
+      if (clientSecret.trim()) body.clientSecret = clientSecret.trim();
+      applyAuth(await api<DiscordAuthResponse>('/discord/auth', { method: 'PATCH', body: JSON.stringify(body) }));
+      clientSecret = '';
+      authMessage = 'Discord sign-in settings saved.';
+    } catch (cause) {
+      authError = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      authBusy = false;
+    }
+  }
+
   onMount(() => {
     void api<BridgeResponse>('/bridge').then(apply).catch(fail);
+    void api<DiscordAuthResponse>('/discord/auth').then(applyAuth).catch(fail);
     void api<ChannelListResponse>('/channels')
       .then((data) => {
         harmonyChannels = data.channels;
@@ -201,6 +237,59 @@
     {:else}
       <p class="muted">No bot token saved yet.</p>
     {/if}
+  </div>
+
+  <div class="panel">
+    <h2>Sign in with Discord</h2>
+    <p class="muted">
+      Optional, and off by default. Lets members sign in with Discord and connect their account from
+      their profile, proving it is really theirs. It uses the same Discord application as the bot:
+      add the callback URL below under <em>OAuth2 → Redirects</em> in the Discord developer portal,
+      then paste the client id and secret here.
+    </p>
+
+    <form
+      onsubmit={(event) => {
+        event.preventDefault();
+        void saveDiscordAuth();
+      }}
+    >
+      <label>
+        Client ID
+        <input bind:value={clientId} autocomplete="off" placeholder="e.g. 123456789012345678" />
+      </label>
+
+      <label>
+        Client secret
+        {#if discordAuth?.configured}<span class="muted">(saved — leave blank to keep it)</span>{/if}
+        <input
+          type="password"
+          bind:value={clientSecret}
+          autocomplete="off"
+          placeholder={discordAuth?.configured ? '••••••••••••' : 'Paste the client secret'}
+        />
+      </label>
+
+      <label class="checkbox">
+        <input type="checkbox" bind:checked={authEnabled} />
+        Allow members to sign in and link with Discord
+      </label>
+
+      {#if discordAuth?.redirectUri}
+        <p class="muted">Callback URL to register: <code>{discordAuth.redirectUri}</code></p>
+      {:else}
+        <p class="muted">
+          Set a <strong>Public base URL</strong> above first — Discord needs an address it can reach.
+        </p>
+      {/if}
+
+      {#if authError}<p class="form-error">{authError}</p>{/if}
+      {#if authMessage}<p class="ok-text">{authMessage}</p>{/if}
+
+      <div class="editor-actions">
+        <button type="submit" disabled={authBusy}>Save</button>
+      </div>
+    </form>
   </div>
 
   <div class="panel">

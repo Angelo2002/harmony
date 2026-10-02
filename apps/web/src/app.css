@@ -160,6 +160,23 @@ button.link {
   text-decoration: underline;
 }
 
+/* A link dressed as a filled button, for navigations that leave the app. */
+a.button-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: var(--h-radius);
+  background: var(--h-accent);
+  color: var(--h-on-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.button-link:hover {
+  filter: brightness(1.08);
+}
+
 button.link:hover {
   filter: none;
 }
@@ -179,6 +196,65 @@ button.link:hover {
   margin: 1rem 0 0;
   color: var(--h-text-muted);
   font-size: 0.9rem;
+}
+
+/* An "or" rule between the password form and the Discord button. */
+.or {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 1.25rem 0;
+  color: var(--h-text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.or::before,
+.or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--h-hover);
+}
+
+/* The sign-in screen's Discord button fills the form's width. */
+main a.button-link {
+  width: 100%;
+  justify-content: center;
+}
+
+/*
+ * A one-off message from a Discord sign-in round trip, floating over the app at
+ * the top so it shows whether or not anyone is signed in.
+ */
+.notice {
+  position: fixed;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: min(560px, 92vw);
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--h-radius);
+  background: var(--h-bg-elevated);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 45%);
+  font-size: 0.9rem;
+}
+
+.notice.error {
+  border-left: 3px solid var(--h-error);
+}
+
+.notice button {
+  padding: 0;
+  background: none;
+  color: var(--h-accent);
+  font-weight: 500;
+  text-decoration: underline;
 }
 
 .panel {

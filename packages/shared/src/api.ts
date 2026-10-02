@@ -98,6 +98,27 @@ export interface InstanceMeta {
    * its tab. The key itself is never exposed to clients.
    */
   klipyConfigured: boolean;
+  /**
+   * Whether Discord sign-in is offered on the sign-in screen, i.e. OAuth is
+   * configured, switched on, and the instance has a public URL. Off unless an
+   * administrator turns it on.
+   */
+  discordAuthEnabled: boolean;
+}
+
+/** Response for `GET` / `PATCH /api/v1/discord/auth`, for the admin panel. */
+export interface DiscordAuthResponse {
+  /** OAuth2 client id, which is not secret, or null when unconfigured. */
+  clientId: string | null;
+  /** Whether a client id and secret are both saved. The secret is never returned. */
+  configured: boolean;
+  /** Whether members may use Discord sign-in and account linking. */
+  enabled: boolean;
+  /**
+   * The callback URL to register in the Discord developer portal, or null when
+   * the instance has no public base URL set (in which case the flow cannot run).
+   */
+  redirectUri: string | null;
 }
 
 /** Response for `PUT` / `DELETE /api/v1/icon`. */

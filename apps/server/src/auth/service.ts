@@ -35,6 +35,12 @@ export interface AuthContext {
 export interface AuthService {
   register(input: RegisterInput, userAgent: string | null): Promise<AuthResponse>;
   login(input: LoginInput, userAgent: string | null): Promise<AuthResponse>;
+  /**
+   * Issues a session for an account without a password check, for Discord
+   * sign-in where ownership was already proven. Returns null for a banned or
+   * missing account.
+   */
+  sessionForUser(userId: string, userAgent: string | null): AuthResponse | null;
   logout(token: string): void;
   resolveToken(token: string): AuthContext | null;
 }
@@ -108,6 +114,14 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
         throw new HttpError(403, 'account_banned', 'You have been banned from this server.');
       }
 
+      return { user: presentUser(sqlite, row), token: issueSession(row, userAgent) };
+    },
+
+    sessionForUser(userId, userAgent) {
+      const row = findUserById(sqlite, userId);
+      if (!row) return null;
+      // A ban ends every session, so it also blocks signing in this way.
+      if (findBan(sqlite, row.id)) return null;
       return { user: presentUser(sqlite, row), token: issueSession(row, userAgent) };
     },
 

@@ -199,11 +199,23 @@ stand-in, all in one transaction. The composite-keyed tables are where the care
 is: a reaction both accounts left on the same message, or a role both hold, would
 otherwise trip a primary key, so the duplicate is dropped before the rest move.
 
-Assignment is administrator-only for now, deliberately. Typing a Discord id is
-not proof of owning it, so self-service would let anyone claim someone else's
-Discord history; verifying ownership is the job of sign-in with Discord, which
-is where members will set their own id. An id another member already holds is
-refused, and clearing the link stops future attribution without undoing a merge.
+Assignment is administrator-only unless Discord sign-in is turned on, and that
+is deliberate. Typing a Discord id is not proof of owning it, so self-service on
+its own would let anyone claim someone else's Discord history. Discord sign-in
+closes that gap: it is the same authorization-code flow used to log in, and it
+proves the id before `linkDiscord` is called, so a member who connects from their
+profile is genuinely the owner. An id another member already holds is refused, and
+clearing the link stops future attribution without undoing a merge.
+
+Discord sign-in is optional and off by default; a bridge and a sign-in are
+independent, and neither is required to run Harmony. It uses the same Discord
+application as the bot, needs a public base URL to derive its callback, and stores
+its client secret write-only like the bot token. The flow carries a one-time
+`state` and a PKCE verifier held in memory for the few minutes it takes, so a
+forged callback cannot land and a leaked code cannot be exchanged without the
+verifier. Signing in only finds an account that already carries the Discord id; an
+id that only has a stand-in is refused, since a stand-in has no real owner and must
+never be signed into.
 
 ## Emoji
 

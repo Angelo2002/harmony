@@ -40,6 +40,7 @@ code wins — please open an issue.
   - [Instance icon](#instance-icon)
   - [Retention](#retention)
   - [Discord bridge](#discord-bridge)
+  - [Discord sign-in](#discord-sign-in)
 - [The gateway (WebSocket)](#the-gateway-websocket)
 - [Worked example](#worked-example)
 - [Limitations](#limitations)
@@ -414,6 +415,8 @@ Public instance information a client needs before signing in.
   "maxVideoBytes": 20971520,
   "allowedImageTypes": ["image/png", "image/jpeg", "image/gif", "image/webp"],
   "allowedVideoTypes": ["video/mp4"],
+  "klipyConfigured": false,
+  "discordAuthEnabled": false,
   "limits": {
     "messageLength": 4000,
     "attachmentsPerMessage": 10,
@@ -424,6 +427,11 @@ Public instance information a client needs before signing in.
   }
 }
 ```
+
+`discordAuthEnabled` is true only when an administrator has configured Discord sign-in, turned
+it on, and the instance has a public base URL — so it is the switch a client uses to decide whether
+to offer a "Sign in with Discord" button. It is off on a fresh instance. See
+[Discord sign-in](#discord-sign-in).
 
 ### Auth
 
@@ -461,6 +469,48 @@ Invalidates the current session and clears the cookie. Returns `{ "ok": true }`.
 ```json
 { "user": { "...": "..." }, "permissions": "2081" }
 ```
+
+### Discord sign-in
+
+Optional and off by default. When an administrator turns it on, members can sign in with Discord
+and connect their Discord account from their profile. It uses the same Discord application as the
+[bridge](#discord-bridge): register the callback URL shown in **Admin → Bridge** under *OAuth2 →
+Redirects* in the Discord developer portal, then save the client id and secret there.
+
+The flow is OAuth2 authorization code with PKCE and a one-time `state`. Both endpoints below end in
+a browser navigation, so they redirect back into the app with a short outcome code in the query
+string (`?discord=linked`, `?discord_error=taken`, and so on) rather than returning JSON.
+
+#### `GET /api/v1/discord/auth` — `ManageServer`
+
+```json
+{ "clientId": "123", "configured": true, "enabled": true, "redirectUri": "https://…/api/v1/auth/discord/callback" }
+```
+
+#### `PATCH /api/v1/discord/auth` — `ManageServer`
+
+`{ "clientId"?, "clientSecret"?, "enabled"? }`. Omitted fields are left unchanged; an empty string
+clears a saved id or secret. `redirectUri` is null until a public base URL is set on the bridge, and
+the flow cannot run without one. The secret is write-only: it is never returned.
+
+#### `GET /api/v1/auth/discord` — no auth
+
+Starts the flow and redirects to Discord. `intent=link` connects a Discord account to the
+signed-in member and must be started while signed in; the default is `intent=login`. Either way the
+browser leaves the app, so a failure is a redirect back to `/?discord_error=…`.
+
+#### `GET /api/v1/auth/discord/callback` — no auth
+
+Discord's redirect target. For a `link` intent it verifies the account and connects it — the safe,
+ownership-proving path a manually entered id could never be — then redirects to `/?discord=linked`.
+For a `login` intent it signs in the member whose account already carries that Discord id; an id
+with no such account, or one that only has a stand-in, redirects to `/?discord_error=not_linked`
+(sign in normally and connect from the profile first).
+
+#### `DELETE /api/v1/users/@me/discord` — auth
+
+Clears the caller's own Discord link and fires `MEMBER_UPDATE`. What a link merged in stays merged —
+disconnecting only stops future attribution.
 
 ### Channels and categories
 
@@ -1295,8 +1345,9 @@ Clears the member's picture and returns `{ "user": { /* User */ } }`, firing `ME
 
 A member can be linked to a Discord account, so the person on Discord and the member here are one
 identity rather than two. An administrator sets it with `discordId` on
-`PATCH /api/v1/members/:userId`; letting members do it themselves, and verifying that a Discord
-account really belongs to them, is left for sign-in with Discord later.
+`PATCH /api/v1/members/:userId`, and when [Discord sign-in](#discord-sign-in) is switched on a
+member can also connect their own account from their profile — verified by Discord, so it cannot be
+claimed by someone who does not own it.
 
 Linking changes what the bridge does for that person:
 
@@ -1314,9 +1365,9 @@ half-merged. The member now shows that Discord history as their own, under their
 picture, and is a single entry in every list.
 
 An id another member already holds is refused with `409 discord_id_taken`. Clearing the link
-(`discordId: null`) stops future attribution but does not undo a merge: the history stays with the
-member. A stand-in account is never the target of a link, since its profile is the bridge's to
-manage (`400 externally_managed`).
+(`discordId: null`, or `DELETE /api/v1/users/@me/discord` for your own) stops future attribution but
+does not undo a merge: the history stays with the member. A stand-in account is never the target of
+a link, since its profile is the bridge's to manage (`400 externally_managed`).
 
 ### Moderation
 

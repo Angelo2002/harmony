@@ -289,6 +289,22 @@ export const bridgeTestSchema = z.object({
 });
 export type BridgeTestInput = z.infer<typeof bridgeTestSchema>;
 
+/**
+ * The optional Discord sign-in integration. Omitting a field leaves it unchanged;
+ * an empty string clears a saved id or secret.
+ */
+export const updateDiscordAuthSchema = z
+  .object({
+    clientId: z.string().trim().max(64).optional(),
+    clientSecret: z.string().trim().max(200).optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine(
+    (value) => value.clientId !== undefined || value.clientSecret !== undefined || value.enabled !== undefined,
+    { message: 'Nothing to update.' },
+  );
+export type UpdateDiscordAuthInput = z.infer<typeof updateDiscordAuthSchema>;
+
 /** Pull recent Discord history into a bridged channel. */
 export const bridgeImportSchema = z.object({
   channelId: z.string().min(1),

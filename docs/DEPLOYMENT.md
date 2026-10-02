@@ -183,6 +183,27 @@ Do not re-invite the bot to change an intent. Intents are a property of the bot'
 gateway connection rather than a permission, so the toggles apply to the bot you
 already have.
 
+## Discord sign-in (optional)
+
+Members can sign in with Discord and connect their Discord account instead of, or
+alongside, a username and password. It is off by default and uses the same Discord
+application as the bridge:
+
+1. In that application, open **OAuth2 → Redirects** and add the callback URL shown
+   in **Admin → Bridge**, which looks like
+   `https://your-address/api/v1/auth/discord/callback`.
+2. Copy the **Client ID** and **Client Secret** from **OAuth2 → General** into
+   **Admin → Bridge → Sign in with Discord**.
+3. Tick **Allow members to sign in and link with Discord**, and set the public base
+   URL if you have not already. Discord must be able to reach that address, so a
+   `localhost` one will not work.
+
+Signing in only works for an account already connected to that Discord account, so
+a member signs in with their usual password once, connects Discord from their
+profile, and can use Discord sign-in from then on. Connecting also proves the
+account is theirs, which is why a self-service link is safe where a typed id would
+not be. The whole thing is optional and can be switched off again at any time.
+
 ## Installing it as an app
 
 Harmony is a Progressive Web App, so it can be installed to a phone or desktop

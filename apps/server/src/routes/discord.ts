@@ -1,0 +1,137 @@
+import type { FastifyInstance, FastifyReply } from 'fastify';
+import {
+  GatewayEvent,
+  Permission,
+  updateDiscordAuthSchema,
+  type DiscordAuthResponse,
+} from '@harmony/shared';
+import type { Config } from '../config.ts';
+import type { DiscordOAuthService } from '../auth/discord-oauth.ts';
+import type { AuthService } from '../auth/service.ts';
+import { requireAuth, requirePermission } from '../auth/plugin.ts';
+import type { Database } from '../db/index.ts';
+import { findUserByDiscordId } from '../db/users.ts';
+import { setSessionCookie } from '../http/cookies.ts';
+import { HttpError } from '../http/errors.ts';
+import { createRateLimiter } from '../http/rate-limit.ts';
+import { parseBody } from '../http/validation.ts';
+import type { GatewayHub } from '../realtime/hub.ts';
+import type { SettingsService } from '../settings/service.ts';
+import type { UserService } from '../users/service.ts';
+
+export interface DiscordRouteDeps {
+  db: Database;
+  config: Config;
+  settings: SettingsService;
+  oauth: DiscordOAuthService;
+  auth: AuthService;
+  users: UserService;
+  hub: GatewayHub;
+}
+
+export function registerDiscordRoutes(app: FastifyInstance, deps: DiscordRouteDeps): void {
+  // The flow hands control to Discord and back, so a client cannot retry it in a
+  // tight loop; these just blunt an obvious flood.
+  const startLimiter = createRateLimiter({ limit: 30, windowMs: 60_000 });
+  const callbackLimiter = createRateLimiter({ limit: 30, windowMs: 60_000 });
+
+  /** Sends the browser back to the app with a short code the client explains. */
+  function backTo(reply: FastifyReply, params: Record<string, string>): FastifyReply {
+    return reply.redirect(`/?${new URLSearchParams(params).toString()}`);
+  }
+
+  function publicConfig(): DiscordAuthResponse {
+    const auth = deps.settings.getDiscordAuth();
+    return {
+      clientId: auth.clientId,
+      configured: auth.clientId !== null && auth.clientSecret !== null,
+      enabled: auth.enabled,
+      redirectUri: deps.settings.discordRedirectUri(),
+    };
+  }
+
+  /** Admin view of the Discord sign-in settings, and how to finish setting it up. */
+  app.get('/api/v1/discord/auth', async (request) => {
+    requirePermission(request, Permission.ManageServer);
+    return publicConfig();
+  });
+
+  app.patch('/api/v1/discord/auth', async (request) => {
+    requirePermission(request, Permission.ManageServer);
+    const input = parseBody(updateDiscordAuthSchema, request.body);
+    deps.settings.updateDiscordAuth(input);
+    return publicConfig();
+  });
+
+  /**
+   * Starts the Discord flow. `intent=link` connects a Discord account to the
+   * signed-in member; the default is to sign in with it. A browser lands here by
+   * navigation, so failures come back as a redirect rather than a JSON error.
+   */
+  app.get('/api/v1/auth/discord', async (request, reply) => {
+    if (!deps.oauth.enabled()) return backTo(reply, { discord_error: 'disabled' });
+    startLimiter.check(request.ip);
+
+    const intent = (request.query as { intent?: string }).intent === 'link' ? 'link' : 'login';
+    // Linking is a change to an account, so it must be started by its owner.
+    if (intent === 'link' && !request.auth) return backTo(reply, { discord_error: 'not_signed_in' });
+
+    return reply.redirect(deps.oauth.authorizeUrl(intent));
+  });
+
+  /**
+   * Discord sends the member back here. What happens depends on the intent the
+   * flow started with: connect the account, or sign it in. Either way the browser
+   * is then redirected into the app with a code it can explain.
+   */
+  app.get('/api/v1/auth/discord/callback', async (request, reply) => {
+    callbackLimiter.check(request.ip);
+    const query = request.query as { code?: string; state?: string; error?: string };
+
+    // The member pressed "Cancel" on Discord's consent screen, or Discord refused.
+    if (query.error) return backTo(reply, { discord_error: 'denied' });
+    if (!query.code || !query.state) return backTo(reply, { discord_error: 'failed' });
+
+    let result: Awaited<ReturnType<DiscordOAuthService['complete']>>;
+    try {
+      result = await deps.oauth.complete(query.code, query.state);
+    } catch {
+      // Expired state, a refused token exchange, or an unreadable account: all
+      // the same to the member, who can simply try again.
+      return backTo(reply, { discord_error: 'failed' });
+    }
+
+    if (result.intent === 'link') {
+      const auth = request.auth;
+      if (!auth) return backTo(reply, { discord_error: 'not_signed_in' });
+      try {
+        // Ownership is proven by the round trip, so this is the safe path the
+        // manual admin entry could never be.
+        deps.users.linkDiscord(auth.user.id, result.identity.id);
+      } catch (error) {
+        const code = error instanceof HttpError && error.statusCode === 409 ? 'taken' : 'failed';
+        return backTo(reply, { discord_error: code });
+      }
+      deps.hub.dispatch(GatewayEvent.MemberUpdate, { userId: auth.user.id });
+      return backTo(reply, { discord: 'linked' });
+    }
+
+    // Signing in only works for an account that already carries this Discord id.
+    // A stand-in never counts: it has no real owner and must not be logged into.
+    const row = findUserByDiscordId(deps.db.sqlite, result.identity.id);
+    if (!row || row.is_bot === 1) return backTo(reply, { discord_error: 'not_linked' });
+
+    const session = deps.auth.sessionForUser(row.id, request.headers['user-agent'] ?? null);
+    if (!session) return backTo(reply, { discord_error: 'failed' });
+    setSessionCookie(reply, deps.config, session.token);
+    return backTo(reply, { discord: 'signed_in' });
+  });
+
+  /** Clears the caller's own Discord link. What was merged in stays merged. */
+  app.delete('/api/v1/users/@me/discord', async (request, reply) => {
+    const auth = requireAuth(request);
+    deps.users.linkDiscord(auth.user.id, null);
+    deps.hub.dispatch(GatewayEvent.MemberUpdate, { userId: auth.user.id });
+    return reply.status(204).send();
+  });
+}

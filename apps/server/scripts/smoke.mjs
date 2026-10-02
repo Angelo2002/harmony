@@ -3362,6 +3362,80 @@ try {
 
   check('an unreasonable icon size is refused (400)', (await fetch(`${ORIGIN}/api/v1/icons/99999`)).status === 400);
 
+  // --- Discord sign-in (optional, and off by default) ---
+  check(
+    'Discord sign-in settings need ManageServer (403)',
+    (await req('/discord/auth', { token: bobToken })).status === 403,
+  );
+  const discordDefaults = await req('/discord/auth', { token: ownerToken });
+  check(
+    'Discord sign-in is off and unconfigured by default',
+    discordDefaults.json?.configured === false && discordDefaults.json?.enabled === false,
+  );
+  check(
+    'Discord sign-in is not offered in the instance meta by default',
+    (await req('/meta')).json?.discordAuthEnabled === false,
+  );
+
+  // Discord has to be able to call us back, so a public base URL comes first.
+  await req('/bridge', { method: 'PATCH', token: ownerToken, body: { publicBaseUrl: 'https://harmony.test' } });
+  const discordConfigured = await req('/discord/auth', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { clientId: '123456789012345678', clientSecret: 'secret-value', enabled: true },
+  });
+  check(
+    'a configured Discord sign-in exposes its callback URL',
+    discordConfigured.json?.configured === true &&
+      discordConfigured.json?.redirectUri === 'https://harmony.test/api/v1/auth/discord/callback',
+  );
+  check('the client secret is never returned', !('clientSecret' in (discordConfigured.json ?? {})));
+  check(
+    'Discord sign-in is offered in the meta once enabled',
+    (await req('/meta')).json?.discordAuthEnabled === true,
+  );
+
+  // Starting the flow hands the browser to Discord, with PKCE and a state.
+  const discordStart = await fetch(`${BASE}/auth/discord`, { redirect: 'manual' });
+  const discordStartTo = discordStart.headers.get('location') ?? '';
+  check(
+    'starting Discord sign-in redirects to Discord with PKCE',
+    discordStart.status >= 300 &&
+      discordStart.status < 400 &&
+      discordStartTo.startsWith('https://discord.com/oauth2/authorize') &&
+      discordStartTo.includes('client_id=123456789012345678') &&
+      discordStartTo.includes('code_challenge_method=S256'),
+    `${discordStart.status} ${discordStartTo}`,
+  );
+
+  // Linking an account must start from a signed-in member.
+  const anonLink = await fetch(`${BASE}/auth/discord?intent=link`, { redirect: 'manual' });
+  check(
+    'linking Discord without a session sends the browser back to sign in',
+    (anonLink.headers.get('location') ?? '').includes('discord_error=not_signed_in'),
+  );
+
+  // Turning it off takes the whole flow away again.
+  await req('/discord/auth', { method: 'PATCH', token: ownerToken, body: { enabled: false } });
+  const discordDisabled = await fetch(`${BASE}/auth/discord`, { redirect: 'manual' });
+  check(
+    'a disabled Discord sign-in sends the browser back with an error',
+    (discordDisabled.headers.get('location') ?? '').includes('discord_error=disabled') &&
+      (await req('/meta')).json?.discordAuthEnabled === false,
+  );
+
+  // A member can clear their own link from their profile.
+  await req(`/members/${bobId}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { discordId: '666666666666666666' },
+  });
+  check(
+    'a member can clear their own Discord link',
+    (await req('/users/@me/discord', { method: 'DELETE', token: bobToken })).status === 204 &&
+      (await req('/auth/me', { token: bobToken })).json?.user?.discordId === null,
+  );
+
   check('logout succeeds', (await req('/auth/logout', { method: 'POST', cookie: login.cookie })).status === 200);
   check('session is dead after logout (401)', (await req('/auth/me', { cookie: login.cookie })).status === 401);
 } catch (error) {

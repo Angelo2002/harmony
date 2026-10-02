@@ -3,6 +3,7 @@
   import { ApiError, api } from '../lib/api';
   import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
+  import Icon from './Icon.svelte';
 
   let mode = $state<'login' | 'register'>('login');
   let username = $state('');
@@ -95,4 +96,11 @@
       <button type="button" class="link" onclick={() => switchMode('login')}>Log in</button>
     {/if}
   </p>
+
+  {#if meta.discordAuthEnabled}
+    <p class="or"><span>or</span></p>
+    <a class="button-link" href="/api/v1/auth/discord">
+      <Icon name="link" size={16} /> Sign in with Discord
+    </a>
+  {/if}
 </main>

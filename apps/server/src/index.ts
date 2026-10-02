@@ -13,6 +13,7 @@ import { Database } from './db/index.ts';
 import { countUsers } from './db/users.ts';
 import { canSeeResource, channelAccessFor } from './access/service.ts';
 import { createAuthService } from './auth/service.ts';
+import { createDiscordOAuthService } from './auth/discord-oauth.ts';
 import { registerAuth } from './auth/plugin.ts';
 import { createAuditService } from './audit/service.ts';
 import { createSettingsService } from './settings/service.ts';
@@ -38,6 +39,7 @@ import { registerHealthRoutes } from './routes/health.ts';
 import { registerMetaRoutes } from './routes/meta.ts';
 import { registerManifestRoutes } from './routes/manifest.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
+import { registerDiscordRoutes } from './routes/discord.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
 import { registerIconRoutes } from './routes/icon.ts';
 import { registerRoleRoutes } from './routes/roles.ts';
@@ -79,6 +81,7 @@ const settingsService = createSettingsService(db.sqlite, {
   setupCompleted: false,
 });
 const authService = createAuthService(db.sqlite, config, settingsService);
+const discordOAuth = createDiscordOAuthService(settingsService);
 const auditService = createAuditService(db.sqlite);
 const attachmentService = createAttachmentService(db.sqlite, config, settingsService);
 const emojiService = createEmojiService(db.sqlite, config);
@@ -185,6 +188,15 @@ registerHealthRoutes(app, db);
 registerMetaRoutes(app, { config, settings: settingsService });
 registerManifestRoutes(app, { settings: settingsService, icon: iconService });
 registerAuthRoutes(app, { service: authService, config });
+registerDiscordRoutes(app, {
+  db,
+  config,
+  settings: settingsService,
+  oauth: discordOAuth,
+  auth: authService,
+  users: userService,
+  hub,
+});
 registerSettingsRoutes(app, { settings: settingsService, db });
 registerIconRoutes(app, { icon: iconService });
 registerRetentionRoutes(app, { settings: settingsService, pruner });

@@ -71,6 +71,20 @@ export interface BridgePublicSettings {
   publicBaseUrl: string | null;
 }
 
+/**
+ * The optional Discord sign-in integration. Both the id and secret are needed
+ * before it can be switched on, and it is off unless an owner turns it on; the
+ * whole bridge is optional anyway, and this is a separate concern from it.
+ */
+export interface DiscordAuthSettings {
+  /** OAuth2 client id, or null when unconfigured. Not secret. */
+  clientId: string | null;
+  /** OAuth2 client secret, or null when unconfigured. Never leaves the server. */
+  clientSecret: string | null;
+  /** Whether sign-in and linking are switched on. Off by default. */
+  enabled: boolean;
+}
+
 export interface SettingsService {
   get(): ServerSettings;
   update(patch: ServerSettingsUpdate): ServerSettings;
@@ -79,6 +93,14 @@ export interface SettingsService {
   getBridge(): BridgeSettings;
   getBridgePublic(): BridgePublicSettings;
   updateBridge(patch: { token?: string; enabled?: boolean; publicBaseUrl?: string | null }): BridgePublicSettings;
+  getDiscordAuth(): DiscordAuthSettings;
+  updateDiscordAuth(patch: { clientId?: string; clientSecret?: string; enabled?: boolean }): DiscordAuthSettings;
+  /**
+   * The callback URL to register with Discord, or null when the instance has no
+   * public base URL. The flow cannot run without one, since Discord must be able
+   * to reach us.
+   */
+  discordRedirectUri(): string | null;
   /** API key for the hosted gif service, or null when none is configured. */
   getKlipyKey(): string | null;
   /** Content hash of the uploaded server icon, or null for the built-in default. */
@@ -104,6 +126,9 @@ const KEY_STORAGE_TARGET = 'storage_target_bytes';
 const KEY_DISCORD_TOKEN = 'discord_bot_token';
 const KEY_BRIDGE_ENABLED = 'bridge_enabled';
 const KEY_BRIDGE_PUBLIC_URL = 'bridge_public_base_url';
+const KEY_DISCORD_CLIENT_ID = 'discord_oauth_client_id';
+const KEY_DISCORD_CLIENT_SECRET = 'discord_oauth_client_secret';
+const KEY_DISCORD_AUTH_ENABLED = 'discord_oauth_enabled';
 const KEY_ICON_HASH = 'instance_icon_hash';
 const KEY_IMAGE_BYTES = 'upload_image_bytes';
 const KEY_VIDEO_BYTES = 'upload_video_bytes';
@@ -251,11 +276,29 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: SettingsDe
     };
   }
 
+  function getDiscordAuth(): DiscordAuthSettings {
+    const stored = readAllSettings(sqlite);
+    const enabled = stored.get(KEY_DISCORD_AUTH_ENABLED);
+    return {
+      clientId: parseStringOrNull(stored.get(KEY_DISCORD_CLIENT_ID)),
+      clientSecret: parseStringOrNull(stored.get(KEY_DISCORD_CLIENT_SECRET)),
+      enabled: enabled ? parseBoolean(enabled, false) : false,
+    };
+  }
+
+  function discordRedirectUri(): string | null {
+    const base = getBridge().publicBaseUrl;
+    if (!base) return null;
+    return `${base.replace(/\/+$/, '')}/api/v1/auth/discord/callback`;
+  }
+
   return {
     get,
     getRetention,
     getBridge,
     getBridgePublic,
+    getDiscordAuth,
+    discordRedirectUri,
 
     getIconHash() {
       return parseStringOrNull(readAllSettings(sqlite).get(KEY_ICON_HASH));
@@ -349,6 +392,21 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: SettingsDe
         writeSetting(sqlite, KEY_BRIDGE_PUBLIC_URL, JSON.stringify(trimmed.length > 0 ? trimmed : null));
       }
       return getBridgePublic();
+    },
+
+    updateDiscordAuth(patch) {
+      if (patch.clientId !== undefined) {
+        const trimmed = patch.clientId.trim();
+        writeSetting(sqlite, KEY_DISCORD_CLIENT_ID, JSON.stringify(trimmed.length > 0 ? trimmed : null));
+      }
+      if (patch.clientSecret !== undefined) {
+        const trimmed = patch.clientSecret.trim();
+        writeSetting(sqlite, KEY_DISCORD_CLIENT_SECRET, JSON.stringify(trimmed.length > 0 ? trimmed : null));
+      }
+      if (patch.enabled !== undefined) {
+        writeSetting(sqlite, KEY_DISCORD_AUTH_ENABLED, JSON.stringify(patch.enabled));
+      }
+      return getDiscordAuth();
     },
   };
 }

@@ -2,8 +2,10 @@
   import { ALLOWED_IMAGE_TYPES, LIMITS, type MeResponse } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
   import { avatarUrl, initial } from '../lib/avatar';
+  import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
   import { ui } from '../lib/ui.svelte';
+  import Icon from './Icon.svelte';
 
   const acceptAttribute = ALLOWED_IMAGE_TYPES.join(',');
 
@@ -26,6 +28,10 @@
   let passwordError = $state<string | null>(null);
   let passwordMessage = $state<string | null>(null);
   let changingPassword = $state(false);
+
+  let discordBusy = $state(false);
+  let discordError = $state<string | null>(null);
+  let discordMessage = $state<string | null>(null);
 
   const picture = $derived(avatarUrl(session.user));
 
@@ -126,6 +132,21 @@
     }
   }
 
+  async function disconnectDiscord(): Promise<void> {
+    discordBusy = true;
+    discordError = null;
+    discordMessage = null;
+    try {
+      await api('/users/@me/discord', { method: 'DELETE' });
+      apply(await api<MeResponse>('/auth/me'));
+      discordMessage = 'Discord disconnected.';
+    } catch (cause) {
+      discordError = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      discordBusy = false;
+    }
+  }
+
   async function changePassword(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     passwordError = null;
@@ -211,6 +232,34 @@
             <button type="submit" disabled={busy}>Save</button>
           </div>
         </form>
+
+        <div class="panel">
+          <h2>Discord</h2>
+          {#if session.user?.discordId}
+            <p>Connected to <code>{session.user.discordId}</code>.</p>
+            <p class="muted">
+              You are pinged on Discord when someone mentions you here, and your Discord messages
+              appear under this account.
+            </p>
+            <div class="editor-actions">
+              <button type="button" class="danger" onclick={disconnectDiscord} disabled={discordBusy}>
+                Disconnect
+              </button>
+            </div>
+          {:else if meta.discordAuthEnabled}
+            <p class="muted">
+              Connect your Discord account so mentions here reach you there, and your Discord
+              messages appear under this account.
+            </p>
+            <a class="button-link" href="/api/v1/auth/discord?intent=link">
+              <Icon name="link" size={16} /> Connect Discord
+            </a>
+          {:else}
+            <p class="muted">An administrator can link your Discord account to this one.</p>
+          {/if}
+          {#if discordError}<p class="form-error">{discordError}</p>{/if}
+          {#if discordMessage}<p class="ok-text">{discordMessage}</p>{/if}
+        </div>
       {:else if tab === 'notifications'}
         <h3>Notifications</h3>
 

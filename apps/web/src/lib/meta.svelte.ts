@@ -26,6 +26,11 @@ class MetaState {
     return this.data?.requireInvite ?? false;
   }
 
+  /** Whether Discord sign-in is offered, which an admin turns on when configured. */
+  get discordAuthEnabled(): boolean {
+    return this.data?.discordAuthEnabled ?? false;
+  }
+
   /**
    * The instance icon: the uploaded one when there is one, otherwise the default
    * bundled with the web client. The hash goes in the query so a replaced icon

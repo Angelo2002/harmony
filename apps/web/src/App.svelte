@@ -17,11 +17,28 @@
 
   let loading = $state(true);
   let setupOpen = $state(false);
+  /** A one-off message about a Discord sign-in round trip, shown then dismissible. */
+  let notice = $state<{ text: string; kind: 'ok' | 'error' } | null>(null);
   /**
    * The owner whose setup has already been looked up. A plain variable, not
    * `$state`: it is bookkeeping for the effect below, not something to render.
    */
   let setupCheckedFor: string | null = null;
+
+  // What the callback's short codes mean to a person, in the UI's own words.
+  const DISCORD_OK: Record<string, string> = {
+    linked: 'Discord account connected.',
+    signed_in: 'Signed in with Discord.',
+  };
+  const DISCORD_ERROR: Record<string, string> = {
+    disabled: 'Discord sign-in is turned off on this instance.',
+    not_signed_in: 'Sign in first, then connect Discord from your profile.',
+    taken: 'That Discord account is already linked to another member.',
+    not_linked:
+      'That Discord account is not connected to a Harmony account yet. Sign in and connect it from your profile.',
+    denied: 'Discord sign-in was cancelled.',
+    failed: 'Discord sign-in could not be completed. Please try again.',
+  };
 
   onMount(async () => {
     const metaPromise = meta.load();
@@ -34,6 +51,18 @@
     }
     await metaPromise;
     loading = false;
+
+    // The Discord callback lands here by navigation, so its outcome is a query
+    // parameter. Read it once, then strip it so a reload does not replay it.
+    const params = new URLSearchParams(window.location.search);
+    const ok = params.get('discord');
+    const error = params.get('discord_error');
+    if (ok || error) {
+      notice = error
+        ? { text: DISCORD_ERROR[error] ?? 'Discord sign-in failed.', kind: 'error' }
+        : { text: DISCORD_OK[ok ?? ''] ?? 'Discord connected.', kind: 'ok' };
+      window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+    }
   });
 
   /*
@@ -60,6 +89,13 @@
       });
   });
 </script>
+
+{#if notice}
+  <div class="notice" class:error={notice.kind === 'error'} role="status">
+    <span>{notice.text}</span>
+    <button type="button" onclick={() => (notice = null)}>Dismiss</button>
+  </div>
+{/if}
 
 {#if loading}
   <main><p class="muted">Loading…</p></main>

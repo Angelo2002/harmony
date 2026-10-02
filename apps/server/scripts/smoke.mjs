@@ -2945,6 +2945,20 @@ try {
   await req(`/channels/${inboxLocked.json.id}`, { method: 'DELETE', token: ownerToken });
   await req(`/roles/${inboxLockRole.json.id}`, { method: 'DELETE', token: ownerToken });
 
+  // A member linked to a Discord account is still a member. Only stand-in
+  // accounts are skipped, so a link must not stop mentions reaching them.
+  await req(`/members/${bobId}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { discordId: '111222333444555666' },
+  });
+  await postIn(mentionChannelId, ownerToken, { content: 'psst @bob linked ping' });
+  check(
+    'a mention reaches a member who is linked to Discord',
+    (await inboxFor(bobToken)).json.mentions.some((entry) => entry.message.content.includes('linked ping')),
+  );
+  await req(`/members/${bobId}`, { method: 'PATCH', token: ownerToken, body: { discordId: null } });
+
   // --- Audit log ---
   check('the audit log needs ManageServer (403)', (await req('/audit', { token: bobToken })).status === 403);
 

@@ -244,6 +244,9 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
    * a message that does both writes a single row, the reply winning. Nobody is
    * told about their own message, and the stand-in accounts kept for Discord
    * users are skipped: they can never sign in to read what was collected.
+   *
+   * The skip is on `is_bot`, not on having a Discord id: a real member linked to a
+   * Discord account also carries one, and they are every bit as much a member.
    */
   function recordMentions(
     messageId: string,
@@ -258,12 +261,12 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     if (replyToId) {
       const parent = findMessage(sqlite, replyToId);
       const target = parent?.author_id ? findUserById(sqlite, parent.author_id) : null;
-      if (target && target.id !== authorId && !target.discord_id) targets.set(target.id, 'reply');
+      if (target && target.id !== authorId && target.is_bot === 0) targets.set(target.id, 'reply');
     }
 
     for (const username of listMentionUsernames(content)) {
       const user = findUserByUsername(sqlite, username);
-      if (!user || user.id === authorId || user.discord_id) continue;
+      if (!user || user.id === authorId || user.is_bot === 1) continue;
       if (!targets.has(user.id)) targets.set(user.id, 'mention');
     }
 

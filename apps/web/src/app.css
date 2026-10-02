@@ -3122,10 +3122,13 @@ button.roster-member:hover {
   box-shadow: none;
 }
 
+/*
+ * A fixed frame, so switching tabs (Profile, Notifications, Password) does not
+ * resize the panel and the footer stays put. Tall content scrolls in the body.
+ */
 .profile-panel {
   width: min(640px, 96vw);
-  height: auto;
-  max-height: 94vh;
+  height: min(680px, 94vh);
 }
 
 .profile-avatar {

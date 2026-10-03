@@ -1615,6 +1615,24 @@ button.mention:hover {
 
 /* ---- Attachments ---- */
 
+.stickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.sticker {
+  display: block;
+  line-height: 0;
+}
+
+.sticker img {
+  width: 10rem;
+  height: 10rem;
+  object-fit: contain;
+}
+
 .attachments {
   display: flex;
   flex-direction: column;

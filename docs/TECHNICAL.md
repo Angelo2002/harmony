@@ -284,6 +284,23 @@ when it was last carried by a bridged message or reaction, and the
 `externalEmojiRetentionDays` rule ages one out once that goes stale — the only
 rule that touches them. The instance's own emoji are kept whatever it says.
 
+## Stickers
+
+Harmony has no stickers of its own, on purpose: Discord webhooks cannot send them,
+so there is nothing to mirror out, and a native picker would be half a feature. But
+people send them constantly, so a bridged message that carries one is made to show
+it. A sticker is not an emoji — it is large, message-level, and cannot be reacted
+with — nor quite an attachment, since the same sticker recurs across messages. It
+is its own small thing: a shared asset keyed by the Discord sticker id, with the
+bytes in the blob store and a `message_stickers` link to each message that sent it,
+the same shape as attachments. Serving is by id, and `stickerRetentionDays` ages
+one out once no bridged message has carried it, exactly like learned emoji.
+
+Discord serves PNG and APNG stickers as `.png` and GIF ones as `.gif`; both are
+stored as pictures. Lottie stickers are vector graphics with no bitmap form, so
+they cannot be an `<img>` and are kept as the sticker's name in the message text
+instead — the same choice unmirrorable attachments make when they become links.
+
 ## Unread channels
 
 A channel with something new in it is drawn brighter in the sidebar, with a mark down its left edge.

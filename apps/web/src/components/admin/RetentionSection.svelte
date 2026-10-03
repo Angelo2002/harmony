@@ -12,6 +12,7 @@
   let auditDays = $state('');
   let favoriteDays = $state('');
   let emojiDays = $state('');
+  let stickerDays = $state('');
   let limitGb = $state('');
   let targetGb = $state('');
   let usage = $state<RetentionResponse['usage'] | null>(null);
@@ -32,6 +33,7 @@
     favoriteDays = data.settings.favoriteRetentionDays == null ? '' : String(data.settings.favoriteRetentionDays);
     emojiDays =
       data.settings.externalEmojiRetentionDays == null ? '' : String(data.settings.externalEmojiRetentionDays);
+    stickerDays = data.settings.stickerRetentionDays == null ? '' : String(data.settings.stickerRetentionDays);
     limitGb = data.settings.storageLimitBytes == null ? '' : String(round2(data.settings.storageLimitBytes / GB));
     targetGb = data.settings.storageTargetBytes == null ? '' : String(round2(data.settings.storageTargetBytes / GB));
     usage = data.usage;
@@ -74,6 +76,7 @@
             auditRetentionDays: toDays(auditDays),
             favoriteRetentionDays: toDays(favoriteDays),
             externalEmojiRetentionDays: toDays(emojiDays),
+            stickerRetentionDays: toDays(stickerDays),
             storageLimitBytes: toBytes(limitGb),
             storageTargetBytes: toBytes(targetGb),
           }),
@@ -139,6 +142,11 @@
     </label>
 
     <label>
+      Delete stickers learned from Discord unused for (days)
+      <input bind:value={stickerDays} placeholder="off" inputmode="numeric" />
+    </label>
+
+    <label>
       Emergency clean-up when media exceeds (GB)
       <input bind:value={limitGb} placeholder="off" inputmode="decimal" />
     </label>
@@ -169,7 +177,7 @@
           Last clean-up {new Date(lastRun.ranAt).toLocaleString()}: {lastRun.deletedAttachments} attachment(s),
           {lastRun.deletedMessages} message(s), {lastRun.deletedAuditEntries} log entry/entries,
           {lastRun.deletedFavorites} saved gif(s), {lastRun.deletedExternalEmojis} learned emoji,
-          {lastRun.deletedBlobs} file(s) — freed
+          {lastRun.deletedStickers} sticker(s), {lastRun.deletedBlobs} file(s) — freed
           {formatBytes(lastRun.freedBytes)}.
         </p>
       {:else}

@@ -108,6 +108,19 @@ export interface Attachment {
 }
 
 /**
+ * A Discord sticker learned from a bridged message. It is a shared asset rather
+ * than a per-message upload: one row stands behind every message that sent it,
+ * served by id and aged out once no bridged message has carried it for a while.
+ * Harmony has no stickers of its own, so a sticker only ever arrives this way.
+ */
+export interface Sticker {
+  id: string;
+  name: string;
+  hash: string;
+  animated: boolean;
+}
+
+/**
  * A basic link preview unfurled from a message's first embeddable URL. Only text
  * is kept: no remote images are fetched or stored.
  */
@@ -201,6 +214,8 @@ export interface Message {
   createdAt: IsoTimestamp;
   editedAt: IsoTimestamp | null;
   attachments: Attachment[];
+  /** Stickers sent with the message. Only Discord has these, so usually empty. */
+  stickers: Sticker[];
   /** The message this one replies to, or null for a normal message. */
   replyTo: MessageReference | null;
   /** Distinct emoji reactions, aggregated. Empty when there are none. */

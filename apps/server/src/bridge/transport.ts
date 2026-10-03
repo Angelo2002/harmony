@@ -14,6 +14,14 @@ export interface DiscordMention {
   name: string;
 }
 
+/** A sticker carried by a Discord message. */
+export interface DiscordIncomingSticker {
+  id: string;
+  name: string;
+  /** Discord's sticker format: 1 PNG, 2 APNG, 3 Lottie, 4 GIF. */
+  formatType: number;
+}
+
 export interface DiscordIncomingMessage {
   id: string;
   channelId: string;
@@ -25,6 +33,8 @@ export interface DiscordIncomingMessage {
   replyToDiscordId: string | null;
   /** Users mentioned in the message, for rewriting `<@id>` mentions. */
   mentions: DiscordMention[];
+  /** Stickers sent with the message, usually none. */
+  stickers: DiscordIncomingSticker[];
   /** When the message was sent, ISO 8601. Imported history keeps this. */
   createdAt: string;
   content: string;

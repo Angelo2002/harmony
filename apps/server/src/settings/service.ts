@@ -122,6 +122,7 @@ const KEY_MESSAGE_DAYS = 'retention_message_days';
 const KEY_AUDIT_DAYS = 'retention_audit_days';
 const KEY_FAVORITE_DAYS = 'retention_favorite_days';
 const KEY_EXTERNAL_EMOJI_DAYS = 'retention_external_emoji_days';
+const KEY_STICKER_DAYS = 'retention_sticker_days';
 const KEY_STORAGE_LIMIT = 'storage_limit_bytes';
 const KEY_STORAGE_TARGET = 'storage_target_bytes';
 const KEY_DISCORD_TOKEN = 'discord_bot_token';
@@ -254,6 +255,7 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: SettingsDe
       auditRetentionDays: parseNumberOrNull(stored.get(KEY_AUDIT_DAYS)),
       favoriteRetentionDays: parseNumberOrNull(stored.get(KEY_FAVORITE_DAYS)),
       externalEmojiRetentionDays: parseNumberOrNull(stored.get(KEY_EXTERNAL_EMOJI_DAYS)),
+      stickerRetentionDays: parseNumberOrNull(stored.get(KEY_STICKER_DAYS)),
       storageLimitBytes: parseNumberOrNull(stored.get(KEY_STORAGE_LIMIT)),
       storageTargetBytes: parseNumberOrNull(stored.get(KEY_STORAGE_TARGET)),
     };
@@ -375,6 +377,9 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: SettingsDe
       }
       if (patch.externalEmojiRetentionDays !== undefined) {
         writeSetting(sqlite, KEY_EXTERNAL_EMOJI_DAYS, JSON.stringify(patch.externalEmojiRetentionDays));
+      }
+      if (patch.stickerRetentionDays !== undefined) {
+        writeSetting(sqlite, KEY_STICKER_DAYS, JSON.stringify(patch.stickerRetentionDays));
       }
       if (patch.storageLimitBytes !== undefined) {
         writeSetting(sqlite, KEY_STORAGE_LIMIT, JSON.stringify(patch.storageLimitBytes));

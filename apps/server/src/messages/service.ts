@@ -19,6 +19,7 @@ import {
   type ReactionsClearPayload,
   type ReactionUpdatePayload,
   type SearchQuery,
+  type Sticker,
 } from '@harmony/shared';
 import type { AuthContext } from '../auth/service.ts';
 import type { AuditService } from '../audit/service.ts';
@@ -48,6 +49,7 @@ import {
   listReactionsForMessages,
 } from '../db/reactions.ts';
 import { findUserById, findUserByUsername, presentUser } from '../db/users.ts';
+import { attachStickerToMessage, listStickersForMessages } from '../db/stickers.ts';
 import { HttpError } from '../http/errors.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 
@@ -72,10 +74,9 @@ export interface MessageService {
     replyToId: string | null,
   ): Message;
   /**
-   * Inserts a message on behalf of the bridge, skipping permission checks. With
-   * `silent`, the message is stored but never broadcast: a history import is not
-   * a live event, so clients pick it up by fetching history instead of being told
-   * about it as if it just happened.
+   * Inserts a message on behalf of the bridge, skipping permission checks.
+   * `silent` stores it without broadcasting, for a history import that is not a
+   * live event. `stickerIds` are the stickers the message carried on Discord.
    */
   createBridged(
     channelId: string,
@@ -83,8 +84,7 @@ export interface MessageService {
     content: string,
     attachmentIds: string[],
     replyToId: string | null,
-    createdAt?: string,
-    silent?: boolean,
+    options?: { createdAt?: string; silent?: boolean; stickerIds?: string[] },
   ): Message;
   edit(auth: AuthContext, messageId: string, content: string): Message;
   /** Applies a bridged edit, without notifying the outbound listeners. */
@@ -126,7 +126,12 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     };
   }
 
-  function toMessage(row: MessageRow, attachments: Attachment[], reactions: Reaction[]): Message {
+  function toMessage(
+    row: MessageRow,
+    attachments: Attachment[],
+    reactions: Reaction[],
+    stickers: Sticker[],
+  ): Message {
     const authorRow = row.author_id ? findUserById(sqlite, row.author_id) : null;
     return {
       id: row.id,
@@ -136,6 +141,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       createdAt: row.created_at,
       editedAt: row.edited_at,
       attachments,
+      stickers,
       replyTo: buildReply(row),
       reactions,
       embed: parseMessageEmbed(row.embed),
@@ -146,8 +152,12 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     return listReactionsForMessages(sqlite, [messageId], viewerId).get(messageId) ?? [];
   }
 
+  function stickersFor(messageId: string): Sticker[] {
+    return listStickersForMessages(sqlite, [messageId]).get(messageId) ?? [];
+  }
+
   function render(row: MessageRow, viewerId: string): Message {
-    return toMessage(row, attachmentsFor(row.id), reactionsFor(row.id, viewerId));
+    return toMessage(row, attachmentsFor(row.id), reactionsFor(row.id, viewerId), stickersFor(row.id));
   }
 
   /** Validates a reply target: it must exist, be visible and be in the same channel. */
@@ -288,6 +298,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     attachmentIds: string[],
     replyToId: string | null,
     createdAt?: string,
+    stickerIds: string[] = [],
   ): Message {
     // Uploads belong to the message that claims them; reject anything already
     // used or belonging to someone else.
@@ -315,10 +326,11 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       replyToId: resolvedReplyTo,
     });
     for (const attachmentId of attachmentIds) attachToMessage(sqlite, attachmentId, id);
+    stickerIds.forEach((stickerId, position) => attachStickerToMessage(sqlite, id, stickerId, position));
     recordMentions(id, channelId, authorId, content, resolvedReplyTo, postedAt);
 
     // A brand new message has no reactions yet.
-    return toMessage(requireMessage(id), attachmentsFor(id), []);
+    return toMessage(requireMessage(id), attachmentsFor(id), [], stickersFor(id));
   }
 
   const createdListeners = new Set<(message: Message) => void>();
@@ -374,9 +386,10 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     const ids = rows.map((row) => row.id);
     const byMessage = listAttachmentsForMessages(sqlite, ids);
     const reactions = listReactionsForMessages(sqlite, ids, viewerId);
+    const stickers = listStickersForMessages(sqlite, ids);
     return {
       messages: rows.map((row) =>
-        toMessage(row, byMessage.get(row.id) ?? [], reactions.get(row.id) ?? []),
+        toMessage(row, byMessage.get(row.id) ?? [], reactions.get(row.id) ?? [], stickers.get(row.id) ?? []),
       ),
     };
   }
@@ -386,10 +399,11 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     const ids = rows.map((row) => row.id);
     const byMessage = listAttachmentsForMessages(sqlite, ids);
     const reactions = listReactionsForMessages(sqlite, ids, viewerId);
+    const stickers = listStickersForMessages(sqlite, ids);
     const mentions: Mention[] = rows.map((row) => ({
       kind: row.mention_kind === 'reply' ? 'reply' : 'mention',
       unread: row.mention_unread === 1,
-      message: toMessage(row, byMessage.get(row.id) ?? [], reactions.get(row.id) ?? []),
+      message: toMessage(row, byMessage.get(row.id) ?? [], reactions.get(row.id) ?? [], stickers.get(row.id) ?? []),
     }));
     return { mentions };
   }
@@ -460,14 +474,22 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       return message;
     },
 
-    createBridged(channelId, authorId, content, attachmentIds, replyToId, createdAt, silent = false) {
+    createBridged(channelId, authorId, content, attachmentIds, replyToId, options = {}) {
       requireChannel(channelId);
-      const message = insertWithAttachments(channelId, authorId, content, attachmentIds, replyToId, createdAt);
+      const message = insertWithAttachments(
+        channelId,
+        authorId,
+        content,
+        attachmentIds,
+        replyToId,
+        options.createdAt,
+        options.stickerIds ?? [],
+      );
       // Broadcast to clients, but do not announce: this came from Discord and
       // must not be mirrored straight back. A history import is left unspoken:
       // broadcasting it would let an old, already-read message ring a client's
       // notification sound as though it had just arrived.
-      if (!silent) hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
+      if (!options.silent) hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
       return message;
     },
 

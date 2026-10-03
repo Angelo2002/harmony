@@ -100,6 +100,11 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
         id: user.id,
         name: message.mentions.members?.get(user.id)?.displayName ?? user.globalName ?? user.username,
       })),
+      stickers: [...message.stickers.values()].map((sticker) => ({
+        id: sticker.id,
+        name: sticker.name,
+        formatType: sticker.format,
+      })),
       createdAt: message.createdAt.toISOString(),
       content: message.content,
       attachments: [...message.attachments.values()].map((attachment) => ({

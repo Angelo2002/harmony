@@ -113,6 +113,7 @@ export function listReferencedHashes(sqlite: DatabaseSync): Set<string> {
     .prepare(
       `SELECT hash FROM attachments
        UNION SELECT hash FROM emojis
+       UNION SELECT hash FROM stickers
        UNION SELECT hash FROM gif_favorites
        UNION SELECT avatar_hash FROM users WHERE avatar_hash IS NOT NULL`,
     )

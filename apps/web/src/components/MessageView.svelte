@@ -511,6 +511,21 @@
               </div>
             {/if}
 
+            {#if message.stickers.length > 0}
+              <div class="stickers">
+                {#each message.stickers as sticker (sticker.id)}
+                  <a
+                    class="sticker"
+                    href={`/api/v1/stickers/${sticker.id}`}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    <img src={`/api/v1/stickers/${sticker.id}`} alt={sticker.name} title={sticker.name} loading="lazy" />
+                  </a>
+                {/each}
+              </div>
+            {/if}
+
             {#if message.attachments.length > 0}
               <div class="attachments">
                 {#each message.attachments as attachment (attachment.id)}

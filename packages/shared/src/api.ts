@@ -298,6 +298,12 @@ export interface RetentionSettings {
    * emoji are kept whatever it says. Null keeps learned emoji forever.
    */
   externalEmojiRetentionDays: number | null;
+  /**
+   * Delete a sticker learned from a Discord message this many days after it was
+   * last seen in one. Like learned emoji, only stickers acquired from Discord
+   * are aged out; null keeps them forever.
+   */
+  stickerRetentionDays: number | null;
   /** Start emergency pruning once stored media exceeds this many bytes. */
   storageLimitBytes: number | null;
   /** Emergency pruning deletes oldest content until usage is back under this. */
@@ -385,6 +391,7 @@ export interface PruneSummary {
   deletedAuditEntries: number;
   deletedFavorites: number;
   deletedExternalEmojis: number;
+  deletedStickers: number;
   deletedBlobs: number;
   freedBytes: number;
 }

@@ -11,6 +11,7 @@ import {
 } from '../db/attachments.ts';
 import { countMessages, deleteMessagesOlderThan, deleteOldestMessages } from '../db/messages.ts';
 import { deleteExternalEmojisUnusedBefore } from '../db/emojis.ts';
+import { deleteStickersUnusedBefore } from '../db/stickers.ts';
 import { deleteAuditOlderThan } from '../db/audit.ts';
 import { deleteGifFavoritesUnusedBefore } from '../db/gif_favorites.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
@@ -84,6 +85,7 @@ export function createPruner(deps: PrunerDeps): Pruner {
     let deletedAuditEntries = 0;
     let deletedFavorites = 0;
     let deletedExternalEmojis = 0;
+    let deletedStickers = 0;
     let deletedBlobs = 0;
     let freedBytes = 0;
 
@@ -121,6 +123,12 @@ export function createPruner(deps: PrunerDeps): Pruner {
         deps.sqlite,
         isoDaysAgo(settings.externalEmojiRetentionDays),
       );
+    }
+
+    // Stickers learned from Discord age out the same way, once no bridged message
+    // has carried them for a while.
+    if (settings.stickerRetentionDays !== null) {
+      deletedStickers += deleteStickersUnusedBefore(deps.sqlite, isoDaysAgo(settings.stickerRetentionDays));
     }
 
     // Uploads that never turned into a message.
@@ -170,6 +178,7 @@ export function createPruner(deps: PrunerDeps): Pruner {
       deletedAuditEntries,
       deletedFavorites,
       deletedExternalEmojis,
+      deletedStickers,
       deletedBlobs,
       freedBytes,
     };
@@ -181,6 +190,7 @@ export function createPruner(deps: PrunerDeps): Pruner {
       deletedAuditEntries > 0 ||
       deletedFavorites > 0 ||
       deletedExternalEmojis > 0 ||
+      deletedStickers > 0 ||
       deletedBlobs > 0
     ) {
       deps.hub.dispatch(GatewayEvent.RetentionApplied, summary);

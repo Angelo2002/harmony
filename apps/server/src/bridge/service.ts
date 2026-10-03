@@ -30,6 +30,12 @@ import {
 } from '../db/bridge.ts';
 import { findChannel, findChannelByDiscordId, listChannels, setChannelWebhook, type ChannelRow } from '../db/channels.ts';
 import { findEmojiByDiscordId, findEmojiByName, insertEmoji, touchEmojiUsed, type EmojiRow } from '../db/emojis.ts';
+import {
+  findStickerByDiscordId,
+  insertSticker,
+  touchStickerUsed,
+  type StickerRow,
+} from '../db/stickers.ts';
 import { findUserByDiscordId, findUserByUsername, insertGhostUser, presentUser, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import type { MessageService, ReactionEvent } from '../messages/service.ts';
@@ -46,6 +52,7 @@ import type {
   DiscordIncomingMessage,
   DiscordIncomingPresence,
   DiscordIncomingReaction,
+  DiscordIncomingSticker,
   DiscordMention,
   DiscordTransport,
   MirrorFile,
@@ -55,6 +62,13 @@ import type {
 
 /** Discord's default upload ceiling for a non-boosted server. */
 const DISCORD_MAX_FILE_BYTES = 8 * 1024 * 1024;
+
+/** A sticker never needs to be larger than this; Discord caps them well under it. */
+const STICKER_MAX_BYTES = 1024 * 1024;
+
+/** Discord sticker formats: Lottie is a vector graphic, GIF is an animation. */
+const STICKER_FORMAT_LOTTIE = 3;
+const STICKER_FORMAT_GIF = 4;
 
 export interface BridgeService {
   status(): BridgeResponse;
@@ -247,6 +261,59 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       });
       return null;
     }
+  }
+
+  /**
+   * Makes sure a sticker a Discord message carried can be rendered here, and
+   * returns the sticker's Harmony id, or null when it cannot be fetched. A
+   * sticker is a shared asset: the same one sent again reuses the row rather
+   * than being stored twice. Lottie stickers are vector graphics rather than
+   * pictures and cannot be drawn as one, so they are left to the caller's
+   * fallback.
+   */
+  async function ensureSticker(active: DiscordTransport, sticker: DiscordIncomingSticker): Promise<string | null> {
+    const existing = findStickerByDiscordId(deps.sqlite, sticker.id);
+    if (existing) {
+      touchStickerRow(existing);
+      return existing.id;
+    }
+    if (sticker.formatType === STICKER_FORMAT_LOTTIE) return null;
+
+    // PNG and APNG stickers are served as .png; only GIF ones use .gif.
+    const extension = sticker.formatType === STICKER_FORMAT_GIF ? 'gif' : 'png';
+    try {
+      const data = await active.download(`https://cdn.discordapp.com/stickers/${sticker.id}.${extension}`);
+      if (data.length > STICKER_MAX_BYTES) return null;
+      const metadata = await sharp(data).metadata();
+      const isAnimated = (metadata.pages ?? 1) > 1;
+      const now = new Date().toISOString();
+      const id = randomUUID();
+      insertSticker(deps.sqlite, {
+        id,
+        discordStickerId: sticker.id,
+        name: sticker.name,
+        hash: blobs.save(data),
+        contentType: extension === 'gif' || isAnimated ? 'image/gif' : 'image/png',
+        animated: isAnimated,
+        createdAt: now,
+        usedAt: now,
+      });
+      return id;
+    } catch (error) {
+      logger.debug('could not learn a discord sticker', {
+        stickerId: sticker.id,
+        name: sticker.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /** Seeing a sticker again counts as using it, at most once an hour. */
+  function touchStickerRow(row: StickerRow): void {
+    const usedAt = Date.parse(row.used_at);
+    if (Number.isFinite(usedAt) && Date.now() - usedAt < 3_600_000) return;
+    touchStickerUsed(deps.sqlite, row.id);
   }
 
   /**
@@ -711,10 +778,22 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       else skipped.push(attachment.url);
     }
 
-    // Anything we cannot mirror is preserved as a link rather than dropped.
-    // Discord hides the preview of a suppressed link by wrapping it in angle
-    // brackets; drop them so the link unfurls here exactly as a typed one does.
-    // Emoji are learned before this, so an emoji from another server renders.
+    // A sticker is a shared asset, learned by its Discord id. One that cannot be
+    // fetched - a Lottie vector, or a download that failed - is kept as its name
+    // rather than dropped, the same way an unmirrorable attachment becomes a link.
+    const stickerIds: string[] = [];
+    for (const sticker of message.stickers) {
+      const stored = await ensureSticker(active, sticker);
+      if (stored) stickerIds.push(stored);
+      else skipped.push(sticker.name);
+    }
+
+    // Anything we cannot mirror is preserved as text rather than dropped: an
+    // attachment that will not download as its link, a sticker that cannot be
+    // drawn as its name. Discord hides the preview of a suppressed link by
+    // wrapping it in angle brackets; drop them so the link unfurls here exactly
+    // as a typed one does. Emoji are learned above, so one from another server
+    // renders rather than falling back.
     const translated = await translateInboundEmoji(message.content);
     const content = [
       rewriteInboundChannelMentions(
@@ -724,7 +803,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     ]
       .filter((part) => part.trim().length > 0)
       .join('\n');
-    if (!content && attachmentIds.length === 0) return false;
+    if (!content && attachmentIds.length === 0 && stickerIds.length === 0) return false;
 
     // A Discord reply becomes a real Harmony reply when the parent was bridged.
     const replyToId = message.replyToDiscordId
@@ -737,8 +816,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       content,
       attachmentIds,
       replyToId,
-      message.createdAt,
-      silent,
+      { createdAt: message.createdAt, silent, stickerIds },
     );
     insertBridgeMessage(deps.sqlite, {
       harmonyMessageId: created.id,

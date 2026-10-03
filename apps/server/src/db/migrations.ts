@@ -459,4 +459,39 @@ export const migrations: Migration[] = [
       db.exec(`UPDATE emojis SET used_at = created_at WHERE discord_id IS NOT NULL`);
     },
   },
+  {
+    version: 21,
+    name: 'stickers',
+    up(db) {
+      /*
+       * Stickers learned from Discord. Harmony has no stickers of its own, so
+       * this only ever holds ones a bridged message carried: a shared asset,
+       * keyed by the Discord sticker id, that many messages can point at. The
+       * bytes live in the blob store like an emoji's, and `used_at` is what the
+       * sticker retention rule counts from. `message_stickers` is the link, the
+       * same shape as attachments: a hard delete takes it, so a pruned sticker
+       * or message simply drops off.
+       */
+      db.exec(`
+        CREATE TABLE stickers (
+          id                 TEXT PRIMARY KEY,
+          discord_sticker_id TEXT NOT NULL UNIQUE,
+          name               TEXT NOT NULL,
+          hash               TEXT NOT NULL,
+          content_type       TEXT NOT NULL,
+          animated           INTEGER NOT NULL DEFAULT 0,
+          created_at         TEXT NOT NULL,
+          used_at            TEXT NOT NULL
+        );
+
+        CREATE TABLE message_stickers (
+          message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+          sticker_id TEXT NOT NULL REFERENCES stickers(id) ON DELETE CASCADE,
+          position   INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (message_id, sticker_id)
+        );
+        CREATE INDEX idx_message_stickers_message ON message_stickers(message_id);
+      `);
+    },
+  },
 ];

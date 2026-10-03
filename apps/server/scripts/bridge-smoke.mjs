@@ -138,7 +138,7 @@ function createFakeTransport() {
     emit(message) {
       // Message fields the tests omit default to sensible values.
       for (const handler of state.created) {
-        handler({ mentions: [], createdAt: new Date().toISOString(), ...message });
+        handler({ mentions: [], stickers: [], createdAt: new Date().toISOString(), ...message });
       }
     },
     emitEdit(edit) {
@@ -523,6 +523,7 @@ try {
       createdAt: '2024-01-01T10:00:00.000Z',
       content: 'the first ever message',
       attachments: [],
+      stickers: [],
       fromBot: false,
     },
     {
@@ -536,6 +537,7 @@ try {
       createdAt: '2024-01-01T10:01:00.000Z',
       content: 'and a reply',
       attachments: [],
+      stickers: [],
       fromBot: false,
     },
   ];
@@ -748,6 +750,76 @@ try {
   check('a learned emoji is gone', findEmojiByName(db.sqlite, 'party') === null);
   check('the instance emoji survives the learned-emoji rule', findEmojiByName(db.sqlite, 'YES') !== null);
   settings.updateRetention({ externalEmojiRetentionDays: null });
+
+  // 7f4. A sticker is learned as a shared asset and attached to the message. The
+  // same sticker sent again reuses it, a format that cannot be drawn as a picture
+  // is kept as its name, and they age out under the sticker rule.
+  transport.state.downloadBytes = png;
+  const stickersBefore = db.sqlite.prepare('SELECT COUNT(*) AS count FROM stickers').get().count;
+  transport.emit({
+    id: 'd5d',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    content: '',
+    attachments: [],
+    stickers: [{ id: 'st1', name: 'wave', formatType: 1 }],
+    fromBot: false,
+  });
+  await sleep(100);
+  const stickerMessage = messages
+    .history(channelId, { limit: 50 }, userId)
+    .messages.find((m) => m.stickers.length > 0);
+  check('a discord sticker is attached to the message', stickerMessage?.stickers[0]?.name === 'wave');
+  check(
+    'the sticker is fetched from the discord cdn',
+    transport.state.downloads.includes('https://cdn.discordapp.com/stickers/st1.png'),
+  );
+
+  transport.emit({
+    id: 'd5e',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    content: '',
+    attachments: [],
+    stickers: [{ id: 'st1', name: 'wave', formatType: 1 }],
+    fromBot: false,
+  });
+  await sleep(100);
+  check(
+    'a repeated sticker is stored once',
+    db.sqlite.prepare('SELECT COUNT(*) AS count FROM stickers').get().count === stickersBefore + 1,
+  );
+
+  transport.emit({
+    id: 'd5f',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    content: '',
+    attachments: [],
+    stickers: [{ id: 'st2', name: 'wumpus', formatType: 3 }],
+    fromBot: false,
+  });
+  await sleep(100);
+  check(
+    'a sticker that cannot be drawn is kept as its name',
+    messages
+      .history(channelId, { limit: 50 }, userId)
+      .messages.some((m) => m.content === 'wumpus' && m.stickers.length === 0),
+  );
+
+  settings.updateRetention({ stickerRetentionDays: 0 });
+  const stickerPrune = pruner.runNow();
+  check('learned stickers are pruned once unused', stickerPrune.deletedStickers > 0, String(stickerPrune.deletedStickers));
+  settings.updateRetention({ stickerRetentionDays: null });
 
   // 7g. Discord mentions become Harmony mentions, creating stand-ins as needed.
   transport.emit({

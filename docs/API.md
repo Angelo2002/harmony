@@ -31,6 +31,7 @@ code wins — please open an issue.
   - [Media gallery](#media-gallery)
   - [Gifs and the picker](#gifs-and-the-picker)
   - [Custom emoji](#custom-emoji)
+  - [Stickers](#stickers)
   - [Users and avatars](#users-and-avatars)
   - [Roles](#roles)
   - [Members](#members)
@@ -95,7 +96,7 @@ status codes and their codes:
 | 400 | `validation_error`, `invalid_reply`, `invalid_emoji`, `invalid_attachment`, `invalid_upload`, `default_role`, `cannot_moderate_self`, `cannot_moderate_bot` |
 | 401 | `unauthorized`, `invalid_credentials` |
 | 403 | `forbidden`, `timed_out`, `account_banned`, `target_is_admin`, `invite_required`, `invalid_invite`, `invite_expired`, `invite_exhausted`, `immutable_role`, `permission_escalation` |
-| 404 | `not_found`, `channel_not_found`, `message_not_found`, `role_not_found`, `user_not_found`, `emoji_not_found`, `attachment_not_found`, `avatar_not_found`, `not_banned` |
+| 404 | `not_found`, `channel_not_found`, `message_not_found`, `role_not_found`, `user_not_found`, `emoji_not_found`, `sticker_not_found`, `sticker_missing`, `attachment_not_found`, `avatar_not_found`, `not_banned` |
 | 409 | `username_taken`, `emoji_exists`, `discord_channel_taken` |
 | 413 | `payload_too_large` |
 | 415 | `unsupported_media_type`, `invalid_image` |
@@ -220,6 +221,7 @@ type Message = {
   createdAt: string;
   editedAt: string | null;
   attachments: Attachment[];
+  stickers: Sticker[];          // stickers sent with the message; only Discord sends them
   replyTo: MessageReference | null;
   reactions: Reaction[];
   embed: LinkEmbed | null;      // link preview, see "Link previews"
@@ -263,6 +265,15 @@ type Emoji = {
   hash: string;
   animated: boolean;
   external: boolean;   // learned from a Discord message; renders, but kept out of the pickers
+};
+
+// A sticker learned from a Discord message, served at `/api/v1/stickers/:id`.
+// Harmony has no stickers of its own, so these only ever arrive over the bridge.
+type Sticker = {
+  id: string;
+  name: string;
+  hash: string;
+  animated: boolean;
 };
 
 /** A custom emoji that exists in the linked Discord server. */
@@ -1164,6 +1175,19 @@ Send `{ "emojiIds": ["..."] }` to import only those emoji, which is what the adm
 does; leave it out to import every one missing. Each newly created emoji fires `EMOJI_CREATE`.
 Returns `503 bridge_offline` when the bridge is not connected.
 
+### Stickers
+
+Harmony has no stickers of its own. A sticker only ever arrives from Discord: when a bridged message
+carries one, the bridge learns it by its Discord sticker id and attaches it to the message, and every
+later message that sends it shares the same sticker. They are aged out by `stickerRetentionDays`. A
+format that cannot be drawn as a picture — a Lottie vector — is kept as its name in the message's
+text instead, so nothing is dropped.
+
+#### `GET /api/v1/stickers/:id` — `ViewChannels`
+
+Serves the sticker image with an immutable cache header. `404 sticker_not_found` when there is no
+such sticker, `404 sticker_missing` when its image is gone from storage.
+
 ### Users and avatars
 
 #### `PATCH /api/v1/users/@me` — auth
@@ -1619,6 +1643,9 @@ Emoji learned from Discord (marked `external` on the [`Emoji`](#object-shapes) s
 kind of case: they are aged out only by `externalEmojiRetentionDays`, counted from the last bridged
 message or reaction that carried one. The instance's own emoji are never touched by any rule.
 
+[Stickers](#stickers) learned from Discord are aged out by `stickerRetentionDays` the same way,
+counted from the last bridged message that carried one.
+
 ```ts
 type RetentionSettings = {
   imageRetentionDays: number | null;
@@ -1627,6 +1654,7 @@ type RetentionSettings = {
   auditRetentionDays: number | null;
   favoriteRetentionDays: number | null;
   externalEmojiRetentionDays: number | null;
+  stickerRetentionDays: number | null;
   storageLimitBytes: number | null;
   storageTargetBytes: number | null;
 };
@@ -1640,6 +1668,7 @@ type PruneSummary = {
   deletedAuditEntries: number;
   deletedFavorites: number;
   deletedExternalEmojis: number;
+  deletedStickers: number;
   deletedBlobs: number;
   freedBytes: number;
 };
@@ -1652,8 +1681,9 @@ Returns `{ settings, usage, lastRun }`, where `lastRun` is a `PruneSummary` or `
 #### `PATCH /api/v1/retention` — `ManageServer`
 
 Any subset of `imageRetentionDays`, `videoRetentionDays`, `messageRetentionDays`,
-`auditRetentionDays`, `favoriteRetentionDays`, `externalEmojiRetentionDays`, `storageLimitBytes`,
-`storageTargetBytes`; `null` disables a rule. Returns the same shape as `GET`.
+`auditRetentionDays`, `favoriteRetentionDays`, `externalEmojiRetentionDays`,
+`stickerRetentionDays`, `storageLimitBytes`, `storageTargetBytes`; `null` disables a rule. Returns
+the same shape as `GET`.
 
 #### `POST /api/v1/retention/run` — `ManageServer`
 

@@ -232,6 +232,7 @@ export const updateRetentionSchema = z.object({
   auditRetentionDays: retentionNumber,
   favoriteRetentionDays: retentionNumber,
   externalEmojiRetentionDays: retentionNumber,
+  stickerRetentionDays: retentionNumber,
   storageLimitBytes: retentionNumber,
   storageTargetBytes: retentionNumber,
 });

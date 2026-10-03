@@ -1451,6 +1451,19 @@ try {
   const bobCleared = await req('/auth/me', { token: bobToken });
   check('removing a role takes permissions away', (BigInt(bobCleared.json?.permissions ?? '0') & (1n << 2n)) === 0n);
 
+  // A single moderation permission is enough to read the member list, since the
+  // moderation controls live on that same screen. KickMembers is bit 10.
+  const kickRole = await req('/roles', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Kicker', permissions: String(1n << 10n) },
+  });
+  check('a kick-only moderator cannot list members yet (403)', (await req('/members', { token: bobToken })).status === 403);
+  await req(`/members/${bobId}/roles/${kickRole.json?.id}`, { method: 'PUT', token: ownerToken });
+  check('a kick-only moderator can list members', (await req('/members', { token: bobToken })).status === 200);
+  await req(`/members/${bobId}/roles/${kickRole.json?.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${kickRole.json?.id}`, { method: 'DELETE', token: ownerToken });
+
   // Badges: owner from the account flag, admin from the Administrator permission,
   // moderator from a role marked as one, in that order of precedence.
   const ownerMe = await req('/auth/me', { token: ownerToken });

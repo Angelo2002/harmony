@@ -52,6 +52,28 @@ export function hasPermission(granted: PermissionValue, required: PermissionValu
   return (granted & required) === required;
 }
 
+/** True when the member holds any one of the listed permissions. */
+export function hasAnyPermission(
+  granted: PermissionValue,
+  required: readonly PermissionValue[],
+): boolean {
+  return required.some((flag) => hasPermission(granted, flag));
+}
+
+/**
+ * Permissions that unlock the member-management surface: assigning roles,
+ * editing accounts, and the moderation actions. A member needs any one of them
+ * to list members at all, so a moderator who can only kick is not shut out of
+ * the one screen where the kick button lives.
+ */
+export const MEMBER_MANAGEMENT_PERMISSIONS: readonly PermissionValue[] = [
+  Permission.ManageRoles,
+  Permission.ManageMembers,
+  Permission.KickMembers,
+  Permission.BanMembers,
+  Permission.ModerateMembers,
+];
+
 /**
  * Members who skip channel slowmode. Managing the channel or its messages is
  * enough, which is what Discord does too, so a moderator is never held back by

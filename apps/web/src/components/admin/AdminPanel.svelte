@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { Permission, hasPermission, type PermissionValue } from '@harmony/shared';
+  import { permissionsFromString } from '@harmony/shared';
   import { session } from '../../lib/session.svelte';
   import { ui } from '../../lib/ui.svelte';
+  import { visibleAdminTabs, type AdminTabId } from '../../lib/admin';
   import BansSection from './BansSection.svelte';
   import AuditSection from './AuditSection.svelte';
   import ChannelsSection from './ChannelsSection.svelte';
@@ -14,38 +15,10 @@
   import RolesSection from './RolesSection.svelte';
   import SettingsSection from './SettingsSection.svelte';
 
-  type TabId =
-    | 'settings'
-    | 'roles'
-    | 'members'
-    | 'channels'
-    | 'emojis'
-    | 'media'
-    | 'retention'
-    | 'bridge'
-    | 'invites'
-    | 'bans'
-    | 'audit';
+  const permissions = $derived(permissionsFromString(session.permissions || '0'));
+  const visibleTabs = $derived(visibleAdminTabs(permissions));
 
-  // Each tab is shown only to someone who could actually use it.
-  const tabs: Array<{ id: TabId; label: string; permission: PermissionValue }> = [
-    { id: 'settings', label: 'Settings', permission: Permission.ManageServer },
-    { id: 'roles', label: 'Roles', permission: Permission.ManageRoles },
-    { id: 'members', label: 'Members', permission: Permission.ManageRoles },
-    { id: 'channels', label: 'Channels', permission: Permission.ManageChannels },
-    { id: 'emojis', label: 'Emojis', permission: Permission.ManageEmojis },
-    { id: 'media', label: 'Media', permission: Permission.ManageServer },
-    { id: 'retention', label: 'Retention', permission: Permission.ManageServer },
-    { id: 'bridge', label: 'Bridge', permission: Permission.ManageServer },
-    { id: 'invites', label: 'Invites', permission: Permission.ManageServer },
-    { id: 'bans', label: 'Bans', permission: Permission.BanMembers },
-    { id: 'audit', label: 'Log', permission: Permission.ManageServer },
-  ];
-
-  const permissions = $derived(BigInt(session.permissions || '0'));
-  const visibleTabs = $derived(tabs.filter((tab) => hasPermission(permissions, tab.permission)));
-
-  let selected = $state<TabId>('settings');
+  let selected = $state<AdminTabId>('settings');
   // Fall back to the first available tab if the selected one is not permitted.
   const active = $derived(
     visibleTabs.some((tab) => tab.id === selected) ? selected : (visibleTabs[0]?.id ?? 'settings'),

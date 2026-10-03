@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { hasPermission, type PermissionValue } from '@harmony/shared';
+import { hasAnyPermission, hasPermission, type PermissionValue } from '@harmony/shared';
 import { HttpError } from '../http/errors.ts';
 import type { AuthContext } from './service.ts';
 
@@ -38,6 +38,18 @@ export function requireAuth(request: FastifyRequest): AuthContext {
 export function requirePermission(request: FastifyRequest, permission: PermissionValue): AuthContext {
   const auth = requireAuth(request);
   if (!hasPermission(auth.permissions, permission)) {
+    throw new HttpError(403, 'forbidden', 'You do not have permission to do that.');
+  }
+  return auth;
+}
+
+/** Like `requirePermission`, but passes when the member holds any one of `permissions`. */
+export function requireAnyPermission(
+  request: FastifyRequest,
+  permissions: readonly PermissionValue[],
+): AuthContext {
+  const auth = requireAuth(request);
+  if (!hasAnyPermission(auth.permissions, permissions)) {
     throw new HttpError(403, 'forbidden', 'You do not have permission to do that.');
   }
   return auth;

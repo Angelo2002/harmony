@@ -1,19 +1,18 @@
 <script lang="ts">
-  import { Permission, hasPermission, type Channel } from '@harmony/shared';
+  import { permissionsFromString, type Channel } from '@harmony/shared';
   import { api } from '../lib/api';
   import { avatarUrl, initial } from '../lib/avatar';
   import { chat } from '../lib/chat.svelte';
   import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
   import { ui } from '../lib/ui.svelte';
+  import { canOpenAdminPanel } from '../lib/admin';
   import Icon from './Icon.svelte';
 
-  const permissions = $derived(BigInt(session.permissions || '0'));
-  const canAdmin = $derived(
-    hasPermission(permissions, Permission.ManageServer) ||
-      hasPermission(permissions, Permission.ManageRoles) ||
-      hasPermission(permissions, Permission.ManageChannels),
-  );
+  const permissions = $derived(permissionsFromString(session.permissions || '0'));
+  // The button appears for anyone who could use at least one tab, moderators
+  // included; the panel itself hides the tabs they cannot reach.
+  const canAdmin = $derived(canOpenAdminPanel(permissions));
   const myColor = $derived.by(() => {
     const color = session.user?.roleColor;
     return color == null ? null : `#${color.toString(16).padStart(6, '0')}`;

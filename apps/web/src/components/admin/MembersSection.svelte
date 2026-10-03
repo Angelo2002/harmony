@@ -36,6 +36,7 @@
   const bridgeMembers = $derived(members.filter((member) => member.user.isBot));
 
   const permissions = $derived(BigInt(session.permissions || '0'));
+  const canManageRoles = $derived(hasPermission(permissions, Permission.ManageRoles));
   const canTimeout = $derived(hasPermission(permissions, Permission.ModerateMembers));
   const canKick = $derived(hasPermission(permissions, Permission.KickMembers));
   const canBan = $derived(hasPermission(permissions, Permission.BanMembers));
@@ -286,36 +287,42 @@
         </form>
       {/if}
 
-      <div class="member-roles">
-        {#each member.roleIds as roleId (roleId)}
-          {@const role = roleById(roleId)}
-          {#if role}
-            <span class="chip">
-              <span class="swatch" style={`background: ${roleColor(role.color)}`}></span>{role.name}
-              <button
-                type="button"
-                class="chip-remove"
-                title="Remove role"
-                onclick={() => unassign(member.user.id, roleId)}>×</button
-              >
-            </span>
-          {/if}
-        {/each}
-
-        <select
-          disabled={busy || assignable(member).length === 0}
-          onchange={(event) => {
-            const element = event.currentTarget as HTMLSelectElement;
-            void assign(member.user.id, element.value);
-            element.value = '';
-          }}
-        >
-          <option value="">Add role…</option>
-          {#each assignable(member) as role (role.id)}
-            <option value={role.id}>{role.name}</option>
+      {#if canManageRoles || member.roleIds.length > 0}
+        <div class="member-roles">
+          {#each member.roleIds as roleId (roleId)}
+            {@const role = roleById(roleId)}
+            {#if role}
+              <span class="chip">
+                <span class="swatch" style={`background: ${roleColor(role.color)}`}></span>{role.name}
+                {#if canManageRoles}
+                  <button
+                    type="button"
+                    class="chip-remove"
+                    title="Remove role"
+                    onclick={() => unassign(member.user.id, roleId)}>×</button
+                  >
+                {/if}
+              </span>
+            {/if}
           {/each}
-        </select>
-      </div>
+
+          {#if canManageRoles}
+            <select
+              disabled={busy || assignable(member).length === 0}
+              onchange={(event) => {
+                const element = event.currentTarget as HTMLSelectElement;
+                void assign(member.user.id, element.value);
+                element.value = '';
+              }}
+            >
+              <option value="">Add role…</option>
+              {#each assignable(member) as role (role.id)}
+                <option value={role.id}>{role.name}</option>
+              {/each}
+            </select>
+          {/if}
+        </div>
+      {/if}
 
       {#if moderatable(member)}
         <div class="member-moderation">

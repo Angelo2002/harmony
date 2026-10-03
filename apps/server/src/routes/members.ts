@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import {
   GatewayCloseCode,
   GatewayEvent,
+  MEMBER_MANAGEMENT_PERMISSIONS,
   Permission,
   adminUpdateUserSchema,
   banSchema,
@@ -16,7 +17,7 @@ import {
   type UserDirectoryResponse,
 } from '@harmony/shared';
 import { resolvePermissions } from '../auth/permissions.ts';
-import { requirePermission } from '../auth/plugin.ts';
+import { requireAnyPermission, requirePermission } from '../auth/plugin.ts';
 import type { AuditService } from '../audit/service.ts';
 import type { BridgeService } from '../bridge/service.ts';
 import type { Database } from '../db/index.ts';
@@ -42,7 +43,10 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
   const { db, hub, moderation, audit, users } = deps;
 
   app.get('/api/v1/members', async (request) => {
-    requirePermission(request, Permission.ManageRoles);
+    // Any one member-management permission is enough to read the list: the
+    // moderation controls live on this same screen, so someone who can only
+    // kick still needs to see who they can kick.
+    requireAnyPermission(request, MEMBER_MANAGEMENT_PERMISSIONS);
     const rolesByUser = listMemberRoles(db.sqlite);
 
     const members: MemberSummary[] = listUsers(db.sqlite).map((row) => ({

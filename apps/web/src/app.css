@@ -1780,8 +1780,35 @@ button.mention:hover {
   display: inline-flex;
   align-items: center;
   flex: none;
+}
+
+/*
+ * The badge sits in three very different layouts, so the spacing is set per
+ * context instead of globally. The profile card renders it inline inside the
+ * name and is the reference: a small optical nudge and a 0.25rem gap.
+ */
+.profile-card-names .member-badge {
   margin-left: 0.25rem;
   vertical-align: -2px;
+}
+
+/*
+ * In the message meta line the badge is a flex item. Baseline alignment would
+ * float the SVG above the name, so center it instead, and pull it in with a
+ * negative margin so it hugs the name rather than adding to the row's 0.5rem
+ * flex gap.
+ */
+.meta .member-badge {
+  align-self: center;
+  margin-left: -0.3rem;
+}
+
+/*
+ * Roster rows are flex rows too; pull the badge in from the row's 0.6rem gap so
+ * it sits tight against the name.
+ */
+.roster-member .member-badge {
+  margin-left: -0.4rem;
 }
 
 .member-badge.badge-owner {

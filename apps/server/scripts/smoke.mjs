@@ -24,6 +24,7 @@ import { insertGhostUser, insertUser } from '../src/db/users.ts';
 import { insertInvite } from '../src/db/invites.ts';
 import { insertBan } from '../src/db/bans.ts';
 import { createAuthService } from '../src/auth/service.ts';
+import { createDiscordOAuthService } from '../src/auth/discord-oauth.ts';
 import { insertChannel } from '../src/db/channels.ts';
 import { insertMessage } from '../src/db/messages.ts';
 import { listLinkedAttachments } from '../src/db/attachments.ts';
@@ -1490,6 +1491,73 @@ try {
   await req(`/members/${bobId}/roles/${roleId}`, { method: 'DELETE', token: ownerToken });
   await req(`/roles/${adminRole.json.id}`, { method: 'DELETE', token: ownerToken });
 
+  // A delegated role or member manager cannot climb past what they hold, nor
+  // reach an administrator. ManageRoles is bit 7, ManageMembers bit 16.
+  const managerRole = await req('/roles', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Manager', permissions: String((1n << 7n) | (1n << 16n)) },
+  });
+  const guardAdminRole = await req('/roles', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Guarded admin', permissions: String(1n << 14n) },
+  });
+  const plainRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Plain' } });
+  await req(`/members/${bobId}/roles/${managerRole.json.id}`, { method: 'PUT', token: ownerToken });
+  check(
+    'a role manager cannot give themselves Administrator (403)',
+    (await req(`/members/${bobId}/roles/${guardAdminRole.json.id}`, { method: 'PUT', token: bobToken })).status === 403,
+  );
+  check(
+    'nor a role with any permission they lack (403)',
+    (await req(`/members/${bobId}/roles/${roleId}`, { method: 'PUT', token: bobToken })).status === 403,
+  );
+  check(
+    'but can hand out a role within their own permissions',
+    (await req(`/members/${bobId}/roles/${plainRole.json.id}`, { method: 'PUT', token: bobToken })).status === 204,
+  );
+  check(
+    'a role manager cannot strip an admin role (403)',
+    (await req(`/roles/${guardAdminRole.json.id}`, { method: 'PATCH', token: bobToken, body: { permissions: '0' } }))
+      .status === 403,
+  );
+  check(
+    'or rename it (403)',
+    (await req(`/roles/${guardAdminRole.json.id}`, { method: 'PATCH', token: bobToken, body: { name: 'mine' } }))
+      .status === 403,
+  );
+  check(
+    'or delete it (403)',
+    (await req(`/roles/${guardAdminRole.json.id}`, { method: 'DELETE', token: bobToken })).status === 403,
+  );
+  const guardOwnerId = (await req('/auth/me', { token: ownerToken })).json?.user?.id;
+  check(
+    'a role manager cannot take roles from an administrator (403)',
+    (await req(`/members/${guardOwnerId}/roles/${guardAdminRole.json.id}`, { method: 'DELETE', token: bobToken }))
+      .status === 403,
+  );
+  check(
+    "a member manager cannot reset the owner's password (403)",
+    (await req(`/members/${guardOwnerId}`, { method: 'PATCH', token: bobToken, body: { password: 'taken-over-now' } }))
+      .status === 403,
+  );
+  check(
+    "or relink the owner's Discord account (403)",
+    (await req(`/members/${guardOwnerId}`, { method: 'PATCH', token: bobToken, body: { discordId: '123456789012345678' } }))
+      .status === 403,
+  );
+  check(
+    'a member manager can still edit an ordinary member',
+    (await req(`/members/${bobId}`, { method: 'PATCH', token: bobToken, body: { displayName: 'Bob' } })).status === 200,
+  );
+  await req(`/members/${bobId}`, { method: 'PATCH', token: ownerToken, body: { displayName: '' } });
+  await req(`/members/${bobId}/roles/${plainRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/members/${bobId}/roles/${managerRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  for (const role of [managerRole, guardAdminRole, plainRole]) {
+    await req(`/roles/${role.json.id}`, { method: 'DELETE', token: ownerToken });
+  }
+
   check(
     'the default role cannot be assigned (400)',
     (await req(`/members/${bobId}/roles/${everyoneRole.id}`, { method: 'PUT', token: ownerToken })).status === 400,
@@ -2812,6 +2880,43 @@ try {
   ghostUsers.linkDiscord(fresh.auth.user.id, null);
   check('and then Discord can be disconnected', ghostStore.sqlite.prepare('SELECT discord_id FROM users WHERE id = ?').get(fresh.auth.user.id)?.discord_id === null);
 
+  // The OAuth round trip only completes in the browser that started it. Discord
+  // is stubbed, so the binding is the only thing that can make this fail.
+  const oauth = createDiscordOAuthService({
+    getDiscordAuth: () => ({ enabled: true, clientId: '1', clientSecret: 's' }),
+    discordRedirectUri: () => 'https://harmony.test/api/v1/auth/discord/callback',
+  });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) =>
+    String(url).includes('/oauth2/token')
+      ? new Response(JSON.stringify({ access_token: 'token' }))
+      : new Response(JSON.stringify({ id: '700000000000000009', username: 'someone' }));
+  try {
+    const stateOf = (flow) => new URL(flow.url).searchParams.get('state');
+    const bound = oauth.authorizeUrl('link', { userId: 'member-2' });
+    const completed = await oauth.complete('code', stateOf(bound), bound.binding);
+    check(
+      'a flow completes in the browser that started it',
+      completed.identity.id === '700000000000000009' && completed.userId === 'member-2',
+    );
+    const refusal = async (flow, binding) => {
+      try {
+        await oauth.complete('code', stateOf(flow), binding);
+      } catch (error) {
+        return error.code;
+      }
+      return null;
+    };
+    check('a flow without its binding is refused', (await refusal(oauth.authorizeUrl('link'), null)) === 'discord_state');
+    const other = oauth.authorizeUrl('link');
+    check(
+      "a flow with another flow's binding is refused",
+      (await refusal(other, oauth.authorizeUrl('link').binding)) === 'discord_state',
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
   ghostStore.close();
   rmSync(ghostDir, { recursive: true, force: true });
 
@@ -3583,6 +3688,31 @@ try {
       discordStartTo.includes('client_id=123456789012345678') &&
       discordStartTo.includes('code_challenge_method=S256'),
     `${discordStart.status} ${discordStartTo}`,
+  );
+
+  // The flow is bound to the browser that started it, so a callback URL handed
+  // to someone else is worthless.
+  const flowCookie = discordStart.headers.getSetCookie?.().find((value) => value.startsWith('harmony_session_discord=')) ?? '';
+  check(
+    'starting Discord sign-in sets an HttpOnly browser binding',
+    flowCookie.includes('HttpOnly') && flowCookie.includes('Path=/api/v1/auth/discord'),
+    flowCookie,
+  );
+  const startState = new URL(discordStartTo).searchParams.get('state');
+  const unbound = await fetch(`${BASE}/auth/discord/callback?code=stolen&state=${startState}`, { redirect: 'manual' });
+  check(
+    'a callback without the binding is refused',
+    (unbound.headers.get('location') ?? '').includes('discord_error=failed'),
+  );
+  const secondStart = await fetch(`${BASE}/auth/discord`, { redirect: 'manual' });
+  const secondState = new URL(secondStart.headers.get('location') ?? '').searchParams.get('state');
+  const wrongBinding = await fetch(`${BASE}/auth/discord/callback?code=stolen&state=${secondState}`, {
+    redirect: 'manual',
+    headers: { cookie: 'harmony_session_discord=someone-elses' },
+  });
+  check(
+    'a callback with another browser binding is refused',
+    (wrongBinding.headers.get('location') ?? '').includes('discord_error=failed'),
   );
 
   // Linking an account must start from a signed-in member.

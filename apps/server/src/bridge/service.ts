@@ -29,7 +29,7 @@ import {
   rememberBridgeMessage,
 } from '../db/bridge.ts';
 import { findChannel, findChannelByDiscordId, listChannels, setChannelWebhook, type ChannelRow } from '../db/channels.ts';
-import { findEmojiByDiscordId, findEmojiByName, insertEmoji } from '../db/emojis.ts';
+import { findEmojiByDiscordId, findEmojiByName, insertEmoji, touchEmojiUsed, type EmojiRow } from '../db/emojis.ts';
 import { findUserByDiscordId, findUserByUsername, insertGhostUser, presentUser, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import type { MessageService, ReactionEvent } from '../messages/service.ts';
@@ -181,13 +181,25 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   }
 
   /**
+   * Seeing a learned emoji again counts as using it, so it is kept from ageing
+   * out while it is still being sent. The instance's own emoji carry no Discord
+   * id and are never touched. Writing at most once an hour keeps a busy channel
+   * from writing on every message, which the day-scale rule does not need.
+   */
+  function touchLearnedEmoji(row: EmojiRow): void {
+    if (row.discord_id === null) return;
+    const usedAt = Date.parse(row.used_at ?? row.created_at);
+    if (Number.isFinite(usedAt) && Date.now() - usedAt < 3_600_000) return;
+    touchEmojiUsed(deps.sqlite, row.id);
+  }
+
+  /**
    * Makes sure an emoji a Discord message refers to can be rendered here, and
    * returns the name to use for it, or null when it cannot be fetched. An emoji
    * this instance already has under that name is reused, whether it was imported
    * from the guild or learned earlier. Anything else is downloaded from Discord's
    * own emoji CDN by id - this is how an emoji from another server gets to show
-   * up here. The id is remembered for the session, so a familiar emoji is not
-   * fetched again on every message.
+   * up here.
    */
   async function ensureExternalEmoji(
     active: DiscordTransport,
@@ -195,12 +207,9 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     name: string,
     animated: boolean,
   ): Promise<string | null> {
-    const cached = learnedEmojiNames.get(id);
-    if (cached) return cached;
-
     const byDiscordId = findEmojiByDiscordId(deps.sqlite, id);
     if (byDiscordId) {
-      learnedEmojiNames.set(id, byDiscordId.name);
+      touchLearnedEmoji(byDiscordId);
       return byDiscordId.name;
     }
     // A name already taken is reused rather than duplicated, the same rule the
@@ -208,7 +217,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     // the guild, or learned from an earlier message, pointing at one picture.
     const byName = findEmojiByName(deps.sqlite, name);
     if (byName) {
-      learnedEmojiNames.set(id, byName.name);
+      touchLearnedEmoji(byName);
       return byName.name;
     }
 
@@ -217,6 +226,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       if (data.length > DEFAULT_MAX_EMOJI_BYTES) return null;
       const metadata = await sharp(data).metadata();
       const isAnimated = (metadata.pages ?? 1) > 1;
+      const now = new Date().toISOString();
       insertEmoji(deps.sqlite, {
         id: randomUUID(),
         name,
@@ -224,10 +234,10 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
         contentType: isAnimated ? 'image/gif' : 'image/png',
         animated: isAnimated,
         createdBy: null,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
         discordId: id,
+        usedAt: now,
       });
-      learnedEmojiNames.set(id, name);
       return name;
     } catch (error) {
       logger.debug('could not learn a discord emoji', {
@@ -262,6 +272,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
 
       const existing = findEmojiByName(deps.sqlite, name);
       if (existing) {
+        touchLearnedEmoji(existing);
         result += `:${existing.name}:`;
         continue;
       }
@@ -385,10 +396,6 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   // The guild's custom emoji, resolved by name so `:name:` can be translated to
   // a real Discord `<:name:id>` tag. Cached until the bridge reconnects.
   let guildEmojiByName: Map<string, DiscordEmoji> | null = null;
-
-  // Discord emoji learned from messages and reactions, by Discord id, so one is
-  // not fetched or inserted twice in a session.
-  const learnedEmojiNames = new Map<string, string>();
 
   async function discordEmojiMap(): Promise<Map<string, DiscordEmoji>> {
     if (guildEmojiByName) return guildEmojiByName;
@@ -821,7 +828,10 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     if (!reaction.emojiId) return { emoji: reaction.emoji, emojiId: null };
     // A custom emoji: reuse the Harmony emoji of the same name so it renders.
     const existing = findEmojiByName(deps.sqlite, reaction.emoji);
-    if (existing) return { emoji: `:${existing.name}:`, emojiId: existing.id };
+    if (existing) {
+      touchLearnedEmoji(existing);
+      return { emoji: `:${existing.name}:`, emojiId: existing.id };
+    }
 
     const learned = transport
       ? await ensureExternalEmoji(transport, reaction.emojiId, reaction.emoji, false)

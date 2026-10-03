@@ -292,6 +292,12 @@ export interface RetentionSettings {
    * thing that ever ages them out; null keeps them forever.
    */
   favoriteRetentionDays: number | null;
+  /**
+   * Delete an emoji learned from a Discord message this many days after it was
+   * last seen in one. Only learned emoji are ever aged out; the instance's own
+   * emoji are kept whatever it says. Null keeps learned emoji forever.
+   */
+  externalEmojiRetentionDays: number | null;
   /** Start emergency pruning once stored media exceeds this many bytes. */
   storageLimitBytes: number | null;
   /** Emergency pruning deletes oldest content until usage is back under this. */
@@ -378,6 +384,7 @@ export interface PruneSummary {
   deletedMessages: number;
   deletedAuditEntries: number;
   deletedFavorites: number;
+  deletedExternalEmojis: number;
   deletedBlobs: number;
   freedBytes: number;
 }

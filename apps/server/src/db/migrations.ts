@@ -444,4 +444,19 @@ export const migrations: Migration[] = [
       db.exec(`CREATE UNIQUE INDEX idx_emojis_discord ON emojis(discord_id) WHERE discord_id IS NOT NULL`);
     },
   },
+  {
+    version: 20,
+    name: 'emoji_used_at',
+    up(db) {
+      /*
+       * When an emoji learned from Discord was last seen in a bridged message,
+       * which is what the learned-emoji retention rule counts from. It is only
+       * meaningful for those rows: the instance's own emoji are never aged out,
+       * so they keep a null here. Existing learned emoji start from when they
+       * were stored, which is the best guess available.
+       */
+      db.exec(`ALTER TABLE emojis ADD COLUMN used_at TEXT`);
+      db.exec(`UPDATE emojis SET used_at = created_at WHERE discord_id IS NOT NULL`);
+    },
+  },
 ];

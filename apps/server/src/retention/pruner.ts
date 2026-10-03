@@ -10,6 +10,7 @@ import {
   listReferencedHashes,
 } from '../db/attachments.ts';
 import { countMessages, deleteMessagesOlderThan, deleteOldestMessages } from '../db/messages.ts';
+import { deleteExternalEmojisUnusedBefore } from '../db/emojis.ts';
 import { deleteAuditOlderThan } from '../db/audit.ts';
 import { deleteGifFavoritesUnusedBefore } from '../db/gif_favorites.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
@@ -82,6 +83,7 @@ export function createPruner(deps: PrunerDeps): Pruner {
     let deletedMessages = 0;
     let deletedAuditEntries = 0;
     let deletedFavorites = 0;
+    let deletedExternalEmojis = 0;
     let deletedBlobs = 0;
     let freedBytes = 0;
 
@@ -109,6 +111,16 @@ export function createPruner(deps: PrunerDeps): Pruner {
     // the bytes of a gif nothing keeps any more go in the same pass.
     if (settings.favoriteRetentionDays !== null) {
       deletedFavorites += deleteGifFavoritesUnusedBefore(deps.sqlite, isoDaysAgo(settings.favoriteRetentionDays));
+    }
+
+    // Emoji learned from Discord age out once no bridged message has carried them
+    // for a while; the instance's own emoji are never touched by this. Like the
+    // favorites above, it runs before the sweep so their bytes are freed here too.
+    if (settings.externalEmojiRetentionDays !== null) {
+      deletedExternalEmojis += deleteExternalEmojisUnusedBefore(
+        deps.sqlite,
+        isoDaysAgo(settings.externalEmojiRetentionDays),
+      );
     }
 
     // Uploads that never turned into a message.
@@ -157,6 +169,7 @@ export function createPruner(deps: PrunerDeps): Pruner {
       deletedMessages,
       deletedAuditEntries,
       deletedFavorites,
+      deletedExternalEmojis,
       deletedBlobs,
       freedBytes,
     };
@@ -167,6 +180,7 @@ export function createPruner(deps: PrunerDeps): Pruner {
       deletedMessages > 0 ||
       deletedAuditEntries > 0 ||
       deletedFavorites > 0 ||
+      deletedExternalEmojis > 0 ||
       deletedBlobs > 0
     ) {
       deps.hub.dispatch(GatewayEvent.RetentionApplied, summary);

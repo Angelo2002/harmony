@@ -25,6 +25,7 @@ import { createAuditService } from '../src/audit/service.ts';
 import { createUserService } from '../src/users/service.ts';
 import { createBridgeService } from '../src/bridge/service.ts';
 import { createChannelImportService } from '../src/channels/import.ts';
+import { createPruner } from '../src/retention/pruner.ts';
 
 const logger = { info() {}, debug() {} };
 
@@ -733,6 +734,20 @@ try {
     'a reaction with an emoji from another server is learned and renders',
     externalReacted?.reactions.some((reaction) => reaction.emoji === ':cheer:' && reaction.emojiId !== null) === true,
   );
+
+  // 7f3. Learned emoji age out under their own retention rule once no bridged
+  // message has carried them for a while. The instance's own emoji are exempt.
+  const pruner = createPruner({ sqlite: db.sqlite, config, settings, hub, log: () => {} });
+  settings.updateRetention({ externalEmojiRetentionDays: 0 });
+  const emojiPrune = pruner.runNow();
+  check(
+    'learned emoji are pruned once unused',
+    emojiPrune.deletedExternalEmojis > 0,
+    String(emojiPrune.deletedExternalEmojis),
+  );
+  check('a learned emoji is gone', findEmojiByName(db.sqlite, 'party') === null);
+  check('the instance emoji survives the learned-emoji rule', findEmojiByName(db.sqlite, 'YES') !== null);
+  settings.updateRetention({ externalEmojiRetentionDays: null });
 
   // 7g. Discord mentions become Harmony mentions, creating stand-ins as needed.
   transport.emit({

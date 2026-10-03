@@ -1615,6 +1615,10 @@ it is older than its own limit, and the log can be cleared outright with `DELETE
 [Saved gifs](#gifs-and-the-picker) are deliberately outside all of those. `favoriteRetentionDays` is
 the only rule that ages one out, counted from the last time it was saved or sent.
 
+Emoji learned from Discord (marked `external` on the [`Emoji`](#object-shapes) shape) are the same
+kind of case: they are aged out only by `externalEmojiRetentionDays`, counted from the last bridged
+message or reaction that carried one. The instance's own emoji are never touched by any rule.
+
 ```ts
 type RetentionSettings = {
   imageRetentionDays: number | null;
@@ -1622,6 +1626,7 @@ type RetentionSettings = {
   messageRetentionDays: number | null;
   auditRetentionDays: number | null;
   favoriteRetentionDays: number | null;
+  externalEmojiRetentionDays: number | null;
   storageLimitBytes: number | null;
   storageTargetBytes: number | null;
 };
@@ -1634,6 +1639,7 @@ type PruneSummary = {
   deletedMessages: number;
   deletedAuditEntries: number;
   deletedFavorites: number;
+  deletedExternalEmojis: number;
   deletedBlobs: number;
   freedBytes: number;
 };
@@ -1646,8 +1652,8 @@ Returns `{ settings, usage, lastRun }`, where `lastRun` is a `PruneSummary` or `
 #### `PATCH /api/v1/retention` — `ManageServer`
 
 Any subset of `imageRetentionDays`, `videoRetentionDays`, `messageRetentionDays`,
-`auditRetentionDays`, `favoriteRetentionDays`, `storageLimitBytes`, `storageTargetBytes`; `null`
-disables a rule. Returns the same shape as `GET`.
+`auditRetentionDays`, `favoriteRetentionDays`, `externalEmojiRetentionDays`, `storageLimitBytes`,
+`storageTargetBytes`; `null` disables a rule. Returns the same shape as `GET`.
 
 #### `POST /api/v1/retention/run` — `ManageServer`
 

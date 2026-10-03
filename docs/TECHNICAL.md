@@ -279,7 +279,10 @@ messages and reactions alike, and a second sighting is reused rather than fetche
 again. Those rows are held out of the pickers and the admin list: they are here to
 show what crossed the bridge, not to be chosen by hand. A name already in use is
 reused, the same rule the guild import follows, so a tag naming an emoji imported
-from the guild points at one picture rather than two.
+from the guild points at one picture rather than two. Each learned emoji records
+when it was last carried by a bridged message or reaction, and the
+`externalEmojiRetentionDays` rule ages one out once that goes stale — the only
+rule that touches them. The instance's own emoji are kept whatever it says.
 
 ## Unread channels
 

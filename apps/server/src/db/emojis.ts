@@ -11,6 +11,8 @@ export interface EmojiRow {
   created_at: string;
   /** The Discord emoji this was learned from, or null for a native one. */
   discord_id: string | null;
+  /** When a learned emoji was last seen in a bridged message; null otherwise. */
+  used_at: string | null;
 }
 
 export function toEmoji(row: EmojiRow): Emoji {
@@ -54,12 +56,14 @@ export function insertEmoji(
     createdAt: string;
     /** Set only for an emoji learned from Discord. */
     discordId?: string | null;
+    /** When a learned emoji was last seen; only meaningful alongside `discordId`. */
+    usedAt?: string | null;
   },
 ): void {
   sqlite
     .prepare(
-      `INSERT INTO emojis (id, name, hash, content_type, animated, created_by, created_at, discord_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO emojis (id, name, hash, content_type, animated, created_by, created_at, discord_id, used_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.id,
@@ -70,7 +74,24 @@ export function insertEmoji(
       input.createdBy,
       input.createdAt,
       input.discordId ?? null,
+      input.usedAt ?? (input.discordId ? input.createdAt : null),
     );
+}
+
+/** Moves a learned emoji forward, so seeing it again counts as using it. */
+export function touchEmojiUsed(sqlite: DatabaseSync, id: string): void {
+  sqlite.prepare('UPDATE emojis SET used_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+}
+
+/**
+ * Learned emoji not seen since `before`. Only rows with a Discord id are ever
+ * removed, so the instance's own emoji stay whatever the rule says.
+ */
+export function deleteExternalEmojisUnusedBefore(sqlite: DatabaseSync, before: string): number {
+  const result = sqlite
+    .prepare('DELETE FROM emojis WHERE discord_id IS NOT NULL AND COALESCE(used_at, created_at) < ?')
+    .run(before);
+  return Number(result.changes);
 }
 
 export function deleteEmoji(sqlite: DatabaseSync, id: string): void {

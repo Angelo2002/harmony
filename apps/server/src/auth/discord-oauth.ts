@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { HttpError } from '../http/errors.ts';
 import type { SettingsService } from '../settings/service.ts';
 
@@ -33,20 +33,38 @@ export interface DiscordOAuthService {
   enabled(): boolean;
   /** The callback URL to register with Discord, or null without a public URL. */
   redirectUri(): string | null;
-  /** Builds the Discord authorize URL and remembers the flow it belongs to. */
-  authorizeUrl(intent: DiscordAuthIntent, inviteCode?: string | null): string;
-  /** Exchanges a callback's code for the Discord identity behind it. */
+  /**
+   * Builds the Discord authorize URL and remembers the flow it belongs to. The
+   * returned `binding` must be handed to the starting browser (as a cookie) and
+   * presented again at the callback, so a callback URL is useless anywhere else.
+   * A link flow also records who started it.
+   */
+  authorizeUrl(
+    intent: DiscordAuthIntent,
+    options?: { inviteCode?: string | null; userId?: string | null },
+  ): { url: string; binding: string };
+  /**
+   * Exchanges a callback's code for the Discord identity behind it. Refused
+   * unless `binding` is the one issued to the browser that started the flow.
+   */
   complete(
     code: string,
     state: string,
-  ): Promise<{ intent: DiscordAuthIntent; identity: DiscordIdentity; inviteCode: string | null }>;
+    binding: string | null,
+  ): Promise<{
+    intent: DiscordAuthIntent;
+    identity: DiscordIdentity;
+    inviteCode: string | null;
+    /** For a link flow, the member who started it. */
+    userId: string | null;
+  }>;
 }
 
 const AUTHORIZE_URL = 'https://discord.com/oauth2/authorize';
 const TOKEN_URL = 'https://discord.com/api/oauth2/token';
 const USER_URL = 'https://discord.com/api/users/@me';
 /** How long a started flow stays valid before its state is forgotten. */
-const STATE_TTL_MS = 10 * 60 * 1000;
+export const STATE_TTL_MS = 10 * 60 * 1000;
 /** A Discord call should not be able to hang a request indefinitely. */
 const TIMEOUT_MS = 10_000;
 
@@ -112,8 +130,20 @@ export function createDiscordOAuthService(settings: SettingsService): DiscordOAu
    */
   const pending = new Map<
     string,
-    { intent: DiscordAuthIntent; verifier: string; inviteCode: string | null; expiresAt: number }
+    {
+      intent: DiscordAuthIntent;
+      verifier: string;
+      /** Hash of the browser binding, so the map never holds the cookie value itself. */
+      bindingHash: Buffer;
+      inviteCode: string | null;
+      userId: string | null;
+      expiresAt: number;
+    }
   >();
+
+  function hashBinding(binding: string): Buffer {
+    return createHash('sha256').update(binding).digest();
+  }
 
   function resolve(): ResolvedConfig | null {
     const auth = settings.getDiscordAuth();
@@ -138,17 +168,27 @@ export function createDiscordOAuthService(settings: SettingsService): DiscordOAu
       return settings.discordRedirectUri();
     },
 
-    authorizeUrl(intent, inviteCode = null) {
+    authorizeUrl(intent, options = {}) {
       const config = resolve();
       if (!config) throw new HttpError(404, 'discord_auth_disabled', 'Discord sign-in is not available.');
 
       sweep();
       // PKCE plus a random state: the state stops a forged callback, and the
-      // verifier proves the token exchange is ours even if the code leaks.
+      // verifier proves the token exchange is ours even if the code leaks. The
+      // binding ties the flow to this browser: without it, someone could start a
+      // flow, stop at the callback URL and get another person to open it.
       const state = randomBytes(32).toString('base64url');
       const verifier = randomBytes(32).toString('base64url');
+      const binding = randomBytes(32).toString('base64url');
       const challenge = createHash('sha256').update(verifier).digest('base64url');
-      pending.set(state, { intent, verifier, inviteCode, expiresAt: Date.now() + STATE_TTL_MS });
+      pending.set(state, {
+        intent,
+        verifier,
+        bindingHash: hashBinding(binding),
+        inviteCode: options.inviteCode ?? null,
+        userId: options.userId ?? null,
+        expiresAt: Date.now() + STATE_TTL_MS,
+      });
 
       const params = new URLSearchParams({
         client_id: config.clientId,
@@ -159,10 +199,10 @@ export function createDiscordOAuthService(settings: SettingsService): DiscordOAu
         code_challenge: challenge,
         code_challenge_method: 'S256',
       });
-      return `${AUTHORIZE_URL}?${params.toString()}`;
+      return { url: `${AUTHORIZE_URL}?${params.toString()}`, binding };
     },
 
-    async complete(code, state) {
+    async complete(code, state, binding) {
       const config = resolve();
       if (!config) throw new HttpError(404, 'discord_auth_disabled', 'Discord sign-in is not available.');
 
@@ -173,10 +213,15 @@ export function createDiscordOAuthService(settings: SettingsService): DiscordOAu
       if (!entry || entry.expiresAt <= Date.now()) {
         throw new HttpError(400, 'discord_state', 'That sign-in attempt has expired. Please try again.');
       }
+      // Checked before anything is sent to Discord: a callback opened in a
+      // browser that did not start the flow goes nowhere.
+      if (!binding || !timingSafeEqual(hashBinding(binding), entry.bindingHash)) {
+        throw new HttpError(400, 'discord_state', 'That sign-in attempt was started somewhere else.');
+      }
 
       const accessToken = await exchangeCode(config, code, entry.verifier);
       const identity = await fetchIdentity(accessToken);
-      return { intent: entry.intent, identity, inviteCode: entry.inviteCode };
+      return { intent: entry.intent, identity, inviteCode: entry.inviteCode, userId: entry.userId };
     },
   };
 }

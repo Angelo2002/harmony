@@ -6,6 +6,7 @@ import {
   Permission,
   adminUpdateUserSchema,
   banSchema,
+  permissionsFromString,
   permissionsToString,
   timeoutSchema,
   type BanListResponse,
@@ -16,6 +17,7 @@ import {
   type MemberUpdateResponse,
   type UserDirectoryResponse,
 } from '@harmony/shared';
+import { assertCanActOn, assertCanGrant } from '../auth/guards.ts';
 import { resolvePermissions } from '../auth/permissions.ts';
 import { requireAnyPermission, requirePermission } from '../auth/plugin.ts';
 import type { AuditService } from '../audit/service.ts';
@@ -108,6 +110,8 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     if (role.is_default === 1) {
       throw new HttpError(400, 'default_role', 'Everyone already has the @everyone role.');
     }
+    // Giving a role is granting its permissions, to yourself as much as anyone.
+    assertCanGrant(auth, permissionsFromString(role.permissions));
 
     assignRole(db.sqlite, userId, roleId);
     audit.roleChange(auth.user.id, userId, roleId, true);
@@ -119,6 +123,11 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     const auth = requirePermission(request, Permission.ManageRoles);
     const { userId, roleId } = request.params as { userId: string; roleId: string };
 
+    // Taking roles away from an administrator could demote or lock out the
+    // owner, so it is held to the same rule as moderation.
+    const target = findUserById(db.sqlite, userId);
+    if (target) assertCanActOn(db.sqlite, auth, target);
+
     unassignRole(db.sqlite, userId, roleId);
     audit.roleChange(auth.user.id, userId, roleId, false);
     hub.dispatch(GatewayEvent.MemberUpdate, { userId });
@@ -128,15 +137,20 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
   // ---- Account editing ----
   //
   // Editing an account is how a forgotten password is reset: nobody can read a
-  // password, but an administrator can set a new one. Any member may be edited,
-  // including another administrator, because the flat role model offers no safe
-  // alternative and the owner must stay recoverable. Every change is logged.
+  // password, but an administrator can set a new one. Manage Members covers
+  // ordinary members; an administrator or the owner can only be edited by an
+  // administrator, or Manage Members would amount to "can become the owner".
+  // An owner who is the only administrator therefore recovers through Discord
+  // sign-in or the database. Every change is logged.
 
   /** Sets a member's username, display name, password and/or Discord link. */
   app.patch('/api/v1/members/:userId', async (request) => {
     const auth = requirePermission(request, Permission.ManageMembers);
     const { userId } = request.params as { userId: string };
     const input = parseBody(adminUpdateUserSchema, request.body);
+
+    const target = findUserById(db.sqlite, userId);
+    if (target) assertCanActOn(db.sqlite, auth, target);
 
     const fields: string[] = [];
     if (input.username !== undefined) fields.push('username');
@@ -166,6 +180,8 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
   app.put('/api/v1/members/:userId/avatar', async (request) => {
     const auth = requirePermission(request, Permission.ManageMembers);
     const { userId } = request.params as { userId: string };
+    const target = findUserById(db.sqlite, userId);
+    if (target) assertCanActOn(db.sqlite, auth, target);
 
     if (!request.isMultipart()) {
       throw new HttpError(415, 'unsupported_media_type', 'Expected a multipart/form-data upload.');
@@ -191,6 +207,8 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
   app.delete('/api/v1/members/:userId/avatar', async (request) => {
     const auth = requirePermission(request, Permission.ManageMembers);
     const { userId } = request.params as { userId: string };
+    const target = findUserById(db.sqlite, userId);
+    if (target) assertCanActOn(db.sqlite, auth, target);
 
     const row = users.clearAvatar(userId);
     audit.memberUpdated(auth.user.id, userId, ['profile picture']);

@@ -10,7 +10,13 @@ import type { DiscordOAuthService } from '../auth/discord-oauth.ts';
 import type { AuthService } from '../auth/service.ts';
 import { requireAuth, requirePermission } from '../auth/plugin.ts';
 import type { Database } from '../db/index.ts';
-import { setSessionCookie } from '../http/cookies.ts';
+import { STATE_TTL_MS } from '../auth/discord-oauth.ts';
+import {
+  clearDiscordFlowCookie,
+  discordFlowCookieName,
+  setDiscordFlowCookie,
+  setSessionCookie,
+} from '../http/cookies.ts';
 import { HttpError } from '../http/errors.ts';
 import { createRateLimiter } from '../http/rate-limit.ts';
 import { parseBody } from '../http/validation.ts';
@@ -78,7 +84,12 @@ export function registerDiscordRoutes(app: FastifyInstance, deps: DiscordRouteDe
     if (intent === 'link' && !request.auth) return backTo(reply, { discord_error: 'not_signed_in' });
 
     const invite = (request.query as { invite?: string }).invite?.trim().slice(0, 200) || null;
-    return reply.redirect(deps.oauth.authorizeUrl(intent, intent === 'login' ? invite : null));
+    const flow = deps.oauth.authorizeUrl(intent, {
+      inviteCode: intent === 'login' ? invite : null,
+      userId: intent === 'link' ? (request.auth?.user.id ?? null) : null,
+    });
+    setDiscordFlowCookie(reply, deps.config, flow.binding, STATE_TTL_MS / 1000);
+    return reply.redirect(flow.url);
   });
 
   /**
@@ -89,6 +100,9 @@ export function registerDiscordRoutes(app: FastifyInstance, deps: DiscordRouteDe
   app.get('/api/v1/auth/discord/callback', async (request, reply) => {
     callbackLimiter.check(request.ip);
     const query = request.query as { code?: string; state?: string; error?: string };
+    const binding = request.cookies[discordFlowCookieName(deps.config)] ?? null;
+    // One flow, one use: whatever happens below, the binding is spent.
+    clearDiscordFlowCookie(reply, deps.config);
 
     // The member pressed "Cancel" on Discord's consent screen, or Discord refused.
     if (query.error) return backTo(reply, { discord_error: 'denied' });
@@ -96,7 +110,7 @@ export function registerDiscordRoutes(app: FastifyInstance, deps: DiscordRouteDe
 
     let result: Awaited<ReturnType<DiscordOAuthService['complete']>>;
     try {
-      result = await deps.oauth.complete(query.code, query.state);
+      result = await deps.oauth.complete(query.code, query.state, binding);
     } catch {
       // Expired state, a refused token exchange, or an unreadable account: all
       // the same to the member, who can simply try again.
@@ -106,6 +120,8 @@ export function registerDiscordRoutes(app: FastifyInstance, deps: DiscordRouteDe
     if (result.intent === 'link') {
       const auth = request.auth;
       if (!auth) return backTo(reply, { discord_error: 'not_signed_in' });
+      // Only the member who started a link may finish it, even in the same browser.
+      if (result.userId !== auth.user.id) return backTo(reply, { discord_error: 'failed' });
       try {
         // Ownership is proven by the round trip, so this is the safe path the
         // manual admin entry could never be.

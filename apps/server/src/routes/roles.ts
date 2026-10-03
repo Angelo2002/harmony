@@ -4,15 +4,13 @@ import {
   GatewayEvent,
   Permission,
   createRoleSchema,
-  hasPermission,
   moveSchema,
   permissionsFromString,
   permissionsToString,
   updateRoleSchema,
-  type PermissionValue,
   type RoleListResponse,
 } from '@harmony/shared';
-import type { AuthContext } from '../auth/service.ts';
+import { assertCanGrant } from '../auth/guards.ts';
 import { requirePermission } from '../auth/plugin.ts';
 import type { Database } from '../db/index.ts';
 import {
@@ -42,17 +40,6 @@ export function registerRoleRoutes(app: FastifyInstance, deps: RoleRouteDeps): v
     const row = findRole(db.sqlite, id);
     if (!row) throw new HttpError(404, 'role_not_found', 'That role does not exist.');
     return row;
-  }
-
-  /**
-   * Anti-escalation guard: without Administrator you cannot hand out a
-   * permission you do not hold yourself.
-   */
-  function assertCanGrant(auth: AuthContext, permissions: PermissionValue): void {
-    if (hasPermission(auth.permissions, Permission.Administrator)) return;
-    if ((permissions & ~auth.permissions) !== 0n) {
-      throw new HttpError(403, 'permission_escalation', 'You cannot grant permissions you do not have.');
-    }
   }
 
   app.get('/api/v1/roles', async (request) => {
@@ -95,6 +82,9 @@ export function registerRoleRoutes(app: FastifyInstance, deps: RoleRouteDeps): v
     if (row.is_default === 1 && input.name !== undefined) {
       throw new HttpError(403, 'immutable_role', 'The @everyone role cannot be renamed.');
     }
+    // A role above you is out of reach, or stripping its permissions would
+    // demote everyone holding it.
+    assertCanGrant(auth, permissionsFromString(row.permissions));
     if (input.permissions !== undefined) assertCanGrant(auth, permissionsFromString(input.permissions));
 
     updateRole(db.sqlite, id, {
@@ -130,9 +120,10 @@ export function registerRoleRoutes(app: FastifyInstance, deps: RoleRouteDeps): v
   });
 
   app.delete('/api/v1/roles/:id', async (request, reply) => {
-    requirePermission(request, Permission.ManageRoles);
+    const auth = requirePermission(request, Permission.ManageRoles);
     const { id } = request.params as { id: string };
     const row = requireRoleRow(id);
+    assertCanGrant(auth, permissionsFromString(row.permissions));
 
     if (row.is_default === 1) {
       throw new HttpError(403, 'immutable_role', 'The @everyone role cannot be deleted.');

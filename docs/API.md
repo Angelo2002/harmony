@@ -136,8 +136,11 @@ Over the wire, permission bitfields are **decimal strings** (`"1"`, `"2081"`), n
 because JSON cannot carry a 64-bit integer. `GET /api/v1/auth/me` returns your effective
 permissions; roles expose theirs via `GET /api/v1/roles`.
 
-When creating or editing roles, you cannot grant a permission you do not hold yourself unless you
-have `Administrator` (an anti-escalation guard); doing so returns `403 permission_escalation`.
+Without `Administrator`, you cannot grant a permission you do not hold yourself (an anti-escalation
+guard): not by creating or editing a role, not by assigning a role to anyone (yourself included), and
+you cannot edit or delete a role that already holds a permission you lack. Each returns
+`403 permission_escalation`. Likewise only an administrator can act on an administrator or the owner
+— remove their roles, or edit their account — which returns `403 target_is_admin`.
 
 ## Rate limits
 
@@ -1357,22 +1360,26 @@ nothing.
 #### `PUT /api/v1/members/:userId/roles/:roleId` — `ManageRoles`
 
 Assigns a role. Returns `204` and fires `MEMBER_UPDATE` with `{ "userId": "..." }`. The `@everyone`
-role is implicit and cannot be assigned (`400 default_role`).
+role is implicit and cannot be assigned (`400 default_role`). A role holding a permission you lack is
+`403 permission_escalation` unless you are an administrator.
 
 #### `DELETE /api/v1/members/:userId/roles/:roleId` — `ManageRoles`
 
-Removes a role. Returns `204` and fires `MEMBER_UPDATE`.
+Removes a role. Returns `204` and fires `MEMBER_UPDATE`. Removing roles from an administrator or the
+owner needs `Administrator` yourself (`403 target_is_admin`).
 
 ### Editing accounts
 
-An administrator holding `ManageMembers` can edit any account: its username, display name, picture
-and password. This is the instance's only password-recovery path — there is no email and no reset
+A member holding `ManageMembers` can edit an ordinary account: its username, display name, picture,
+password and Discord link. This is the instance's only password-recovery path — there is no email and no reset
 token, so a member who has forgotten their password asks an administrator to set a new one. A
 password can be **written but never read**: no endpoint returns one, and only the hash is stored.
 
-Any account may be edited, including another administrator and the owner. The flat role model offers
-no hierarchy to fall back on, and it keeps the owner recoverable; every change is written to the
-[audit log](#audit-log) instead. The one exception is a Discord stand-in account, which the bridge
+An administrator or the owner can only be edited by an administrator (`403 target_is_admin`
+otherwise); without that, `ManageMembers` would quietly amount to "can become the owner". So an owner
+who forgets their password is recovered by another administrator, by Discord sign-in if their account
+is linked, or by editing the database — keep a second administrator if that matters to you. Every
+change is written to the [audit log](#audit-log). The other exception is a Discord stand-in account, which the bridge
 creates and keeps in step: editing one returns `400 externally_managed`. Their roles are still
 managed like anyone else's.
 

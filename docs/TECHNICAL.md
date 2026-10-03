@@ -194,6 +194,11 @@ button to pull it again on demand. Imported history is stored quietly: it is nev
 broadcast to connected clients as a live `MESSAGE_CREATE`, so a backfill can never
 ring a notification sound for a message that was already read. The message itself
 is still there, arriving the ordinary way through history fetches and unread marks.
+Backfill is kept idempotent by a permanent record of every Discord id the bridge
+has accounted for, held apart from the mapping that mirrors edits and deletes.
+That record is not removed when a message is deleted or hard-deleted by retention,
+so a later backfill recognises the message and skips it instead of resurrecting
+content that was removed on purpose.
 
 Two limitations come from mirroring through a single app account: Discord webhooks
 cannot post real replies, so a Harmony reply is mirrored as a quoted line, and

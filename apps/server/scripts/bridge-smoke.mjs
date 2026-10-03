@@ -561,6 +561,24 @@ try {
     ),
   );
 
+  // 7j. Content removed here stays removed. A hard delete (retention) cascades
+  // the bridge mapping away, but the permanent record of the Discord id does not
+  // go with it, so the next backfill recognises the message and skips it rather
+  // than resurrecting it.
+  const pruned = importedHistory.find((message) => message.content === 'the first ever message');
+  db.sqlite.prepare('DELETE FROM messages WHERE id = ?').run(pruned.id);
+  check(
+    'a hard delete drops the bridge mapping',
+    findBridgeMessageByHarmonyId(db.sqlite, pruned.id) === null,
+  );
+  await bridge.importChannel(channelId);
+  check(
+    'a pruned bridged message is not re-imported',
+    !messages
+      .history(channelId, { limit: 100 }, userId)
+      .messages.some((message) => message.content === 'the first ever message'),
+  );
+
   // 7e. Reactions flow back in, and are attributed to a ghost user.
   const targetDiscordId = findBridgeMessageByHarmonyId(db.sqlite, target.id)?.discord_message_id;
   const reactionsOut = transport.state.reactions.length;

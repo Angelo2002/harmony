@@ -396,4 +396,35 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 18,
+    name: 'bridge_seen',
+    up(db) {
+      /*
+       * Every Discord message id the bridge has ever accounted for, whether it
+       * was imported from Discord or sent there by us on a member's behalf. It
+       * exists because bridge_messages cannot answer "have I seen this before?"
+       * on its own: that mapping is deleted when a message is deleted, and is
+       * cascaded away when retention hard-deletes one, so a backfill would keep
+       * re-importing content that had deliberately been removed. This record is
+       * never deleted with a message, so a re-fetched Discord id is recognised
+       * and skipped however the Harmony message it once mapped to went away.
+       *
+       * Rows are a snowflake id and a timestamp - a few dozen bytes - so keeping
+       * them for the life of the instance is cheap, and it is what makes pruning
+       * and deletion stick. Existing mappings are seeded so an upgrade keeps the
+       * dedup it already had.
+       */
+      db.exec(`
+        CREATE TABLE bridge_seen (
+          discord_message_id TEXT PRIMARY KEY,
+          first_seen_at      TEXT NOT NULL
+        );
+      `);
+      db.exec(`
+        INSERT OR IGNORE INTO bridge_seen (discord_message_id, first_seen_at)
+        SELECT discord_message_id, created_at FROM bridge_messages
+      `);
+    },
+  },
 ];

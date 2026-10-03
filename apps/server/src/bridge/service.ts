@@ -23,7 +23,9 @@ import {
   deleteBridgeMessage,
   findBridgeMessageByDiscordId,
   findBridgeMessageByHarmonyId,
+  hasSeenBridgeMessage,
   insertBridgeMessage,
+  rememberBridgeMessage,
 } from '../db/bridge.ts';
 import { findChannel, findChannelByDiscordId, listChannels, setChannelWebhook, type ChannelRow } from '../db/channels.ts';
 import { findEmojiByName } from '../db/emojis.ts';
@@ -428,6 +430,9 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       discordMessageId: result.messageId,
       createdAt: new Date().toISOString(),
     });
+    // Our own webhook message is accounted for too, so it is never mistaken for
+    // something a member said if it is ever fetched back.
+    rememberBridgeMessage(deps.sqlite, result.messageId, new Date().toISOString());
   }
 
   /** Where a bridged Harmony message lives on the Discord side, if anywhere. */
@@ -591,8 +596,11 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     const active = transport;
     // Ignore bots, including our own mirrored webhook messages.
     if (!active || message.fromBot) return false;
-    // Already bridged: a live event and a history import can race here.
-    if (findBridgeMessageByDiscordId(deps.sqlite, message.id)) return false;
+    // Already accounted for: a live event and a history import can race here,
+    // and a backfill may meet a message whose Harmony copy was deleted or
+    // pruned. The permanent record answers that even when the mapping is gone,
+    // so removed content is not brought back.
+    if (hasSeenBridgeMessage(deps.sqlite, message.id)) return false;
 
     const channel = findChannelByDiscordId(deps.sqlite, message.channelId);
     if (!channel) return false;
@@ -640,6 +648,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       discordMessageId: message.id,
       createdAt: new Date().toISOString(),
     });
+    rememberBridgeMessage(deps.sqlite, message.id, new Date().toISOString());
     // A link posted on Discord previews here too, exactly as if it were typed here.
     deps.resolvePreview?.(created.id, content);
     return true;

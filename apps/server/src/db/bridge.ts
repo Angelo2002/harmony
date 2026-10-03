@@ -44,3 +44,21 @@ export function findBridgeMessageByHarmonyId(
 export function deleteBridgeMessage(sqlite: DatabaseSync, harmonyMessageId: string): void {
   sqlite.prepare('DELETE FROM bridge_messages WHERE harmony_message_id = ?').run(harmonyMessageId);
 }
+
+/**
+ * Records that the bridge has accounted for a Discord message. Unlike the
+ * mapping above, this survives the message being deleted or pruned, which is
+ * what stops a backfill from re-importing content that was removed on purpose.
+ */
+export function rememberBridgeMessage(sqlite: DatabaseSync, discordMessageId: string, at: string): void {
+  sqlite
+    .prepare('INSERT OR IGNORE INTO bridge_seen (discord_message_id, first_seen_at) VALUES (?, ?)')
+    .run(discordMessageId, at);
+}
+
+/** Whether the bridge has already accounted for this Discord message. */
+export function hasSeenBridgeMessage(sqlite: DatabaseSync, discordMessageId: string): boolean {
+  return (
+    sqlite.prepare('SELECT 1 FROM bridge_seen WHERE discord_message_id = ?').get(discordMessageId) !== undefined
+  );
+}

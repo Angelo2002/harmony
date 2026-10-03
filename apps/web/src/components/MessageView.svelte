@@ -78,12 +78,13 @@
   }
 
   function authorName(message: Message): string {
-    return message.author?.displayName ?? message.author?.username ?? 'Unknown';
+    // A null author is a message whose account was deleted; it stays behind.
+    return message.author?.displayName ?? message.author?.username ?? 'Deleted user';
   }
 
   function replyAuthorName(message: Message): string {
     const author = message.replyTo?.author;
-    return author?.displayName ?? author?.username ?? 'Unknown';
+    return author?.displayName ?? author?.username ?? 'Deleted user';
   }
 
   function replySnippet(message: Message): string {

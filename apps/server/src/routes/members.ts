@@ -217,6 +217,17 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     return body;
   });
 
+  /**
+   * Deletes an ordinary member's account outright. The owner and any
+   * administrator are protected, so this can only ever remove a plain member.
+   */
+  app.delete('/api/v1/members/:userId', async (request, reply) => {
+    const auth = requirePermission(request, Permission.ManageMembers);
+    const { userId } = request.params as { userId: string };
+    moderation.deleteMember(auth, userId);
+    return reply.status(204).send();
+  });
+
   // ---- Moderation ----
   //
   // Timeouts, kicks and bans all refuse to act on administrators, so a moderator

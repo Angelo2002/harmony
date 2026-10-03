@@ -11,7 +11,7 @@ import type { AuthContext } from '../auth/service.ts';
 import type { AuditService } from '../audit/service.ts';
 import { deleteBan, findBan, insertBan, listBans } from '../db/bans.ts';
 import { deleteSessionsForUser } from '../db/sessions.ts';
-import { findUserById, presentUser, setUserTimeout, type UserRow } from '../db/users.ts';
+import { deleteUser, findUserById, presentUser, setUserTimeout, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 
@@ -21,6 +21,9 @@ export interface ModerationService {
   kickMember(actor: AuthContext, targetId: string): void;
   banMember(actor: AuthContext, targetId: string, reason: string | null): void;
   unbanMember(actor: AuthContext, targetId: string): void;
+  /** Deletes an ordinary account outright. The owner and administrators are
+   * immune, even to each other, and it can never be aimed at yourself. */
+  deleteMember(actor: AuthContext, targetId: string): void;
   listBans(): Ban[];
 }
 
@@ -53,6 +56,29 @@ export function createModerationService(deps: ModerationDeps): ModerationService
         'target_is_admin',
         'Administrators cannot be moderated. Remove their admin role first.',
       );
+    }
+    return target;
+  }
+
+  /**
+   * The target rules for deleting an account, which are stricter than moderation:
+   * the owner and every administrator are protected even from each other, since
+   * removing an account cannot be undone. Only ordinary members can go.
+   */
+  function requireDeletable(actor: AuthContext, targetId: string): UserRow {
+    const target = findUserById(sqlite, targetId);
+    if (!target) throw new HttpError(404, 'user_not_found', 'That member does not exist.');
+    if (target.id === actor.user.id) {
+      throw new HttpError(400, 'cannot_delete_self', 'You cannot delete your own account.');
+    }
+    if (target.is_bot === 1) {
+      throw new HttpError(400, 'cannot_delete_bot', 'Discord stand-in accounts are managed by the bridge.');
+    }
+    if (target.is_owner === 1) {
+      throw new HttpError(403, 'target_is_owner', 'The owner cannot be deleted.');
+    }
+    if (hasPermission(resolvePermissions(sqlite, target), Permission.Administrator)) {
+      throw new HttpError(403, 'target_is_admin', 'Administrators cannot be deleted.');
     }
     return target;
   }
@@ -109,6 +135,18 @@ export function createModerationService(deps: ModerationDeps): ModerationService
       deleteBan(sqlite, targetId);
       audit.moderation('unban', actor.user.id, targetId);
       announceMember(targetId);
+    },
+
+    deleteMember(actor, targetId) {
+      const target = requireDeletable(actor, targetId);
+      // End their sessions and live connections first, then remove the row. The
+      // schema cascades what is theirs and nulls the rest; their messages stay
+      // behind with no author.
+      deleteSessionsForUser(sqlite, target.id);
+      hub.disconnectUser(target.id, GatewayCloseCode.Removed, 'Your account was deleted.');
+      audit.memberDeleted(actor.user.id, target.id);
+      deleteUser(sqlite, target.id);
+      announceMember(target.id);
     },
 
     listBans() {

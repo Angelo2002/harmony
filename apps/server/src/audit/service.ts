@@ -36,6 +36,8 @@ export interface AuditService {
   roleChange(actorId: string, targetId: string, roleId: string, added: boolean): void;
   /** Records an administrator editing a member's account fields. */
   memberUpdated(actorId: string, targetId: string, fields: string[]): void;
+  /** Records an administrator deleting a member's account outright. */
+  memberDeleted(actorId: string, targetId: string): void;
   /** Records an administrator setting a member's password. */
   passwordReset(actorId: string, targetId: string): void;
   list(query: AuditQuery): AuditListResponse;
@@ -130,6 +132,14 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
     memberUpdated(actorId, targetId, fields) {
       write('member_update', actorId, targetId, null, {
         fields,
+        actorName: userName(actorId),
+        targetName: userName(targetId),
+      });
+    },
+
+    memberDeleted(actorId, targetId) {
+      // Written before the row goes, so the target's name is still readable.
+      write('member_delete', actorId, targetId, null, {
         actorName: userName(actorId),
         targetName: userName(targetId),
       });

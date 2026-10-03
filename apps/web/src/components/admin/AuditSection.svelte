@@ -18,6 +18,7 @@
     role_add: 'role added',
     role_remove: 'role removed',
     member_update: 'profile',
+    member_delete: 'deleted',
     password_reset: 'password',
   };
 
@@ -111,6 +112,8 @@
         return `took the ${entry.detail.roleName ?? 'unknown'} role from ${targetName(entry)}`;
       case 'member_update':
         return `updated ${targetName(entry)}'s ${entry.detail.fields?.join(', ') ?? 'profile'}`;
+      case 'member_delete':
+        return `deleted ${targetName(entry)}'s account`;
       case 'password_reset':
         return `reset the password for ${targetName(entry)}`;
     }

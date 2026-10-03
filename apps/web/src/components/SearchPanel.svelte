@@ -37,7 +37,7 @@
   }
 
   function authorName(message: Message): string {
-    return message.author?.displayName ?? message.author?.username ?? 'Unknown';
+    return message.author?.displayName ?? message.author?.username ?? 'Deleted user';
   }
 
   /**

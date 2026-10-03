@@ -134,6 +134,18 @@
     );
   }
 
+  function deleteMember(member: MemberSummary): void {
+    const name = member.user.displayName ?? member.user.username;
+    if (
+      !confirm(
+        `Delete ${name}'s account? This cannot be undone. Their messages stay behind, no longer attributed to them.`,
+      )
+    ) {
+      return;
+    }
+    void run(() => api(`/members/${member.user.id}`, { method: 'DELETE' }));
+  }
+
   /** Opens the inline account editor, seeding it with the member's current values. */
   function startEdit(member: MemberSummary): void {
     editingId = member.user.id;
@@ -355,6 +367,11 @@
           {/if}
           {#if canBan}
             <button type="button" class="danger" onclick={() => ban(member)} disabled={busy}>Ban</button>
+          {/if}
+          {#if canEdit}
+            <button type="button" class="danger" onclick={() => deleteMember(member)} disabled={busy}>
+              Delete
+            </button>
           {/if}
         </div>
       {/if}

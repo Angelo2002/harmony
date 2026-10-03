@@ -2661,6 +2661,64 @@ try {
     (await req(`/members/${editId}/avatar`, { method: 'DELETE', token: ownerToken })).status === 200,
   );
 
+  // --- Deleting an account ---
+  // The owner and administrators are protected, so this only ever removes a
+  // plain member. Their messages stay behind, with no author left to show.
+  const deleteInvite = await req('/invites', { method: 'POST', token: ownerToken, body: {} });
+  const doomed = await req('/auth/register', {
+    method: 'POST',
+    body: { username: 'deleteme', password: 'deletemepass1', inviteCode: deleteInvite.json?.code },
+  });
+  const doomedId = doomed.json?.user?.id;
+  const doomedToken = doomed.json?.token;
+  const doomedMessage = await req(`/channels/${colorChannel.id}/messages`, {
+    method: 'POST',
+    token: doomedToken,
+    body: { content: 'I was here' },
+  });
+  const doomedMessageId = doomedMessage.json?.id;
+
+  const deleteAdmin = await req('/roles', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Delete guard', permissions: String(1n << 14n) },
+  });
+  await req(`/members/${bobId}/roles/${deleteAdmin.json?.id}`, { method: 'PUT', token: ownerToken });
+
+  check(
+    'deleting an account needs ManageMembers (403)',
+    (await req(`/members/${bobId}`, { method: 'DELETE', token: doomedToken })).status === 403,
+  );
+  check(
+    'the owner cannot be deleted (403)',
+    (await req(`/members/${ownerId}`, { method: 'DELETE', token: bobToken })).status === 403,
+  );
+  check(
+    'you cannot delete your own account (400)',
+    (await req(`/members/${bobId}`, { method: 'DELETE', token: bobToken })).status === 400,
+  );
+  check(
+    'an administrator cannot be deleted (403)',
+    (await req(`/members/${bobId}`, { method: 'DELETE', token: ownerToken })).status === 403,
+  );
+  await req(`/members/${bobId}/roles/${deleteAdmin.json?.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${deleteAdmin.json?.id}`, { method: 'DELETE', token: ownerToken });
+
+  check(
+    'an administrator can delete an ordinary member',
+    (await req(`/members/${doomedId}`, { method: 'DELETE', token: ownerToken })).status === 204,
+  );
+  check(
+    'the deleted member leaves the member list',
+    (await req('/members', { token: ownerToken })).json?.members?.some((member) => member.user.id === doomedId) === false,
+  );
+  check(
+    'their messages stay behind with no author',
+    (await req(`/channels/${colorChannel.id}/messages`, { token: ownerToken })).json?.messages?.some(
+      (message) => message.id === doomedMessageId && message.author === null,
+    ) === true,
+  );
+
   // A Discord stand-in account belongs to the bridge: its profile is not the
   // admin panel's to edit, though its roles still are.
   const ghostDir = mkdtempSync(join(tmpdir(), 'harmony-ghost-'));

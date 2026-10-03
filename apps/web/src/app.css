@@ -2966,6 +2966,7 @@ button.roster-member:hover {
 
 .audit-kind.kind-ban,
 .audit-kind.kind-kick,
+.audit-kind.kind-member_delete,
 .audit-kind.kind-timeout_add {
   background: var(--h-error-subtle);
   color: var(--h-error);

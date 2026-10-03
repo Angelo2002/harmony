@@ -26,7 +26,7 @@
   }
 
   function authorName(mention: Mention): string {
-    return mention.message.author?.displayName ?? mention.message.author?.username ?? 'Unknown';
+    return mention.message.author?.displayName ?? mention.message.author?.username ?? 'Deleted user';
   }
 
   /** Not every mention carries text: a reply or a mention can be an image alone. */

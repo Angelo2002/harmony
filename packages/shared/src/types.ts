@@ -181,6 +181,7 @@ export type AuditKind =
   | 'role_add'
   | 'role_remove'
   | 'member_update'
+  | 'member_delete'
   | 'password_reset';
 
 /**

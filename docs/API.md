@@ -1411,6 +1411,15 @@ server strips the field if one is sent.
 
 Clears the member's picture and returns `{ "user": { /* User */ } }`, firing `MEMBER_UPDATE`.
 
+#### `DELETE /api/v1/members/:userId` — `ManageMembers`
+
+Deletes an ordinary member's account. Returns `204` and fires `MEMBER_UPDATE`. Their messages are
+kept, but lose their author: the client shows them as *Deleted user*. This is for clearing out
+throwaway or test accounts, so it is deliberately narrow — the owner and every administrator are
+protected even from each other (`403 target_is_owner` / `403 target_is_admin`), you cannot delete
+yourself (`400 cannot_delete_self`), and a Discord stand-in cannot be deleted (`400 cannot_delete_bot`,
+since the bridge owns it). The deletion is recorded as a `member_delete` entry.
+
 ### Linking a Discord account
 
 A member can be linked to a Discord account, so the person on Discord and the member here are one

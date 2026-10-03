@@ -150,7 +150,7 @@
   }
 
   const replyName = $derived(
-    chat.replyTarget?.author?.displayName ?? chat.replyTarget?.author?.username ?? 'Unknown',
+    chat.replyTarget?.author?.displayName ?? chat.replyTarget?.author?.username ?? 'Deleted user',
   );
 
   /** When the current user is timed out, the composer is locked with a note. */

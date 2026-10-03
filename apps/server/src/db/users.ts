@@ -248,7 +248,9 @@ export function insertGhostUser(
     .run(input.id, input.username, input.displayName, NO_PASSWORD, input.createdAt, input.discordId);
 }
 
-/** Removes an account that was only just created, when setting it up failed. */
+/** Removes an account row outright. The schema cascades its own rows and sets
+ * its references elsewhere to null, so a deleted member's messages stay behind
+ * with no author. */
 export function deleteUser(sqlite: DatabaseSync, id: string): void {
   sqlite.prepare('DELETE FROM users WHERE id = ?').run(id);
 }

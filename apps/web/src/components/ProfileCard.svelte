@@ -43,8 +43,16 @@
     if (y + height > window.innerHeight - margin) y = anchor.top - 6 - height;
     if (y < margin) y = margin;
 
-    left = x;
-    top = y;
+    /*
+     * Snap to whole pixels. The anchor comes from rem-based padding, so it is
+     * usually fractional, and the entrance animation composites the card and
+     * then hands it back to the page; a fractional origin makes the icon badge,
+     * avatar and checkmark settle a hair off after the animation ends. Landing
+     * on integers keeps that detail still, the way the clamped roster case
+     * already does.
+     */
+    left = Math.round(x);
+    top = Math.round(y);
   });
 
   onMount(() => {

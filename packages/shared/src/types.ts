@@ -261,6 +261,12 @@ export interface Emoji {
   name: string;
   hash: string;
   animated: boolean;
+  /**
+   * Learned from a Discord message rather than added here. It renders and reacts
+   * like any other emoji, but is kept out of the pickers: it is only here to show
+   * what came across the bridge.
+   */
+  external: boolean;
 }
 
 export interface Invite {

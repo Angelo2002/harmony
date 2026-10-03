@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import type { Metadata } from 'sharp';
 import {
   ALLOWED_IMAGE_TYPES,
+  DEFAULT_MAX_EMOJI_BYTES,
   GatewayEvent,
   rewriteChannelMentions,
   rewriteMentions,
@@ -28,7 +29,7 @@ import {
   rememberBridgeMessage,
 } from '../db/bridge.ts';
 import { findChannel, findChannelByDiscordId, listChannels, setChannelWebhook, type ChannelRow } from '../db/channels.ts';
-import { findEmojiByName } from '../db/emojis.ts';
+import { findEmojiByDiscordId, findEmojiByName, insertEmoji } from '../db/emojis.ts';
 import { findUserByDiscordId, findUserByUsername, insertGhostUser, presentUser, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import type { MessageService, ReactionEvent } from '../messages/service.ts';
@@ -180,12 +181,95 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   }
 
   /**
-   * Turns Discord's `<:name:id>` and `<a:name:id>` tags back into `:name:`
-   * shortcodes, so a matching Harmony emoji renders and an unknown one at least
-   * reads sensibly instead of showing a raw id.
+   * Makes sure an emoji a Discord message refers to can be rendered here, and
+   * returns the name to use for it, or null when it cannot be fetched. An emoji
+   * this instance already has under that name is reused, whether it was imported
+   * from the guild or learned earlier. Anything else is downloaded from Discord's
+   * own emoji CDN by id - this is how an emoji from another server gets to show
+   * up here. The id is remembered for the session, so a familiar emoji is not
+   * fetched again on every message.
    */
-  function translateInboundEmoji(text: string): string {
-    return text.replace(/<a?:([a-zA-Z0-9_]{2,32}):\d+>/g, (_whole, name: string) => `:${name}:`);
+  async function ensureExternalEmoji(
+    active: DiscordTransport,
+    id: string,
+    name: string,
+    animated: boolean,
+  ): Promise<string | null> {
+    const cached = learnedEmojiNames.get(id);
+    if (cached) return cached;
+
+    const byDiscordId = findEmojiByDiscordId(deps.sqlite, id);
+    if (byDiscordId) {
+      learnedEmojiNames.set(id, byDiscordId.name);
+      return byDiscordId.name;
+    }
+    // A name already taken is reused rather than duplicated, the same rule the
+    // guild import follows. It is what keeps a tag naming an emoji imported from
+    // the guild, or learned from an earlier message, pointing at one picture.
+    const byName = findEmojiByName(deps.sqlite, name);
+    if (byName) {
+      learnedEmojiNames.set(id, byName.name);
+      return byName.name;
+    }
+
+    try {
+      const data = await active.download(`https://cdn.discordapp.com/emojis/${id}.${animated ? 'gif' : 'png'}`);
+      if (data.length > DEFAULT_MAX_EMOJI_BYTES) return null;
+      const metadata = await sharp(data).metadata();
+      const isAnimated = (metadata.pages ?? 1) > 1;
+      insertEmoji(deps.sqlite, {
+        id: randomUUID(),
+        name,
+        hash: blobs.save(data),
+        contentType: isAnimated ? 'image/gif' : 'image/png',
+        animated: isAnimated,
+        createdBy: null,
+        createdAt: new Date().toISOString(),
+        discordId: id,
+      });
+      learnedEmojiNames.set(id, name);
+      return name;
+    } catch (error) {
+      logger.debug('could not learn a discord emoji', {
+        emojiId: id,
+        name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Turns Discord's `<:name:id>` and `<a:name:id>` tags back into `:name:`
+   * shortcodes. A tag naming an emoji this instance has renders directly; a tag
+   * naming one it does not - an emoji from another server - is learned first by
+   * its id, so it renders too. Only if that fails does it fall back to a plain
+   * shortcode, which at least reads better than a raw id.
+   */
+  async function translateInboundEmoji(text: string): Promise<string> {
+    if (!text.includes('<')) return text;
+    const active = transport;
+    let result = '';
+    let cursor = 0;
+
+    for (const match of text.matchAll(/<a?:([a-zA-Z0-9_]{2,32}):(\d+)>/g)) {
+      const whole = match[0];
+      const name = match[1] ?? '';
+      const id = match[2] ?? '';
+      const index = match.index ?? 0;
+      result += text.slice(cursor, index);
+      cursor = index + whole.length;
+
+      const existing = findEmojiByName(deps.sqlite, name);
+      if (existing) {
+        result += `:${existing.name}:`;
+        continue;
+      }
+      const learned = active ? await ensureExternalEmoji(active, id, name, whole.startsWith('<a:')) : null;
+      result += `:${learned ?? name}:`;
+    }
+
+    return result + text.slice(cursor);
   }
 
   /**
@@ -301,6 +385,10 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   // The guild's custom emoji, resolved by name so `:name:` can be translated to
   // a real Discord `<:name:id>` tag. Cached until the bridge reconnects.
   let guildEmojiByName: Map<string, DiscordEmoji> | null = null;
+
+  // Discord emoji learned from messages and reactions, by Discord id, so one is
+  // not fetched or inserted twice in a session.
+  const learnedEmojiNames = new Map<string, string>();
 
   async function discordEmojiMap(): Promise<Map<string, DiscordEmoji>> {
     if (guildEmojiByName) return guildEmojiByName;
@@ -619,9 +707,11 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     // Anything we cannot mirror is preserved as a link rather than dropped.
     // Discord hides the preview of a suppressed link by wrapping it in angle
     // brackets; drop them so the link unfurls here exactly as a typed one does.
+    // Emoji are learned before this, so an emoji from another server renders.
+    const translated = await translateInboundEmoji(message.content);
     const content = [
       rewriteInboundChannelMentions(
-        rewriteInboundMentions(unwrapSuppressedLinks(translateInboundEmoji(message.content)), message.mentions),
+        rewriteInboundMentions(unwrapSuppressedLinks(translated), message.mentions),
       ),
       ...skipped,
     ]
@@ -708,7 +798,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     if (!mapping) return;
     // Unwrapped like a fresh message, so an edit that adds or newly suppresses a
     // link previews on the Harmony side to match.
-    const content = unwrapSuppressedLinks(translateInboundEmoji(edit.content));
+    const content = unwrapSuppressedLinks(await translateInboundEmoji(edit.content));
     if (!deps.messages.editBridged(mapping.harmony_message_id, content)) return;
     deps.resolvePreview?.(mapping.harmony_message_id, content);
   }
@@ -721,12 +811,23 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     deleteBridgeMessage(deps.sqlite, mapping.harmony_message_id);
   }
 
-  /** Maps a Discord reaction to the canonical Harmony reaction key. */
-  function toHarmonyReaction(reaction: DiscordIncomingReaction): { emoji: string; emojiId: string | null } {
+  /**
+   * Maps a Discord reaction to the canonical Harmony reaction key, learning an
+   * emoji from another server by its id so the reaction renders here too.
+   */
+  async function toHarmonyReaction(
+    reaction: DiscordIncomingReaction,
+  ): Promise<{ emoji: string; emojiId: string | null }> {
     if (!reaction.emojiId) return { emoji: reaction.emoji, emojiId: null };
     // A custom emoji: reuse the Harmony emoji of the same name so it renders.
-    const row = findEmojiByName(deps.sqlite, reaction.emoji);
-    return { emoji: `:${reaction.emoji}:`, emojiId: row?.id ?? null };
+    const existing = findEmojiByName(deps.sqlite, reaction.emoji);
+    if (existing) return { emoji: `:${existing.name}:`, emojiId: existing.id };
+
+    const learned = transport
+      ? await ensureExternalEmoji(transport, reaction.emojiId, reaction.emoji, false)
+      : null;
+    const row = learned ? findEmojiByName(deps.sqlite, learned) : null;
+    return row ? { emoji: `:${row.name}:`, emojiId: row.id } : { emoji: `:${reaction.emoji}:`, emojiId: null };
   }
 
   async function ingestReaction(reaction: DiscordIncomingReaction): Promise<void> {
@@ -734,7 +835,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     if (!mapping) return;
 
     const author = resolveGhostUser(reaction.userId, reaction.userName);
-    const { emoji, emojiId } = toHarmonyReaction(reaction);
+    const { emoji, emojiId } = await toHarmonyReaction(reaction);
     deps.messages.addReactionBridged(mapping.harmony_message_id, author.id, emoji, emojiId);
   }
 
@@ -743,7 +844,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     if (!mapping) return;
 
     const author = resolveGhostUser(reaction.userId, reaction.userName);
-    const { emoji } = toHarmonyReaction(reaction);
+    const { emoji } = await toHarmonyReaction(reaction);
     deps.messages.removeReactionBridged(mapping.harmony_message_id, author.id, emoji);
   }
 
@@ -751,7 +852,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     const mapping = findBridgeMessageByDiscordId(deps.sqlite, reaction.messageId);
     if (!mapping) return;
 
-    const { emoji, emojiId } = toHarmonyReaction(reaction);
+    const { emoji, emojiId } = await toHarmonyReaction(reaction);
     deps.messages.clearReactionsBridged(mapping.harmony_message_id, emoji, emojiId);
   }
 

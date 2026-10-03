@@ -305,7 +305,7 @@
     const needle = trigger.query.toLowerCase();
 
     if (trigger.kind === 'emoji') {
-      const byName = [...emojis.list].sort((a, b) => a.name.localeCompare(b.name));
+      const byName = [...emojis.picker].sort((a, b) => a.name.localeCompare(b.name));
       const prefix = byName.filter((emoji) => emoji.name.toLowerCase().startsWith(needle));
       const rest = needle
         ? byName.filter(

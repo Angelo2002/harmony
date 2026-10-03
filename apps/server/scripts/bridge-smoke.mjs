@@ -14,7 +14,7 @@ import { insertChannel, listChannels } from '../src/db/channels.ts';
 import { listCategories } from '../src/db/categories.ts';
 import { findUserById, findUserByDiscordId, insertUser } from '../src/db/users.ts';
 import { findBridgeMessageByHarmonyId } from '../src/db/bridge.ts';
-import { insertEmoji } from '../src/db/emojis.ts';
+import { findEmojiByName, insertEmoji, toEmoji } from '../src/db/emojis.ts';
 import { createAttachmentService } from '../src/attachments/service.ts';
 import { createEmojiService } from '../src/emojis/service.ts';
 import { createEmojiImportService } from '../src/emojis/import.ts';
@@ -658,6 +658,80 @@ try {
     messages
       .history(channelId, { limit: 50 }, userId)
       .messages.some((m) => m.content === 'hi :YES: and :LATER: there'),
+  );
+
+  // 7f2. An emoji from another server - one this instance does not have - is
+  // learned from Discord by its id, so it renders here too. A repeat of the same
+  // emoji reuses it instead of fetching again, and it is marked as external so
+  // the pickers leave it alone.
+  transport.state.downloadBytes = png;
+  const downloadsBeforeLearn = transport.state.downloads.length;
+  transport.emit({
+    id: 'd5b',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    content: 'party <:party:800> time and <a:blink:801>',
+    attachments: [],
+    fromBot: false,
+  });
+  await sleep(100);
+  const learnedMessage = messages
+    .history(channelId, { limit: 50 }, userId)
+    .messages.find((m) => m.content.startsWith('party'));
+  check('an emoji from another server becomes a shortcode', learnedMessage?.content === 'party :party: time and :blink:');
+  check(
+    'the external emoji is fetched from the discord cdn',
+    transport.state.downloads.includes('https://cdn.discordapp.com/emojis/800.png') &&
+      transport.state.downloads.includes('https://cdn.discordapp.com/emojis/801.gif'),
+  );
+  const storedParty = findEmojiByName(db.sqlite, 'party');
+  check(
+    'the external emoji is stored with its discord id',
+    storedParty?.discord_id === '800',
+  );
+  check(
+    'an external emoji is flagged, a native one is not',
+    storedParty !== null && toEmoji(storedParty).external === true &&
+      toEmoji(findEmojiByName(db.sqlite, 'YES')).external === false,
+  );
+
+  const downloadsAfterLearn = transport.state.downloads.length;
+  transport.emit({
+    id: 'd5c',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    content: 'again <:party:800>',
+    attachments: [],
+    fromBot: false,
+  });
+  await sleep(100);
+  check(
+    'a repeat external emoji is not fetched again',
+    transport.state.downloads.length === downloadsAfterLearn &&
+      transport.state.downloads.length === downloadsBeforeLearn + 2,
+  );
+
+  // A reaction carrying an emoji from another server is learned the same way, so
+  // it renders as a picture rather than a bare shortcode.
+  transport.emitReactionAdd({
+    messageId: targetDiscordId,
+    channelId: '111',
+    userId: '777',
+    userName: 'Discord Rhea',
+    emoji: 'cheer',
+    emojiId: '900',
+  });
+  await sleep(100);
+  const externalReacted = messages.history(channelId, { limit: 50 }, userId).messages.find((m) => m.id === target.id);
+  check(
+    'a reaction with an emoji from another server is learned and renders',
+    externalReacted?.reactions.some((reaction) => reaction.emoji === ':cheer:' && reaction.emojiId !== null) === true,
   );
 
   // 7g. Discord mentions become Harmony mentions, creating stand-ins as needed.

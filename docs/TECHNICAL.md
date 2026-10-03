@@ -270,6 +270,17 @@ grouped file, so the shape the picker relies on is asserted by the text smoke te
 against the package itself, which is what would catch an upgrade changing it into
 an empty list with no error anywhere.
 
+An emoji from another Discord server is the one kind the picker does not offer.
+When a bridged message or reaction names an emoji this instance does not have,
+the bridge fetches it from Discord's own emoji CDN by its id — the id in the
+`<:name:id>` tag is all that is needed — and keeps it as an emoji row of its own,
+marked by that Discord id. From then on it renders everywhere an emoji does, in
+messages and reactions alike, and a second sighting is reused rather than fetched
+again. Those rows are held out of the pickers and the admin list: they are here to
+show what crossed the bridge, not to be chosen by hand. A name already in use is
+reused, the same rule the guild import follows, so a tag naming an emoji imported
+from the guild points at one picture rather than two.
+
 ## Unread channels
 
 A channel with something new in it is drawn brighter in the sidebar, with a mark down its left edge.

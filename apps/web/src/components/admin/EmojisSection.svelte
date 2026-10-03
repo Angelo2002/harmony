@@ -10,6 +10,8 @@
   import { emojis } from '../../lib/emojis.svelte';
 
   let list = $state<Emoji[]>([]);
+  /** Emoji learned from Discord, which are shown for rendering but not managed here. */
+  let learned = $state(0);
   let name = $state('');
   let fileInput = $state<HTMLInputElement | null>(null);
   let discord = $state<DiscordEmojiListResponse | null>(null);
@@ -28,7 +30,9 @@
   }
 
   async function load(): Promise<void> {
-    list = (await api<EmojiListResponse>('/emojis')).emojis;
+    const all = (await api<EmojiListResponse>('/emojis')).emojis;
+    list = all.filter((emoji) => !emoji.external);
+    learned = all.length - list.length;
   }
 
   onMount(() => {
@@ -155,6 +159,13 @@
         </div>
       {/each}
     </div>
+  {/if}
+
+  {#if learned > 0}
+    <p class="muted">
+      {learned} more {learned === 1 ? 'emoji was' : 'emoji were'} learned from Discord messages. Those render
+      in bridged channels but are kept out of the picker and this list.
+    </p>
   {/if}
 
   <div class="panel">

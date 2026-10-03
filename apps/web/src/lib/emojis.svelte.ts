@@ -8,6 +8,13 @@ class EmojiState {
   /** Name -> emoji lookup, rebuilt whenever the list changes. */
   lookup = $derived(new Map(this.list.map((emoji) => [emoji.name, emoji])));
 
+  /**
+   * The emoji a member can pick. Emoji learned from Discord render in messages
+   * but are held out of the pickers: they are here to show what crossed the
+   * bridge, not to be chosen by hand.
+   */
+  picker = $derived(this.list.filter((emoji) => !emoji.external));
+
   async load(): Promise<void> {
     try {
       this.list = (await api<EmojiListResponse>('/emojis')).emojis;

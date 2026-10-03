@@ -29,7 +29,7 @@
       unicodeFailed = true;
     });
 
-  const serverMatches = $derived(filterByName(emojis.list, query));
+  const serverMatches = $derived(filterByName(emojis.picker, query));
   const unicodeMatches = $derived(filterUnicodeGroups(unicodeGroups, query));
 
   /** Searching is a different task from browsing, so the shortcuts step aside. */

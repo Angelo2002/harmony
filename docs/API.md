@@ -257,7 +257,13 @@ type ThemeSettings = {
   accent: string | null;
 };
 
-type Emoji = { id: string; name: string; hash: string; animated: boolean };
+type Emoji = {
+  id: string;
+  name: string;
+  hash: string;
+  animated: boolean;
+  external: boolean;   // learned from a Discord message; renders, but kept out of the pickers
+};
 
 /** A custom emoji that exists in the linked Discord server. */
 type DiscordEmojiOption = {

@@ -427,4 +427,21 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 19,
+    name: 'external_emojis',
+    up(db) {
+      /*
+       * A custom emoji learned from a Discord message: one from another server,
+       * or any emoji this guild does not have here. It is kept as an ordinary
+       * emoji row so it renders and reacts through the same code everywhere,
+       * marked by the Discord id it came from. Those rows are held out of the
+       * pickers: they exist to display what crossed the bridge, not to be picked
+       * by hand. The partial unique index keeps one row per Discord emoji without
+       * disturbing the emoji added here, which have no Discord id.
+       */
+      db.exec(`ALTER TABLE emojis ADD COLUMN discord_id TEXT`);
+      db.exec(`CREATE UNIQUE INDEX idx_emojis_discord ON emojis(discord_id) WHERE discord_id IS NOT NULL`);
+    },
+  },
 ];

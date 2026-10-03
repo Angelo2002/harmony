@@ -1451,6 +1451,29 @@ try {
   const bobCleared = await req('/auth/me', { token: bobToken });
   check('removing a role takes permissions away', (BigInt(bobCleared.json?.permissions ?? '0') & (1n << 2n)) === 0n);
 
+  // Badges: owner from the account flag, admin from the Administrator permission,
+  // moderator from a role marked as one, in that order of precedence.
+  const ownerMe = await req('/auth/me', { token: ownerToken });
+  check('the owner carries the owner badge', ownerMe.json?.user?.badge === 'owner');
+  check('a plain member carries no badge', bobCleared.json?.user?.badge === null);
+
+  await req(`/roles/${roleId}`, { method: 'PATCH', token: ownerToken, body: { badge: 'moderator' } });
+  await req(`/members/${bobId}/roles/${roleId}`, { method: 'PUT', token: ownerToken });
+  const bobMod = await req('/auth/me', { token: bobToken });
+  check('a role marked moderator gives the moderator badge', bobMod.json?.user?.badge === 'moderator');
+
+  const adminRole = await req('/roles', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Temp admin', permissions: String(1n << 14n) },
+  });
+  await req(`/members/${bobId}/roles/${adminRole.json.id}`, { method: 'PUT', token: ownerToken });
+  const bobAdmin = await req('/auth/me', { token: bobToken });
+  check('Administrator outranks the moderator badge', bobAdmin.json?.user?.badge === 'admin');
+  await req(`/members/${bobId}/roles/${adminRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/members/${bobId}/roles/${roleId}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${adminRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
   check(
     'the default role cannot be assigned (400)',
     (await req(`/members/${bobId}/roles/${everyoneRole.id}`, { method: 'PUT', token: ownerToken })).status === 400,

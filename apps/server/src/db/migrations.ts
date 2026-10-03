@@ -494,4 +494,17 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 22,
+    name: 'role_badge',
+    up(db) {
+      /*
+       * The badge a role confers on its members, drawn beside their name. Only
+       * `moderator` is a role's to give: the owner badge comes from the account
+       * flag and the admin one from the Administrator permission, so a role
+       * saying so would be redundant. Most roles carry none.
+       */
+      db.exec(`ALTER TABLE roles ADD COLUMN badge TEXT NOT NULL DEFAULT 'none'`);
+    },
+  },
 ];

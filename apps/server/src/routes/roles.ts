@@ -77,6 +77,7 @@ export function registerRoleRoutes(app: FastifyInstance, deps: RoleRouteDeps): v
       permissions: permissionsToString(permissions),
       hoist: input.hoist ?? false,
       mentionable: input.mentionable ?? false,
+      badge: input.badge ?? 'none',
       createdAt: new Date().toISOString(),
     });
 
@@ -102,6 +103,7 @@ export function registerRoleRoutes(app: FastifyInstance, deps: RoleRouteDeps): v
       permissions: input.permissions,
       hoist: input.hoist,
       mentionable: input.mentionable,
+      badge: input.badge,
     });
 
     const role = toRole(requireRoleRow(id));

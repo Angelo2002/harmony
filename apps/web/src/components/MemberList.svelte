@@ -6,6 +6,7 @@
   import { roster } from '../lib/roster.svelte';
   import { ui } from '../lib/ui.svelte';
   import Icon from './Icon.svelte';
+  import MemberBadge from './MemberBadge.svelte';
 
   interface Group {
     key: string;
@@ -115,6 +116,7 @@
               <span class="avatar small fallback">{initial(entry.user)}</span>
             {/if}
             <span class="roster-name" style={cssColor(entry.user.roleColor)}>{nameOf(entry)}</span>
+            {#if entry.user.badge}<MemberBadge badge={entry.user.badge} size={12} />{/if}
             {#if entry.user.discordId}
               {#if entry.user.isBot}
                 <span class="roster-linked" title="A Discord account"><Icon name="link" size={12} /></span>

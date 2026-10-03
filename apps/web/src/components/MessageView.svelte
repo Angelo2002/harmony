@@ -13,6 +13,7 @@
   import EmojiPicker from './EmojiPicker.svelte';
   import EmbedVideo from './EmbedVideo.svelte';
   import Icon from './Icon.svelte';
+  import MemberBadge from './MemberBadge.svelte';
 
   /** Opens the profile card for an author, when there is one to show. */
   function openCard(user: User | null | undefined, element: HTMLElement): void {
@@ -477,6 +478,9 @@
               >
                 {authorName(message)}
               </button>
+              {#if message.author?.badge}
+                <MemberBadge badge={message.author.badge} />
+              {/if}
               <time>{formatTime(message.createdAt)}</time>
               {#if message.editedAt}<span class="edited">(edited)</span>{/if}
             </div>

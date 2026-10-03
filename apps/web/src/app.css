@@ -1776,6 +1776,26 @@ button.mention:hover {
   color: var(--h-ok);
 }
 
+.member-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-left: 0.25rem;
+  vertical-align: -2px;
+}
+
+.member-badge.badge-owner {
+  color: #e0a63a;
+}
+
+.member-badge.badge-admin {
+  color: #e0575f;
+}
+
+.member-badge.badge-moderator {
+  color: #57b0e0;
+}
+
 button.roster-member {
   width: 100%;
   background: none;

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { User } from '@harmony/shared';
-import { getHighestRoleColor } from './roles.ts';
+import type { User, UserBadge } from '@harmony/shared';
+import { getHighestRoleColor, getUserBadge } from './roles.ts';
 
 export interface UserRow {
   id: string;
@@ -18,7 +18,7 @@ export interface UserRow {
   notify_minor: number;
 }
 
-export function toUser(row: UserRow, roleColor: number | null): User {
+export function toUser(row: UserRow, roleColor: number | null, badge: UserBadge | null): User {
   return {
     id: row.id,
     username: row.username,
@@ -27,6 +27,7 @@ export function toUser(row: UserRow, roleColor: number | null): User {
     roleColor,
     isBot: row.is_bot === 1,
     isOwner: row.is_owner === 1,
+    badge,
     createdAt: row.created_at,
     timedOutUntil: row.timed_out_until,
     showTyping: row.show_typing === 1,
@@ -36,9 +37,9 @@ export function toUser(row: UserRow, roleColor: number | null): User {
   };
 }
 
-/** A user DTO with their display color resolved from their roles. */
+/** A user DTO with their display color and badge resolved from their roles. */
 export function presentUser(sqlite: DatabaseSync, row: UserRow): User {
-  return toUser(row, getHighestRoleColor(sqlite, row.id));
+  return toUser(row, getHighestRoleColor(sqlite, row.id), getUserBadge(sqlite, row.id, row.is_owner === 1));
 }
 
 export function countUsers(sqlite: DatabaseSync): number {

@@ -154,6 +154,7 @@ export const createRoleSchema = z.object({
   permissions: permissionString.optional(),
   hoist: z.boolean().optional(),
   mentionable: z.boolean().optional(),
+  badge: z.enum(['none', 'moderator']).optional(),
 });
 export type CreateRoleInput = z.infer<typeof createRoleSchema>;
 
@@ -163,6 +164,7 @@ export const updateRoleSchema = z.object({
   permissions: permissionString.optional(),
   hoist: z.boolean().optional(),
   mentionable: z.boolean().optional(),
+  badge: z.enum(['none', 'moderator']).optional(),
 });
 export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
 

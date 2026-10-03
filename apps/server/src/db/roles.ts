@@ -1,5 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { permissionsFromString, type PermissionValue, type Role } from '@harmony/shared';
+import {
+  Permission,
+  permissionsFromString,
+  type PermissionValue,
+  type Role,
+  type RoleBadge,
+  type UserBadge,
+} from '@harmony/shared';
 
 export interface RoleRow {
   id: string;
@@ -10,6 +17,7 @@ export interface RoleRow {
   hoist: number;
   mentionable: number;
   is_default: number;
+  badge: string;
   created_at: string;
 }
 
@@ -23,6 +31,7 @@ export function toRole(row: RoleRow): Role {
     hoist: row.hoist === 1,
     mentionable: row.mentionable === 1,
     isDefault: row.is_default === 1,
+    badge: row.badge === 'moderator' ? 'moderator' : 'none',
   };
 }
 
@@ -52,13 +61,14 @@ export function insertRole(
     permissions: string;
     hoist: boolean;
     mentionable: boolean;
+    badge?: RoleBadge;
     createdAt: string;
   },
 ): void {
   sqlite
     .prepare(
-      `INSERT INTO roles (id, name, color, position, permissions, hoist, mentionable, is_default, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      `INSERT INTO roles (id, name, color, position, permissions, hoist, mentionable, is_default, badge, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
     )
     .run(
       input.id,
@@ -68,6 +78,7 @@ export function insertRole(
       input.permissions,
       input.hoist ? 1 : 0,
       input.mentionable ? 1 : 0,
+      input.badge ?? 'none',
       input.createdAt,
     );
 }
@@ -75,7 +86,15 @@ export function insertRole(
 export function updateRole(
   sqlite: DatabaseSync,
   id: string,
-  patch: { name?: string; color?: number | null; position?: number; permissions?: string; hoist?: boolean; mentionable?: boolean },
+  patch: {
+    name?: string;
+    color?: number | null;
+    position?: number;
+    permissions?: string;
+    hoist?: boolean;
+    mentionable?: boolean;
+    badge?: RoleBadge;
+  },
 ): void {
   const sets: string[] = [];
   const values: Array<string | number | null> = [];
@@ -103,6 +122,10 @@ export function updateRole(
   if (patch.mentionable !== undefined) {
     sets.push('mentionable = ?');
     values.push(patch.mentionable ? 1 : 0);
+  }
+  if (patch.badge !== undefined) {
+    sets.push('badge = ?');
+    values.push(patch.badge);
   }
   if (sets.length === 0) return;
 
@@ -164,6 +187,33 @@ export function assignRole(sqlite: DatabaseSync, userId: string, roleId: string)
 
 export function unassignRole(sqlite: DatabaseSync, userId: string, roleId: string): void {
   sqlite.prepare('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?').run(userId, roleId);
+}
+
+/**
+ * The badge to draw beside a member's name, honouring the order owner > admin >
+ * moderator so at most one ever shows. Owner is the account flag; admin is the
+ * Administrator permission from any role the member holds; moderator is any
+ * role marked as one.
+ */
+export function getUserBadge(sqlite: DatabaseSync, userId: string, isOwner: boolean): UserBadge | null {
+  if (isOwner) return 'owner';
+
+  const rows = sqlite
+    .prepare(
+      `SELECT r.permissions AS permissions, r.badge AS badge
+         FROM roles r
+        WHERE r.is_default = 1 OR r.id IN (SELECT role_id FROM member_roles WHERE user_id = ?)`,
+    )
+    .all(userId) as Array<{ permissions: string; badge: string }>;
+
+  let moderator = false;
+  for (const row of rows) {
+    if ((permissionsFromString(row.permissions) & Permission.Administrator) === Permission.Administrator) {
+      return 'admin';
+    }
+    if (row.badge === 'moderator') moderator = true;
+  }
+  return moderator ? 'moderator' : null;
 }
 
 /**

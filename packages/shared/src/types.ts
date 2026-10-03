@@ -2,6 +2,16 @@ export type SnowflakeId = string;
 export type IsoTimestamp = string;
 export type ChannelType = 'text';
 
+/**
+ * A badge drawn beside a member's name. Owner and admin are derived rather than
+ * configured: one from the account flag, the other from the Administrator
+ * permission. Moderator is the only one a role has to be told to confer.
+ */
+export type UserBadge = 'owner' | 'admin' | 'moderator';
+
+/** The badge a role confers, if any. Only moderator is a role's to give. */
+export type RoleBadge = 'none' | 'moderator';
+
 export interface User {
   id: SnowflakeId;
   username: string;
@@ -15,6 +25,8 @@ export interface User {
   roleColor: number | null;
   isBot: boolean;
   isOwner: boolean;
+  /** The badge to draw beside this member's name, or null for none. */
+  badge: UserBadge | null;
   createdAt: IsoTimestamp;
   /** End of an active moderation timeout, or null when not timed out. */
   timedOutUntil: IsoTimestamp | null;
@@ -56,6 +68,8 @@ export interface Role {
   hoist: boolean;
   mentionable: boolean;
   isDefault: boolean;
+  /** The badge this role confers on its members, `'none'` for most roles. */
+  badge: RoleBadge;
 }
 
 export interface Category {

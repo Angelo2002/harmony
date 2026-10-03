@@ -7,6 +7,7 @@
     permissionsToString,
     type PermissionName,
     type Role,
+    type RoleBadge,
     type RoleListResponse,
   } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
@@ -21,6 +22,8 @@
   let editPermissions = $state<string[]>([]);
   /** Whether the role gets its own group in the member list. */
   let editHoist = $state(false);
+  /** The badge this role confers beside its members' names. */
+  let editBadge = $state<RoleBadge>('none');
   let newRoleName = $state('');
   let error = $state<string | null>(null);
   let message = $state<string | null>(null);
@@ -40,6 +43,7 @@
     editColor = role.color == null ? '' : `#${role.color.toString(16).padStart(6, '0')}`;
     editPermissions = permissionsToNames(BigInt(role.permissions));
     editHoist = role.hoist;
+    editBadge = role.badge;
     error = null;
     message = null;
   }
@@ -63,6 +67,7 @@
         body.name = editName.trim();
         body.color = parseColor(editColor);
         body.hoist = editHoist;
+        body.badge = editBadge;
       }
       await api(`/roles/${selected.id}`, { method: 'PATCH', body: JSON.stringify(body) });
       await load();
@@ -184,6 +189,14 @@
         <label class="checkbox">
           <input type="checkbox" bind:checked={editHoist} disabled={selected.isDefault} />
           Show as its own group in the member list
+        </label>
+
+        <label>
+          Badge shown beside members
+          <select bind:value={editBadge} disabled={selected.isDefault}>
+            <option value="none">None</option>
+            <option value="moderator">Moderator (shield)</option>
+          </select>
         </label>
 
         <fieldset>

@@ -4,6 +4,7 @@
   import { profileCard } from '../lib/profile-card.svelte';
   import { roster } from '../lib/roster.svelte';
   import Icon from './Icon.svelte';
+  import MemberBadge from './MemberBadge.svelte';
 
   let card = $state<HTMLDivElement | null>(null);
   let left = $state(0);
@@ -98,6 +99,7 @@
       <div class="profile-card-names">
         <strong>
           {user.displayName ?? user.username}
+          {#if user.badge}<MemberBadge badge={user.badge} size={14} />{/if}
           {#if user.discordId}
             {#if user.isBot}
               <span class="card-linked" title="A Discord account"><Icon name="link" size={13} /></span>

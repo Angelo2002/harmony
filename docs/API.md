@@ -158,6 +158,7 @@ type User = {
   roleColor: number | null;     // packed RGB integer, from the highest colored role
   isBot: boolean;               // true for Discord stand-in accounts
   isOwner: boolean;
+  badge: 'owner' | 'admin' | 'moderator' | null;  // shown beside the name, see "Member badges"
   createdAt: string;
   timedOutUntil: string | null; // end of an active timeout, else null
   showTyping: boolean;          // typing indicators on/off for this user
@@ -251,6 +252,7 @@ type Role = {
   hoist: boolean;               // true gives the role its own member list group
   mentionable: boolean;
   isDefault: boolean;           // true only for @everyone
+  badge: 'none' | 'moderator';  // shown beside members' names, see "Member badges"
 };
 
 // The two colors an admin picks. Everything else is derived, see "Theming".
@@ -1266,8 +1268,19 @@ new `Role` and fires `ROLE_CREATE`. Granting a permission you lack is rejected w
 
 #### `PATCH /api/v1/roles/:id` — `ManageRoles`
 
-Any of `name`, `color`, `permissions`, `hoist`, `mentionable`. The `@everyone` role cannot be
+Any of `name`, `color`, `permissions`, `hoist`, `mentionable`, `badge`. The `@everyone` role cannot be
 renamed (`403 immutable_role`). Returns the `Role` and fires `ROLE_UPDATE`.
+
+**Member badges.** A `User`'s `badge` is derived, not stored, and only one ever shows, in the order
+owner > admin > moderator:
+
+- `owner` — the account registered first (`isOwner`).
+- `admin` — the user holds the `Administrator` permission through any role.
+- `moderator` — any of the user's roles carries `badge: "moderator"`.
+
+So only the moderator badge is a role's to give; owner and admin follow from the account and the
+permissions. Set one with `badge: "moderator"` (or `"none"`) on a role; it is drawn beside the
+member's name in messages, the member list and the profile card.
 
 #### `POST /api/v1/roles/:id/move` — `ManageRoles`
 

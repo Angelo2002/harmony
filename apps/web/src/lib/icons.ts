@@ -14,4 +14,7 @@ export type IconName =
   | 'smile'
   | 'paperclip'
   | 'heart'
-  | 'heart-filled';
+  | 'heart-filled'
+  | 'crown'
+  | 'sword'
+  | 'shield';

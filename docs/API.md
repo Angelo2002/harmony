@@ -1178,10 +1178,10 @@ Returns `503 bridge_offline` when the bridge is not connected.
 ### Stickers
 
 Harmony has no stickers of its own. A sticker only ever arrives from Discord: when a bridged message
-carries one, the bridge learns it by its Discord sticker id and attaches it to the message, and every
-later message that sends it shares the same sticker. They are aged out by `stickerRetentionDays`. A
-format that cannot be drawn as a picture — a Lottie vector — is kept as its name in the message's
-text instead, so nothing is dropped.
+carries one, or someone pastes a Discord sticker link, the bridge learns it by its Discord sticker id
+and attaches it to the message, and every later message that sends it shares the same sticker. They
+are aged out by `stickerRetentionDays`. A format that cannot be drawn as a picture — a Lottie vector —
+is kept as its name in the message's text instead, so nothing is dropped.
 
 #### `GET /api/v1/stickers/:id` — `ViewChannels`
 

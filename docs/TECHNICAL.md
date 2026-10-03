@@ -300,6 +300,9 @@ Discord serves PNG and APNG stickers as `.png` and GIF ones as `.gif`; both are
 stored as pictures. Lottie stickers are vector graphics with no bitmap form, so
 they cannot be an `<img>` and are kept as the sticker's name in the message text
 instead — the same choice unmirrorable attachments make when they become links.
+A Discord sticker link pasted into a message — the `media.discordapp.net/stickers/…`
+form the client's copy-link gives — is learned the same way and draws as the
+sticker, so it does not sit there as a URL.
 
 ## Unread channels
 

@@ -816,6 +816,30 @@ try {
       .messages.some((m) => m.content === 'wumpus' && m.stickers.length === 0),
   );
 
+  // A pasted "copy link" sticker link becomes the sticker itself, so it renders
+  // instead of sitting there as a URL.
+  transport.emit({
+    id: 'd5g',
+    channelId: '111',
+    authorId: '999',
+    authorName: 'Discord Sam',
+    authorAvatarUrl: null,
+    replyToDiscordId: null,
+    content:
+      'https://media.discordapp.net/stickers/777.png?size=160&name=SmugTao+%28%40kuruwanchan%29&lossless=true',
+    attachments: [],
+    fromBot: false,
+  });
+  await sleep(100);
+  const linkedSticker = messages
+    .history(channelId, { limit: 50 }, userId)
+    .messages.find((m) => m.stickers.some((sticker) => sticker.name.startsWith('SmugTao')));
+  check('a pasted sticker link becomes a sticker', linkedSticker !== undefined && linkedSticker.content === '');
+  check(
+    'the linked sticker is fetched from the discord cdn',
+    transport.state.downloads.includes('https://cdn.discordapp.com/stickers/777.png'),
+  );
+
   settings.updateRetention({ stickerRetentionDays: 0 });
   const stickerPrune = pruner.runNow();
   check('learned stickers are pruned once unused', stickerPrune.deletedStickers > 0, String(stickerPrune.deletedStickers));

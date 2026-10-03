@@ -70,6 +70,10 @@ const STICKER_MAX_BYTES = 1024 * 1024;
 const STICKER_FORMAT_LOTTIE = 3;
 const STICKER_FORMAT_GIF = 4;
 
+/** A pasted Discord sticker link, as the client's "copy link" produces it. */
+const STICKER_LINK =
+  /https?:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\/stickers\/(\d+)\.(png|gif)(?:\?[^\s]*)?/gi;
+
 export interface BridgeService {
   status(): BridgeResponse;
   /** Starts, stops or restarts the bot to match the saved settings. */
@@ -314,6 +318,58 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     const usedAt = Date.parse(row.used_at);
     if (Number.isFinite(usedAt) && Date.now() - usedAt < 3_600_000) return;
     touchStickerUsed(deps.sqlite, row.id);
+  }
+
+  /** The sticker name a copy-link URL carries in its `name` query, if any. */
+  function stickerNameFromLink(url: string): string | null {
+    const start = url.indexOf('?');
+    if (start === -1) return null;
+    for (const pair of url.slice(start + 1).split('&')) {
+      const [key, value] = pair.split('=');
+      if (key !== 'name' || !value) continue;
+      try {
+        // A query encodes spaces as `+`, which decodeURIComponent leaves alone.
+        return decodeURIComponent(value.replace(/\+/g, ' '));
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Turns a pasted Discord sticker link into the sticker itself, the same as a
+   * real sticker send, so it renders instead of sitting there as a URL. The id
+   * in the link is what identifies the sticker; the name in its query, when
+   * present, is the sticker's own. A link whose sticker cannot be fetched is
+   * left in the text rather than dropped.
+   */
+  async function learnLinkedStickers(
+    active: DiscordTransport,
+    text: string,
+  ): Promise<{ ids: string[]; text: string }> {
+    if (!text.includes('/stickers/')) return { ids: [], text };
+    const ids: string[] = [];
+    let result = '';
+    let cursor = 0;
+
+    for (const match of text.matchAll(STICKER_LINK)) {
+      const whole = match[0];
+      const id = match[1] ?? '';
+      const index = match.index ?? 0;
+      result += text.slice(cursor, index);
+      cursor = index + whole.length;
+
+      const stored = await ensureSticker(active, {
+        id,
+        name: stickerNameFromLink(whole) ?? `sticker_${id}`,
+        formatType: match[2]?.toLowerCase() === 'gif' ? STICKER_FORMAT_GIF : 1,
+      });
+      if (stored) ids.push(stored);
+      else result += whole;
+    }
+
+    return { ids, text: result + text.slice(cursor) };
   }
 
   /**
@@ -787,6 +843,18 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       if (stored) stickerIds.push(stored);
       else skipped.push(sticker.name);
     }
+    if (message.stickers.length > 0) {
+      logger.debug('bridge read stickers off a message', {
+        messageId: message.id,
+        sent: message.stickers.length,
+        stored: stickerIds.length,
+      });
+    }
+
+    // A pasted sticker link becomes the sticker, so it renders like a send rather
+    // than sitting there as a URL.
+    const linked = await learnLinkedStickers(active, message.content);
+    stickerIds.push(...linked.ids);
 
     // Anything we cannot mirror is preserved as text rather than dropped: an
     // attachment that will not download as its link, a sticker that cannot be
@@ -794,7 +862,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     // wrapping it in angle brackets; drop them so the link unfurls here exactly
     // as a typed one does. Emoji are learned above, so one from another server
     // renders rather than falling back.
-    const translated = await translateInboundEmoji(message.content);
+    const translated = await translateInboundEmoji(linked.text);
     const content = [
       rewriteInboundChannelMentions(
         rewriteInboundMentions(unwrapSuppressedLinks(translated), message.mentions),

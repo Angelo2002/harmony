@@ -9,8 +9,15 @@
   let username = $state('');
   let password = $state('');
   let inviteCode = $state('');
+  let discordInvite = $state('');
   let error = $state<string | null>(null);
   let busy = $state(false);
+
+  const discordHref = $derived(
+    discordInvite.trim()
+      ? `/api/v1/auth/discord?invite=${encodeURIComponent(discordInvite.trim())}`
+      : '/api/v1/auth/discord',
+  );
 
   function switchMode(next: 'login' | 'register') {
     mode = next;
@@ -99,8 +106,15 @@
 
   {#if meta.discordAuthEnabled}
     <p class="or"><span>or</span></p>
-    <a class="button-link" href="/api/v1/auth/discord">
+    {#if meta.requireInvite}
+      <label>
+        Invite code <span class="optional">(only needed the first time)</span>
+        <input name="discordInviteCode" bind:value={discordInvite} autocomplete="off" />
+      </label>
+    {/if}
+    <a class="button-link" href={discordHref}>
       <Icon name="link" size={16} /> Sign in with Discord
     </a>
+    <p class="muted">New here? Signing in with Discord creates your account — no password needed.</p>
   {/if}
 </main>

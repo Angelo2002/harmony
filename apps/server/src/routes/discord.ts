@@ -10,7 +10,6 @@ import type { DiscordOAuthService } from '../auth/discord-oauth.ts';
 import type { AuthService } from '../auth/service.ts';
 import { requireAuth, requirePermission } from '../auth/plugin.ts';
 import type { Database } from '../db/index.ts';
-import { findUserByDiscordId } from '../db/users.ts';
 import { setSessionCookie } from '../http/cookies.ts';
 import { HttpError } from '../http/errors.ts';
 import { createRateLimiter } from '../http/rate-limit.ts';
@@ -34,6 +33,8 @@ export function registerDiscordRoutes(app: FastifyInstance, deps: DiscordRouteDe
   // tight loop; these just blunt an obvious flood.
   const startLimiter = createRateLimiter({ limit: 30, windowMs: 60_000 });
   const callbackLimiter = createRateLimiter({ limit: 30, windowMs: 60_000 });
+  // Creating accounts is held to the same pace as registering one.
+  const signupLimiter = createRateLimiter({ limit: 10, windowMs: 60_000 });
 
   /** Sends the browser back to the app with a short code the client explains. */
   function backTo(reply: FastifyReply, params: Record<string, string>): FastifyReply {
@@ -76,7 +77,8 @@ export function registerDiscordRoutes(app: FastifyInstance, deps: DiscordRouteDe
     // Linking is a change to an account, so it must be started by its owner.
     if (intent === 'link' && !request.auth) return backTo(reply, { discord_error: 'not_signed_in' });
 
-    return reply.redirect(deps.oauth.authorizeUrl(intent));
+    const invite = (request.query as { invite?: string }).invite?.trim().slice(0, 200) || null;
+    return reply.redirect(deps.oauth.authorizeUrl(intent, intent === 'login' ? invite : null));
   });
 
   /**
@@ -116,15 +118,25 @@ export function registerDiscordRoutes(app: FastifyInstance, deps: DiscordRouteDe
       return backTo(reply, { discord: 'linked' });
     }
 
-    // Signing in only works for an account that already carries this Discord id.
-    // A stand-in never counts: it has no real owner and must not be logged into.
-    const row = findUserByDiscordId(deps.db.sqlite, result.identity.id);
-    if (!row || row.is_bot === 1) return backTo(reply, { discord_error: 'not_linked' });
-
-    const session = deps.auth.sessionForUser(row.id, request.headers['user-agent'] ?? null);
-    if (!session) return backTo(reply, { discord_error: 'failed' });
-    setSessionCookie(reply, deps.config, session.token);
-    return backTo(reply, { discord: 'signed_in' });
+    // Signing in creates the account the first time, so it is held to the same
+    // pace as registering one.
+    signupLimiter.check(request.ip);
+    try {
+      const { auth: session, created } = deps.auth.signInWithDiscord(
+        result.identity,
+        result.inviteCode,
+        request.headers['user-agent'] ?? null,
+      );
+      setSessionCookie(reply, deps.config, session.token);
+      if (created) deps.hub.dispatch(GatewayEvent.MemberUpdate, { userId: session.user.id });
+      return backTo(reply, { discord: created ? 'signed_up' : 'signed_in' });
+    } catch (error) {
+      // These are all things the person can act on, so they get their own code.
+      if (error instanceof HttpError && error.statusCode === 403) {
+        return backTo(reply, { discord_error: error.code });
+      }
+      return backTo(reply, { discord_error: 'failed' });
+    }
   });
 
   /** Clears the caller's own Discord link. What was merged in stays merged. */

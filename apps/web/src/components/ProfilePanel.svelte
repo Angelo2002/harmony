@@ -157,15 +157,19 @@
     }
 
     changingPassword = true;
+    const hadPassword = session.user?.hasPassword ?? true;
     try {
       await api('/users/@me/password', {
         method: 'PATCH',
-        body: JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({ currentPassword: hadPassword ? currentPassword : undefined, newPassword }),
       });
       currentPassword = '';
       newPassword = '';
       confirmPassword = '';
-      passwordMessage = 'Password changed. Your other devices have been signed out.';
+      passwordMessage = hadPassword
+        ? 'Password changed. Your other devices have been signed out.'
+        : 'Password set. You can now log in with your username too.';
+      apply(await api<MeResponse>('/auth/me'));
     } catch (cause) {
       passwordError = cause instanceof ApiError ? cause.message : String(cause);
     } finally {
@@ -241,8 +245,19 @@
               You are pinged on Discord when someone mentions you here, and your Discord messages
               appear under this account.
             </p>
+            {#if !session.user?.hasPassword}
+              <p class="muted">
+                Discord is how you sign in. Set a password on the Password tab if you want to be able to
+                disconnect it.
+              </p>
+            {/if}
             <div class="editor-actions">
-              <button type="button" class="danger" onclick={disconnectDiscord} disabled={discordBusy}>
+              <button
+                type="button"
+                class="danger"
+                onclick={disconnectDiscord}
+                disabled={discordBusy || !session.user?.hasPassword}
+              >
                 Disconnect
               </button>
             </div>
@@ -291,18 +306,25 @@
           </div>
         </form>
       {:else}
-        <h3>Change password</h3>
+        <h3>{session.user?.hasPassword ? 'Change password' : 'Set a password'}</h3>
 
         <form onsubmit={changePassword}>
-          <label>
-            Current password
-            <input
-              type="password"
-              bind:value={currentPassword}
-              autocomplete="current-password"
-              maxlength={LIMITS.password.max}
-            />
-          </label>
+          {#if session.user?.hasPassword}
+            <label>
+              Current password
+              <input
+                type="password"
+                bind:value={currentPassword}
+                autocomplete="current-password"
+                maxlength={LIMITS.password.max}
+              />
+            </label>
+          {:else}
+            <p class="muted">
+              You signed up with Discord, so you have no password yet. Setting one lets you log in with your
+              username <code>{session.user?.username}</code> as well.
+            </p>
+          {/if}
 
           <label>
             New password
@@ -332,8 +354,8 @@
           {#if passwordMessage}<p class="ok-text">{passwordMessage}</p>{/if}
 
           <div class="editor-actions">
-            <button type="submit" disabled={changingPassword || !currentPassword || !newPassword}>
-              Change password
+            <button type="submit" disabled={changingPassword || (session.user?.hasPassword && !currentPassword) || !newPassword}>
+              {session.user?.hasPassword ? 'Change password' : 'Set password'}
             </button>
           </div>
         </form>

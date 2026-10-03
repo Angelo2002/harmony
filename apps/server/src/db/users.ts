@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { User, UserBadge } from '@harmony/shared';
+import { hasPassword, NO_PASSWORD } from '../auth/passwords.ts';
 import { getHighestRoleColor, getUserBadge } from './roles.ts';
 
 export interface UserRow {
@@ -34,6 +35,7 @@ export function toUser(row: UserRow, roleColor: number | null, badge: UserBadge 
     notifyMajor: row.notify_major === 1,
     notifyMinor: row.notify_minor === 1,
     discordId: row.discord_id,
+    hasPassword: hasPassword(row.password_hash),
   };
 }
 
@@ -42,8 +44,9 @@ export function presentUser(sqlite: DatabaseSync, row: UserRow): User {
   return toUser(row, getHighestRoleColor(sqlite, row.id), getUserBadge(sqlite, row.id, row.is_owner === 1));
 }
 
+/** Counts real accounts; Discord stand-ins do not make an instance "started". */
 export function countUsers(sqlite: DatabaseSync): number {
-  const row = sqlite.prepare('SELECT COUNT(*) AS count FROM users').get() as { count: number };
+  const row = sqlite.prepare('SELECT COUNT(*) AS count FROM users WHERE is_bot = 0').get() as { count: number };
   return row.count;
 }
 
@@ -240,9 +243,14 @@ export function insertGhostUser(
   sqlite
     .prepare(
       `INSERT INTO users (id, username, display_name, password_hash, is_bot, is_owner, created_at, discord_id)
-       VALUES (?, ?, ?, '!no-password', 1, 0, ?, ?)`,
+       VALUES (?, ?, ?, ?, 1, 0, ?, ?)`,
     )
-    .run(input.id, input.username, input.displayName, input.createdAt, input.discordId);
+    .run(input.id, input.username, input.displayName, NO_PASSWORD, input.createdAt, input.discordId);
+}
+
+/** Removes an account that was only just created, when setting it up failed. */
+export function deleteUser(sqlite: DatabaseSync, id: string): void {
+  sqlite.prepare('DELETE FROM users WHERE id = ?').run(id);
 }
 
 export function insertUser(

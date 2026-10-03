@@ -3,7 +3,8 @@ import { HttpError } from '../http/errors.ts';
 import type { SettingsService } from '../settings/service.ts';
 
 /**
- * Discord sign-in, as an optional extra on top of username and password.
+ * Discord sign-in, as an optional extra on top of username and password. It
+ * also creates the account for somebody signing in for the first time.
  *
  * It is used two ways wherever it is enabled: to sign somebody in, and to prove
  * that a signed-in member really owns the Discord account they want linked. Both
@@ -23,6 +24,8 @@ export interface DiscordIdentity {
   id: string;
   /** The Discord username, for messages and logs. */
   username: string;
+  /** The name they chose to show on Discord, if any. */
+  displayName: string | null;
 }
 
 export interface DiscordOAuthService {
@@ -31,9 +34,12 @@ export interface DiscordOAuthService {
   /** The callback URL to register with Discord, or null without a public URL. */
   redirectUri(): string | null;
   /** Builds the Discord authorize URL and remembers the flow it belongs to. */
-  authorizeUrl(intent: DiscordAuthIntent): string;
+  authorizeUrl(intent: DiscordAuthIntent, inviteCode?: string | null): string;
   /** Exchanges a callback's code for the Discord identity behind it. */
-  complete(code: string, state: string): Promise<{ intent: DiscordAuthIntent; identity: DiscordIdentity }>;
+  complete(
+    code: string,
+    state: string,
+  ): Promise<{ intent: DiscordAuthIntent; identity: DiscordIdentity; inviteCode: string | null }>;
 }
 
 const AUTHORIZE_URL = 'https://discord.com/oauth2/authorize';
@@ -86,12 +92,16 @@ async function fetchIdentity(accessToken: string): Promise<DiscordIdentity> {
   if (!response || !response.ok) {
     throw new HttpError(502, 'discord_user_failed', 'Could not read your Discord account.');
   }
-  const user = (await response.json()) as { id?: unknown; username?: unknown };
+  const user = (await response.json()) as { id?: unknown; username?: unknown; global_name?: unknown };
   // A Discord snowflake is digits, the same shape the member link stores.
   if (typeof user.id !== 'string' || !/^\d{17,20}$/.test(user.id)) {
     throw new HttpError(502, 'discord_user_failed', 'Discord returned an unexpected account.');
   }
-  return { id: user.id, username: typeof user.username === 'string' ? user.username : 'a Discord user' };
+  return {
+    id: user.id,
+    username: typeof user.username === 'string' ? user.username : 'a Discord user',
+    displayName: typeof user.global_name === 'string' && user.global_name.trim() ? user.global_name.trim() : null,
+  };
 }
 
 export function createDiscordOAuthService(settings: SettingsService): DiscordOAuthService {
@@ -100,7 +110,10 @@ export function createDiscordOAuthService(settings: SettingsService): DiscordOAu
    * database: a flow lives for minutes, and losing them on a restart at worst
    * makes somebody press the button again.
    */
-  const pending = new Map<string, { intent: DiscordAuthIntent; verifier: string; expiresAt: number }>();
+  const pending = new Map<
+    string,
+    { intent: DiscordAuthIntent; verifier: string; inviteCode: string | null; expiresAt: number }
+  >();
 
   function resolve(): ResolvedConfig | null {
     const auth = settings.getDiscordAuth();
@@ -125,7 +138,7 @@ export function createDiscordOAuthService(settings: SettingsService): DiscordOAu
       return settings.discordRedirectUri();
     },
 
-    authorizeUrl(intent) {
+    authorizeUrl(intent, inviteCode = null) {
       const config = resolve();
       if (!config) throw new HttpError(404, 'discord_auth_disabled', 'Discord sign-in is not available.');
 
@@ -135,7 +148,7 @@ export function createDiscordOAuthService(settings: SettingsService): DiscordOAu
       const state = randomBytes(32).toString('base64url');
       const verifier = randomBytes(32).toString('base64url');
       const challenge = createHash('sha256').update(verifier).digest('base64url');
-      pending.set(state, { intent, verifier, expiresAt: Date.now() + STATE_TTL_MS });
+      pending.set(state, { intent, verifier, inviteCode, expiresAt: Date.now() + STATE_TTL_MS });
 
       const params = new URLSearchParams({
         client_id: config.clientId,
@@ -163,7 +176,7 @@ export function createDiscordOAuthService(settings: SettingsService): DiscordOAu
 
       const accessToken = await exchangeCode(config, code, entry.verifier);
       const identity = await fetchIdentity(accessToken);
-      return { intent: entry.intent, identity };
+      return { intent: entry.intent, identity, inviteCode: entry.inviteCode };
     },
   };
 }

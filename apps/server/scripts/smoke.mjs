@@ -21,6 +21,9 @@ import { isKlipyAddress, klipySearchUrl, normalizeKlipySearch } from '../src/gif
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
 import { insertGhostUser, insertUser } from '../src/db/users.ts';
+import { insertInvite } from '../src/db/invites.ts';
+import { insertBan } from '../src/db/bans.ts';
+import { createAuthService } from '../src/auth/service.ts';
 import { insertChannel } from '../src/db/channels.ts';
 import { insertMessage } from '../src/db/messages.ts';
 import { listLinkedAttachments } from '../src/db/attachments.ts';
@@ -2684,6 +2687,130 @@ try {
     'clearing a Discord link works',
     ghostStore.sqlite.prepare("SELECT discord_id FROM users WHERE id = 'member-1'").get()?.discord_id === null,
   );
+
+  // Signing in with Discord creates the account the first time. Run against the
+  // same throwaway database, with the invite requirement switched by hand.
+  let requireInvite = false;
+  const discordAuth = createAuthService(
+    ghostStore.sqlite,
+    { sessionTtlDays: 1 },
+    { get: () => ({ requireInvite }) },
+  );
+  const discordIdentity = (id, username, displayName = null) => ({ id, username, displayName });
+  const nowIso = new Date().toISOString();
+
+  const fresh = discordAuth.signInWithDiscord(discordIdentity('700000000000000001', 'New Person!', 'New P'), null, null);
+  const freshRow = ghostStore.sqlite.prepare('SELECT * FROM users WHERE id = ?').get(fresh.auth.user.id);
+  check('a first Discord sign-in creates an account', fresh.created === true && !!fresh.auth.token);
+  check('the new account has no password', fresh.auth.user.hasPassword === false && freshRow.password_hash === '!no-password');
+  check('its username is made valid from the Discord name', freshRow.username === 'NewPerson');
+  check('it carries the Discord id and name', freshRow.discord_id === '700000000000000001' && freshRow.display_name === 'New P');
+  check('a Discord sign-up is never the owner', freshRow.is_owner === 0);
+
+  const again = discordAuth.signInWithDiscord(discordIdentity('700000000000000001', 'whatever'), null, null);
+  check('signing in again finds the same account', again.created === false && again.auth.user.id === fresh.auth.user.id);
+
+  let passwordlessLogin = null;
+  try {
+    await discordAuth.login({ username: 'NewPerson', password: '!no-password' }, null);
+  } catch (error) {
+    passwordlessLogin = error;
+  }
+  check('a passwordless account cannot be logged into with a password (401)', passwordlessLogin?.statusCode === 401);
+
+  // A name that is already taken gets a suffix rather than an error.
+  const clash = discordAuth.signInWithDiscord(discordIdentity('700000000000000002', 'NewPerson'), null, null);
+  check('a taken username is suffixed', clash.auth.user.username === 'NewPerson2');
+
+  // A stand-in for the same Discord user is folded into the new account.
+  insertGhostUser(ghostStore.sqlite, {
+    id: 'ghost-three',
+    username: 'discord_700000000000000003',
+    displayName: 'Bridge Name',
+    discordId: '700000000000000003',
+    createdAt: nowIso,
+  });
+  insertMessage(ghostStore.sqlite, {
+    id: 'msg-ghost-three',
+    channelId: 'chan-1',
+    authorId: 'ghost-three',
+    content: 'said on discord',
+    createdAt: nowIso,
+  });
+  const adopted = discordAuth.signInWithDiscord(discordIdentity('700000000000000003', 'adoptee'), null, null);
+  check(
+    'a stand-in is adopted by the new account',
+    adopted.created === true &&
+      ghostStore.sqlite.prepare("SELECT id FROM users WHERE id = 'ghost-three'").get() === undefined &&
+      ghostStore.sqlite.prepare("SELECT author_id FROM messages WHERE id = 'msg-ghost-three'").get()?.author_id ===
+        adopted.auth.user.id,
+  );
+  check('and keeps the name the bridge gave it', adopted.auth.user.displayName === 'Bridge Name');
+
+  // A ban on the stand-in follows the person.
+  insertGhostUser(ghostStore.sqlite, {
+    id: 'ghost-banned',
+    username: 'discord_700000000000000004',
+    displayName: 'Banned',
+    discordId: '700000000000000004',
+    createdAt: nowIso,
+  });
+  insertBan(ghostStore.sqlite, { userId: 'ghost-banned', bannedBy: 'member-2', reason: null, createdAt: nowIso });
+  let bannedSignIn = null;
+  try {
+    discordAuth.signInWithDiscord(discordIdentity('700000000000000004', 'banned'), null, null);
+  } catch (error) {
+    bannedSignIn = error;
+  }
+  check('a banned stand-in cannot sign up (403)', bannedSignIn?.code === 'account_banned');
+
+  // Invites gate new accounts only.
+  requireInvite = true;
+  const inviteError = (id, code) => {
+    try {
+      discordAuth.signInWithDiscord(discordIdentity(id, 'invitee'), code, null);
+    } catch (error) {
+      return error.code;
+    }
+    return null;
+  };
+  check('a new Discord account needs an invite when required', inviteError('700000000000000005', null) === 'invite_required');
+  check('a wrong invite is refused', inviteError('700000000000000005', 'nope') === 'invalid_invite');
+  insertInvite(ghostStore.sqlite, { code: 'once', createdBy: 'member-2', createdAt: nowIso, expiresAt: null, maxUses: 1 });
+  check('a valid invite is accepted', inviteError('700000000000000005', 'once') === null);
+  check(
+    'and is consumed',
+    ghostStore.sqlite.prepare("SELECT uses FROM invites WHERE code = 'once'").get()?.uses === 1,
+  );
+  check('an used-up invite is refused', inviteError('700000000000000006', 'once') === 'invite_exhausted');
+  check(
+    'an existing member signs in without an invite',
+    discordAuth.signInWithDiscord(discordIdentity('700000000000000001', 'x'), null, null).created === false,
+  );
+  requireInvite = false;
+
+  // Discord is the only way in, so it cannot be cut off until a password exists.
+  let lockout = null;
+  try {
+    ghostUsers.linkDiscord(fresh.auth.user.id, null);
+  } catch (error) {
+    lockout = error;
+  }
+  check('a passwordless account cannot disconnect Discord (409)', lockout?.statusCode === 409);
+  await ghostUsers.changePassword(fresh.auth.user.id, undefined, 'a-first-password');
+  check(
+    'it can set its first password without a current one',
+    (await discordAuth.login({ username: 'NewPerson', password: 'a-first-password' }, null)).user.hasPassword === true,
+  );
+  let wrongCurrent = null;
+  try {
+    await ghostUsers.changePassword(fresh.auth.user.id, undefined, 'another-password');
+  } catch (error) {
+    wrongCurrent = error;
+  }
+  check('once set, changing it needs the current one (403)', wrongCurrent?.statusCode === 403);
+  ghostUsers.linkDiscord(fresh.auth.user.id, null);
+  check('and then Discord can be disconnected', ghostStore.sqlite.prepare('SELECT discord_id FROM users WHERE id = ?').get(fresh.auth.user.id)?.discord_id === null);
 
   ghostStore.close();
   rmSync(ghostDir, { recursive: true, force: true });

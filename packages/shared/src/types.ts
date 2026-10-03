@@ -47,6 +47,11 @@ export interface User {
    * Only ever set on accounts the bridge created for the other side of a link.
    */
   discordId: string | null;
+  /**
+   * False for an account created by signing in with Discord, which has no
+   * password until the member sets one.
+   */
+  hasPassword: boolean;
 }
 
 /** A ban, with the user it applies to and who issued it. */

@@ -7,7 +7,7 @@ import {
   type ImageContentType,
 } from '@harmony/shared';
 import type { Config } from '../config.ts';
-import { hashPassword, verifyPassword } from '../auth/passwords.ts';
+import { hasPassword, hashPassword, verifyPassword } from '../auth/passwords.ts';
 import {
   findUserById,
   findUserByDiscordId,
@@ -31,8 +31,11 @@ export interface UserService {
       notifyMinor?: boolean;
     },
   ): UserRow;
-  /** Changes a member's own password after checking the one they already have. */
-  changePassword(userId: string, currentPassword: string, nextPassword: string): Promise<void>;
+  /**
+   * Changes a member's own password after checking the one they already have.
+   * An account without one (it signed up with Discord) just sets its first.
+   */
+  changePassword(userId: string, currentPassword: string | undefined, nextPassword: string): Promise<void>;
   /**
    * An administrator editing another account. `password` sets a new one without
    * ever reading the old; callers must end the target's sessions afterwards.
@@ -112,6 +115,14 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
 
     const next = discordId?.trim() ? discordId.trim() : null;
     if (next === null) {
+      // Discord is the only way into a passwordless account, so it cannot be cut.
+      if (row.discord_id && !hasPassword(row.password_hash)) {
+        throw new HttpError(
+          409,
+          'password_required',
+          'Set a password before disconnecting Discord, or you would be locked out.',
+        );
+      }
       setUserDiscordId(sqlite, row.id, null);
       return require(userId);
     }
@@ -153,8 +164,10 @@ export function createUserService(sqlite: DatabaseSync, config: Config): UserSer
 
     async changePassword(userId, currentPassword, nextPassword) {
       const row = require(userId);
-      const ok = await verifyPassword(currentPassword, row.password_hash);
-      if (!ok) throw new HttpError(403, 'wrong_password', 'Your current password is not correct.');
+      if (hasPassword(row.password_hash)) {
+        const ok = currentPassword !== undefined && (await verifyPassword(currentPassword, row.password_hash));
+        if (!ok) throw new HttpError(403, 'wrong_password', 'Your current password is not correct.');
+      }
       updateUserAccount(sqlite, row.id, { passwordHash: await hashPassword(nextPassword) });
     },
 

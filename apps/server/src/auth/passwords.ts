@@ -8,6 +8,17 @@ const scryptAsync = promisify(scrypt) as (
   options: ScryptOptions,
 ) => Promise<Buffer>;
 
+/**
+ * Stored in place of a hash for accounts that cannot sign in with a password:
+ * Discord stand-ins, and members who signed up through Discord and have not set
+ * one. It does not parse as a hash, so it never verifies.
+ */
+export const NO_PASSWORD = '!no-password';
+
+export function hasPassword(stored: string): boolean {
+  return stored !== NO_PASSWORD;
+}
+
 const SCHEME = 'scrypt';
 const KEY_LENGTH = 64;
 const COST = { N: 16384, r: 8, p: 1 };

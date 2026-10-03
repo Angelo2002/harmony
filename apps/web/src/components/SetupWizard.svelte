@@ -600,8 +600,9 @@
             Members tab.
           </li>
           <li>
-            <strong>Your members sign up with a username and password.</strong> There is no email, so if
-            someone forgets theirs, an admin sets a new one from the Members tab.
+            <strong>Your members sign up with a username and password,</strong> or with Discord once you turn that on
+            in Admin → Bridge. There is no email, so if someone forgets their password, an admin sets a new one
+            from the Members tab.
           </li>
           <li>
             <strong>Invites</strong> live in the admin panel, and <strong>retention</strong> there too, if

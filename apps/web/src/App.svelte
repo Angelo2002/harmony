@@ -29,13 +29,17 @@
   const DISCORD_OK: Record<string, string> = {
     linked: 'Discord account connected.',
     signed_in: 'Signed in with Discord.',
+    signed_up: 'Welcome! Your account was created from your Discord account.',
   };
   const DISCORD_ERROR: Record<string, string> = {
     disabled: 'Discord sign-in is turned off on this instance.',
     not_signed_in: 'Sign in first, then connect Discord from your profile.',
     taken: 'That Discord account is already linked to another member.',
-    not_linked:
-      'That Discord account is not connected to a Harmony account yet. Sign in and connect it from your profile.',
+    invite_required: 'This server needs an invite code to join. Enter one and try again.',
+    invalid_invite: 'That invite code is not valid.',
+    invite_expired: 'That invite code has expired.',
+    invite_exhausted: 'That invite code has already been used up.',
+    account_banned: 'You have been banned from this server.',
     denied: 'Discord sign-in was cancelled.',
     failed: 'Discord sign-in could not be completed. Please try again.',
   };

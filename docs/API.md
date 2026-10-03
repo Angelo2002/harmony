@@ -165,6 +165,7 @@ type User = {
   notifyMajor: boolean;         // in-app sound for a message that mentions this user
   notifyMinor: boolean;         // in-app sound for other messages
   discordId: string | null;     // the Discord account this user is linked to, or that a stand-in represents
+  hasPassword: boolean;         // false for an account created through Discord sign-in until a password is set
 };
 
 type Category = {
@@ -502,8 +503,9 @@ Invalidates the current session and clears the cookie. Returns `{ "ok": true }`.
 
 ### Discord sign-in
 
-Optional and off by default. When an administrator turns it on, members can sign in with Discord
-and connect their Discord account from their profile. It uses the same Discord application as the
+Optional and off by default. When an administrator turns it on, people can sign in with Discord —
+which creates their account on first use, with no password — and members can connect their Discord
+account from their profile. It uses the same Discord application as the
 [bridge](#discord-bridge): register the callback URL shown in **Admin → Bridge** under *OAuth2 →
 Redirects* in the Discord developer portal, then save the client id and secret there.
 
@@ -526,21 +528,27 @@ the flow cannot run without one. The secret is write-only: it is never returned.
 #### `GET /api/v1/auth/discord` — no auth
 
 Starts the flow and redirects to Discord. `intent=link` connects a Discord account to the
-signed-in member and must be started while signed in; the default is `intent=login`. Either way the
+signed-in member and must be started while signed in; the default is `intent=login`. A login may
+carry `invite=<code>`, which is used only if it ends up creating an account and invites are required. Either way the
 browser leaves the app, so a failure is a redirect back to `/?discord_error=…`.
 
 #### `GET /api/v1/auth/discord/callback` — no auth
 
 Discord's redirect target. For a `link` intent it verifies the account and connects it — the safe,
 ownership-proving path a manually entered id could never be — then redirects to `/?discord=linked`.
-For a `login` intent it signs in the member whose account already carries that Discord id; an id
-with no such account, or one that only has a stand-in, redirects to `/?discord_error=not_linked`
-(sign in normally and connect from the profile first).
+For a `login` intent it signs in the member whose account already carries that Discord id
+(`/?discord=signed_in`). Otherwise it creates one (`/?discord=signed_up`): a username derived from the
+Discord one, the Discord display name, no password (`hasPassword: false`), never the owner. A
+bridge stand-in for the same Discord user is folded into the new account, keeping its history. The
+same checks as registering apply: where invites are required a missing or unusable code redirects to
+`/?discord_error=invite_required|invalid_invite|invite_expired|invite_exhausted`, and a banned
+account (or banned stand-in) to `account_banned`.
 
 #### `DELETE /api/v1/users/@me/discord` — auth
 
 Clears the caller's own Discord link and fires `MEMBER_UPDATE`. What a link merged in stays merged —
-disconnecting only stops future attribution.
+disconnecting only stops future attribution. Refused with `409 password_required` for an account that
+has no password, since Discord is its only way in.
 
 ### Channels and categories
 
@@ -1220,7 +1228,8 @@ booleans rather than performing any delivery. Returns `MeResponse`.
 { "currentPassword": "old-secret", "newPassword": "new-secret" }
 ```
 
-Changes your own password. `currentPassword` must match, else `403 wrong_password`; `newPassword` is
+Changes your own password. `currentPassword` must match, else `403 wrong_password`; it is omitted
+(and ignored) only for an account with no password yet, which this call gives its first. `newPassword` is
 subject to the registration policy (at least 8 characters). Every **other** session is ended and its
 gateway connection closed (close code `4004`), so an old token stops working at once, while the
 device making the change stays signed in. Returns `{ "ok": true }`.

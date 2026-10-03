@@ -355,7 +355,8 @@ export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
 /** A signed-in member changing their own password. */
 export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1).max(LIMITS.password.max),
+  /** Omitted when the account has no password yet (it signed up with Discord). */
+  currentPassword: z.string().min(1).max(LIMITS.password.max).optional(),
   newPassword: passwordSchema,
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

@@ -198,11 +198,17 @@ application as the bridge:
    URL if you have not already. Discord must be able to reach that address, so a
    `localhost` one will not work.
 
-Signing in only works for an account already connected to that Discord account, so
-a member signs in with their usual password once, connects Discord from their
-profile, and can use Discord sign-in from then on. Connecting also proves the
-account is theirs, which is why a self-service link is safe where a typed id would
-not be. The whole thing is optional and can be switched off again at any time.
+Signing in with Discord creates an account the first time, with no password: the
+username comes from the Discord name, and if the bridge already knew that person
+the stand-in and its history are folded into the new account. If **require
+invite** is on, the sign-in screen asks for a code, used only when an account is
+being created. Existing members can still connect Discord from their profile,
+which proves the account is theirs where a typed id would not. A member who
+signed up this way can set a password later from their profile, and cannot
+disconnect Discord until they have. The very first account on a new instance is
+still created by registering with a password, since Discord sign-in is configured
+from the admin panel. The whole thing is optional and can be switched off again at
+any time.
 
 ## Installing it as an app
 

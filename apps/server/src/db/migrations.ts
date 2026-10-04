@@ -621,4 +621,52 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 27,
+    name: 'scheduled_messages',
+    up(db) {
+      /*
+       * Messages a member scheduled to be sent later, which the server delivers
+       * itself so they go out with every tab closed. One member's private list,
+       * like saved_messages: either the member or the channel going takes their
+       * rows with it.
+       *
+       * `send_at` is epoch milliseconds, since the scheduler compares it against
+       * the clock. `status` is pending or failed (due but undeliverable, with
+       * the reason in `error`). A row is deleted in the same transaction
+       * that inserts the real message, so a delivery either happened completely
+       * or not at all and a message cannot go out twice. `reply_to_id` is not a
+       * foreign key on purpose: a parent that was deleted meanwhile must fail
+       * the send with a reason rather than silently erase the schedule.
+       *
+       * The attachments sit in their own table, without a foreign key to the
+       * attachment: retention reads it to spare an upload that is waiting for its
+       * message, and one that went missing anyway is reported when the send fails.
+       */
+      db.exec(`
+        CREATE TABLE scheduled_messages (
+          id          TEXT PRIMARY KEY,
+          user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          channel_id  TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+          content     TEXT NOT NULL,
+          reply_to_id TEXT,
+          send_at     INTEGER NOT NULL,
+          created_at  INTEGER NOT NULL,
+          status      TEXT NOT NULL DEFAULT 'pending',
+          error       TEXT
+        );
+        CREATE INDEX idx_scheduled_messages_due ON scheduled_messages(status, send_at);
+        CREATE INDEX idx_scheduled_messages_user ON scheduled_messages(user_id, send_at);
+        CREATE INDEX idx_scheduled_messages_channel ON scheduled_messages(channel_id);
+
+        CREATE TABLE scheduled_message_attachments (
+          scheduled_id  TEXT NOT NULL REFERENCES scheduled_messages(id) ON DELETE CASCADE,
+          attachment_id TEXT NOT NULL,
+          position      INTEGER NOT NULL,
+          PRIMARY KEY (scheduled_id, attachment_id)
+        );
+        CREATE INDEX idx_scheduled_attachments_attachment ON scheduled_message_attachments(attachment_id);
+      `);
+    },
+  },
 ];

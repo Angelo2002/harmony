@@ -28,6 +28,7 @@ code wins — please open an issue.
   - [Mentions and replies](#mentions-and-replies)
   - [Pinned messages](#pinned-messages)
   - [Saved messages](#saved-messages)
+  - [Scheduled messages](#scheduled-messages)
   - [Reactions](#reactions)
   - [Attachments](#attachments)
   - [Media gallery](#media-gallery)
@@ -1090,6 +1091,70 @@ Fires `SAVED_MESSAGE_UPDATE` to the caller's sessions when anything changed.
 
 Removes the save. Returns `204`, also when it was not saved, and works for a message the caller can
 no longer see. Fires `SAVED_MESSAGE_UPDATE` with `saved: null` when there was one.
+
+### Scheduled messages
+
+"Send later": a member's private queue of messages that the **server** posts at the chosen time, so
+they go out with every tab closed. Nothing about the queue is visible to anyone else, and changes go
+only to the owner's own sessions as `SCHEDULED_MESSAGE_UPDATE`.
+
+```ts
+type ScheduledMessage = {
+  id: string;
+  channelId: string;
+  content: string;
+  attachments: Attachment[];  // uploads waiting to go out with it
+  replyToId: string | null;
+  sendAt: string;             // ISO timestamp
+  createdAt: string;
+  status: 'pending' | 'failed';
+  error: string | null;       // why a failed one could not be sent
+};
+```
+
+A member may hold up to 25 (`MAX_SCHEDULED_PER_MEMBER`, failed ones included). `sendAt` must be at
+least 30 seconds ahead (`SCHEDULED_MIN_LEAD_MS`; an operator or test can shorten it with
+`HARMONY_SCHEDULED_MIN_LEAD_MS`) and at most a year out; otherwise `400 invalid_send_time`.
+
+Delivery goes through the ordinary send path with the author's permissions worked out **at that
+moment**: the channel must still be visible, they need Send Messages (and Attach Files for uploads),
+and they must not be timed out or banned, or the entry becomes `failed` with the reason in `error`
+and nothing is posted. A reply whose parent was deleted fails the same way. Slowmode is not bypassed;
+a message held back by it is retried for a few minutes and fails only if the window never opens. A
+failed entry is never dropped: it stays in the list until the member sends it by hand, gives it a new
+time (which re-queues it) or cancels it. A message that comes due while the server is down is sent at
+the next start. The queue row is deleted in the same database transaction that inserts the message,
+so a message is never sent twice. Deleting a channel or an account removes its entries.
+
+Uploads named by a scheduled message are claimed by it: they cannot be used in another message and
+retention spares them (they would otherwise be pruned as abandoned after 24 hours).
+
+#### `GET /api/v1/users/@me/scheduled` — `ViewChannels`
+
+The caller's own entries, soonest first: `{ "scheduled": [ScheduledMessage] }`.
+
+#### `POST /api/v1/channels/:id/scheduled` — `SendMessages`
+
+Body `{ content, attachmentIds?, replyToId?, sendAt }`, the first three as for `POST
+/channels/:id/messages`. Returns `201` with the `ScheduledMessage`. `403 channel_forbidden` for a
+channel the caller cannot see, `404 channel_not_found`, `400 too_many_scheduled`, `400
+invalid_send_time`, `400 invalid_reply`, `400 invalid_attachment` / `attachment_in_use`.
+
+#### `PATCH /api/v1/users/@me/scheduled/:id` — `ViewChannels`
+
+Body `{ content?, sendAt? }`, at least one. Returns the entry. Giving a `sendAt` puts a `failed`
+entry back to `pending` and clears its error; changing only the text leaves its status alone.
+Somebody else's entry is `404 scheduled_not_found`.
+
+#### `DELETE /api/v1/users/@me/scheduled/:id` — `ViewChannels`
+
+Cancels it. `204`, also when it is already gone.
+
+#### `POST /api/v1/users/@me/scheduled/:id/send` — `SendMessages`
+
+Sends it now and returns the posted `Message`. The same checks as an ordinary send apply; a refusal
+is returned as the error and the entry stays as it was. `404` if it was already sent or cancelled
+(concurrent calls deliver it exactly once).
 
 ### Reactions
 
@@ -2199,6 +2264,7 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | `EMOJI_DELETE` | `{ id }` |
 | `RETENTION_APPLIED` | `PruneSummary` |
 | `SAVED_MESSAGE_UPDATE` | `{ messageId, channelId, saved: SavedMessage \| null }`, to the saver's own sessions only |
+| `SCHEDULED_MESSAGE_UPDATE` | `{ id, scheduled: ScheduledMessage \| null, reason }`, reason one of created, updated, failed, sent, cancelled; to the owner's own sessions only |
 | `CHANNEL_SETTINGS_UPDATE` | `ChannelNotificationSettings`, sent only to the member it belongs to |
 
 `MEMBER_UPDATE` fires for a member's own profile and avatar changes as well as administrator edits,

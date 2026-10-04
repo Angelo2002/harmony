@@ -80,6 +80,10 @@ const server = spawn('node', ['src/index.ts'], {
     // Short enough that a socket going silent is closed within a few seconds,
     // long enough that the heartbeating helper below never misses one.
     HARMONY_GATEWAY_HEARTBEAT_MS: String(HEARTBEAT_MS),
+    // Scheduled messages: check the clock often and accept a short lead, so a
+    // send can be watched in seconds.
+    HARMONY_SCHEDULED_TICK_MS: '250',
+    HARMONY_SCHEDULED_MIN_LEAD_MS: '1500',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -4414,6 +4418,436 @@ try {
     String(savedMergeError ?? JSON.stringify(mergedSaves)),
   );
   mergeStore.close();
+
+  // --- Scheduled messages ---
+  {
+  // The server runs with a short tick and a 1.5 s minimum lead (see the spawn
+  // environment above), so delivery can be watched without waiting minutes.
+  const schedChannel = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'send-later' } })).json;
+  const inMs = (ms) => new Date(Date.now() + ms).toISOString();
+  const schedule = (token, body, channelId = schedChannel.id) =>
+    req(`/channels/${channelId}/scheduled`, { method: 'POST', token, body });
+  const scheduledOf = (token) => req('/users/@me/scheduled', { token });
+  const scheduledEntry = async (token, id) => (await scheduledOf(token)).json?.scheduled?.find((item) => item.id === id);
+  const historyOf = async (channelId = schedChannel.id) =>
+    (await req(`/channels/${channelId}/messages`, { token: ownerToken })).json?.messages ?? [];
+  const uploadFor = async (token, name) => {
+    const form = new FormData();
+    form.append('file', new Blob([emojiPng], { type: 'image/png' }), name);
+    return (await fetch(`${BASE}/attachments`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form })).json();
+  };
+  const waitFor = async (predicate, ms = 8000) => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      if (await predicate()) return true;
+      await sleep(100);
+    }
+    return false;
+  };
+  const heardAbout = (watcher, id, reason) =>
+    watcher.events.some((frame) => frame.t === 'SCHEDULED_MESSAGE_UPDATE' && frame.d?.id === id && frame.d?.reason === reason);
+
+  const schedWatcher = await openGateway({ token: bobToken });
+  const schedOther = await openGateway({ token: ownerToken });
+
+  check('nothing is scheduled at first', (await scheduledOf(bobToken)).json?.scheduled?.length === 0);
+  check('the scheduled list needs a session (401)', (await fetch(`${BASE}/users/@me/scheduled`)).status === 401);
+  check(
+    'a time too close to now is refused (400)',
+    (await schedule(bobToken, { content: 'too soon', sendAt: inMs(300) })).status === 400,
+  );
+  check(
+    'a time in the past is refused (400)',
+    (await schedule(bobToken, { content: 'past', sendAt: inMs(-60_000) })).status === 400,
+  );
+  check(
+    'a time more than a year out is refused (400)',
+    (await schedule(bobToken, { content: 'far', sendAt: inMs(400 * 86_400_000) })).status === 400,
+  );
+  check(
+    'a nonsense time is refused (400)',
+    (await schedule(bobToken, { content: 'huh', sendAt: 'tomorrow-ish' })).status === 400,
+  );
+  check(
+    'an empty message is refused (400)',
+    (await schedule(bobToken, { content: '   ', sendAt: inMs(60_000) })).status === 400,
+  );
+  check(
+    'a missing channel is refused (404)',
+    (await schedule(bobToken, { content: 'x', sendAt: inMs(60_000) }, 'no-such-channel')).status === 404,
+  );
+  check(
+    'scheduling needs a session (401)',
+    (
+      await fetch(`${BASE}/channels/${schedChannel.id}/scheduled`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'x', sendAt: inMs(60_000) }),
+      })
+    ).status === 401,
+  );
+
+  // A long-dated one, to edit, cancel and keep private.
+  const farOne = await schedule(bobToken, { content: 'next week', sendAt: inMs(7 * 86_400_000) });
+  check(
+    'a message can be scheduled',
+    farOne.status === 201 && farOne.json?.status === 'pending' && farOne.json?.content === 'next week',
+    `status ${farOne.status}`,
+  );
+  check('and is listed for its author', (await scheduledOf(bobToken)).json?.scheduled?.[0]?.id === farOne.json?.id);
+  check(
+    'the author is told on their sessions',
+    await waitFor(() => heardAbout(schedWatcher, farOne.json?.id, 'created')),
+  );
+  check('nobody else is told', !schedOther.events.some((frame) => frame.t === 'SCHEDULED_MESSAGE_UPDATE'));
+  check('another member does not see it', (await scheduledOf(ownerToken)).json?.scheduled?.length === 0);
+  check(
+    'another member cannot edit it (404)',
+    (await req(`/users/@me/scheduled/${farOne.json.id}`, { method: 'PATCH', token: ownerToken, body: { content: 'mine now' } }))
+      .status === 404,
+  );
+  check(
+    'another member cannot send it (404)',
+    (await req(`/users/@me/scheduled/${farOne.json.id}/send`, { method: 'POST', token: ownerToken })).status === 404,
+  );
+  await req(`/users/@me/scheduled/${farOne.json.id}`, { method: 'DELETE', token: ownerToken });
+  check('another member cannot cancel it either', (await scheduledOf(bobToken)).json?.scheduled?.length === 1);
+  check(
+    'it does not appear in the channel before its time',
+    !(await historyOf()).some((message) => message.content === 'next week'),
+  );
+
+  const edited = await req(`/users/@me/scheduled/${farOne.json.id}`, {
+    method: 'PATCH',
+    token: bobToken,
+    body: { content: 'next week, edited', sendAt: inMs(8 * 86_400_000) },
+  });
+  check(
+    'text and time can be edited',
+    edited.status === 200 &&
+      edited.json?.content === 'next week, edited' &&
+      Date.parse(edited.json.sendAt) > Date.now() + 7.5 * 86_400_000,
+  );
+  check(
+    'an edit to a time too soon is refused (400)',
+    (await req(`/users/@me/scheduled/${farOne.json.id}`, { method: 'PATCH', token: bobToken, body: { sendAt: inMs(100) } }))
+      .status === 400,
+  );
+  check(
+    'an empty edit is refused (400)',
+    (await req(`/users/@me/scheduled/${farOne.json.id}`, { method: 'PATCH', token: bobToken, body: {} })).status === 400,
+  );
+  check(
+    'emptying the text is refused (400)',
+    (await req(`/users/@me/scheduled/${farOne.json.id}`, { method: 'PATCH', token: bobToken, body: { content: ' ' } }))
+      .status === 400,
+  );
+  check(
+    'a message can be cancelled',
+    (await req(`/users/@me/scheduled/${farOne.json.id}`, { method: 'DELETE', token: bobToken })).status === 204 &&
+      (await scheduledOf(bobToken)).json?.scheduled?.length === 0,
+  );
+  check(
+    'cancelling twice is harmless',
+    (await req(`/users/@me/scheduled/${farOne.json.id}`, { method: 'DELETE', token: bobToken })).status === 204,
+  );
+
+  // The cap.
+  const capIds = [];
+  for (let n = 0; n < 25; n++) {
+    const made = await schedule(bobToken, { content: `cap ${n}`, sendAt: inMs(86_400_000 + n * 1000) });
+    if (made.status === 201) capIds.push(made.json.id);
+  }
+  check('up to 25 can be held at once', capIds.length === 25);
+  check(
+    'a 26th is refused (400)',
+    (await schedule(bobToken, { content: 'one too many', sendAt: inMs(86_400_000) })).status === 400,
+  );
+  check(
+    'the cap is per member',
+    (await schedule(ownerToken, { content: 'owner is fine', sendAt: inMs(86_400_000) })).status === 201,
+  );
+  for (const id of capIds) await req(`/users/@me/scheduled/${id}`, { method: 'DELETE', token: bobToken });
+  for (const entry of (await scheduledOf(ownerToken)).json?.scheduled ?? []) {
+    await req(`/users/@me/scheduled/${entry.id}`, { method: 'DELETE', token: ownerToken });
+  }
+
+  // Delivery: the server sends it with nobody asking.
+  const dueSoon = await schedule(bobToken, { content: 'sent by the clock', sendAt: inMs(2200) });
+  check('a near-future message is accepted', dueSoon.status === 201);
+  check(
+    'it is delivered by the server when its time comes',
+    await waitFor(async () => (await historyOf()).some((message) => message.content === 'sent by the clock')),
+  );
+  await sleep(600);
+  const delivered = (await historyOf()).filter((message) => message.content === 'sent by the clock');
+  check(
+    'exactly once, as its author',
+    delivered.length === 1 && delivered[0].author?.id === bobId,
+    `${delivered.length} copies`,
+  );
+  check('and it leaves the scheduled list', (await scheduledOf(bobToken)).json?.scheduled?.length === 0);
+  check(
+    'the author hears that it was sent',
+    await waitFor(() => heardAbout(schedWatcher, dueSoon.json?.id, 'sent')),
+  );
+
+  // Send now, raced against itself and the timer: still once.
+  const rushed = await schedule(bobToken, { content: 'sent early', sendAt: inMs(86_400_000) });
+  const raced = await Promise.all(
+    Array.from({ length: 6 }, () =>
+      req(`/users/@me/scheduled/${rushed.json.id}/send`, { method: 'POST', token: bobToken }),
+    ),
+  );
+  check(
+    'send now delivers it',
+    raced.some((response) => response.status === 200 && response.json?.content === 'sent early'),
+  );
+  check(
+    'racing send-now requests deliver it exactly once',
+    raced.filter((response) => response.status === 200).length === 1 &&
+      (await historyOf()).filter((message) => message.content === 'sent early').length === 1,
+  );
+  check('the losers are told it is gone (404)', raced.filter((response) => response.status === 404).length === 5);
+
+  // A reply keeps its parent; one whose parent is gone fails with a reason.
+  const parent = (
+    await req(`/channels/${schedChannel.id}/messages`, { method: 'POST', token: ownerToken, body: { content: 'question' } })
+  ).json;
+  const replying = await schedule(bobToken, { content: 'answer', replyToId: parent.id, sendAt: inMs(2200) });
+  check('a reply can be scheduled', replying.status === 201 && replying.json?.replyToId === parent.id);
+  check(
+    'a reply to a message in another channel is refused (400)',
+    (await schedule(bobToken, { content: 'x', replyToId: parent.id, sendAt: inMs(60_000) }, savedChannel.id)).status === 400,
+  );
+  check(
+    'it is delivered as a reply',
+    await waitFor(async () =>
+      (await historyOf()).some((message) => message.content === 'answer' && message.replyTo?.id === parent.id),
+    ),
+  );
+  const orphaned = await schedule(bobToken, { content: 'to nobody', replyToId: parent.id, sendAt: inMs(3000) });
+  await req(`/messages/${parent.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'a reply whose parent was deleted fails, with the reason',
+    await waitFor(async () => {
+      const entry = await scheduledEntry(bobToken, orphaned.json?.id);
+      return entry?.status === 'failed' && /repl/i.test(entry.error ?? '');
+    }),
+  );
+  check(
+    'the author is told it failed',
+    schedWatcher.events.some(
+      (frame) =>
+        frame.t === 'SCHEDULED_MESSAGE_UPDATE' &&
+        frame.d?.id === orphaned.json?.id &&
+        frame.d?.reason === 'failed' &&
+        frame.d?.scheduled?.status === 'failed',
+    ),
+  );
+  await sleep(700);
+  check(
+    'nothing was posted, and the clock does not retry a failed one',
+    !(await historyOf()).some((message) => message.content === 'to nobody'),
+  );
+  check(
+    'editing only the text leaves it failed',
+    (
+      await req(`/users/@me/scheduled/${orphaned.json.id}`, {
+        method: 'PATCH',
+        token: bobToken,
+        body: { content: 'to nobody (fixed)' },
+      })
+    ).json?.status === 'failed',
+  );
+  check(
+    'a failed one can be cancelled',
+    (await req(`/users/@me/scheduled/${orphaned.json.id}`, { method: 'DELETE', token: bobToken })).status === 204,
+  );
+
+  // Permissions are checked again at send time.
+  const lockRole = (await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'send-later-lock' } })).json;
+  const lockedRoom = (
+    await req('/channels', {
+      method: 'POST',
+      token: ownerToken,
+      body: { name: 'send-later-locked', requiredRoleId: lockRole.id },
+    })
+  ).json;
+  await req(`/members/${bobId}/roles/${lockRole.id}`, { method: 'PUT', token: ownerToken });
+  const lockedSched = await schedule(bobToken, { content: 'while I could', sendAt: inMs(2500) }, lockedRoom.id);
+  check('a member with the role can schedule into a locked channel', lockedSched.status === 201);
+  await req(`/members/${bobId}/roles/${lockRole.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'but losing access before it is due makes it fail',
+    await waitFor(async () => (await scheduledEntry(bobToken, lockedSched.json?.id))?.status === 'failed'),
+  );
+  check(
+    'and nothing was posted to the locked channel',
+    !(await historyOf(lockedRoom.id)).some((message) => message.content === 'while I could'),
+  );
+  check(
+    'a member without access cannot schedule there (403)',
+    (await schedule(bobToken, { content: 'nope', sendAt: inMs(60_000) }, lockedRoom.id)).status === 403,
+  );
+  await req(`/users/@me/scheduled/${lockedSched.json.id}`, { method: 'DELETE', token: bobToken });
+
+  const timedSched = await schedule(bobToken, { content: 'while free', sendAt: inMs(2500) });
+  await req(`/members/${bobId}/timeout`, { method: 'PUT', token: ownerToken, body: { durationMinutes: 5 } });
+  check(
+    'a member who is timed out when it is due gets a failed entry',
+    await waitFor(async () => {
+      const entry = await scheduledEntry(bobToken, timedSched.json?.id);
+      return entry?.status === 'failed' && /timed out/i.test(entry.error ?? '');
+    }),
+  );
+  await req(`/members/${bobId}/timeout`, { method: 'DELETE', token: ownerToken });
+  check(
+    'sending it by hand once the timeout is over works',
+    (await req(`/users/@me/scheduled/${timedSched.json.id}/send`, { method: 'POST', token: bobToken })).status === 200 &&
+      (await historyOf()).some((message) => message.content === 'while free'),
+  );
+
+  const everyone = (await req('/roles', { token: ownerToken })).json?.roles?.find((role) => role.isDefault);
+  const noSendSched = await schedule(bobToken, { content: 'without permission', sendAt: inMs(2500) });
+  const sendBit = 1n << 1n;
+  await req(`/roles/${everyone.id}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { permissions: String(BigInt(everyone.permissions) & ~sendBit) },
+  });
+  check(
+    'losing Send Messages before it is due makes it fail',
+    await waitFor(async () => (await scheduledEntry(bobToken, noSendSched.json?.id))?.status === 'failed'),
+  );
+  check(
+    'scheduling needs Send Messages (403)',
+    (await schedule(bobToken, { content: 'x', sendAt: inMs(60_000) })).status === 403,
+  );
+  await req(`/roles/${everyone.id}`, { method: 'PATCH', token: ownerToken, body: { permissions: everyone.permissions } });
+  check(
+    'nothing was posted without the permission',
+    !(await historyOf()).some((message) => message.content === 'without permission'),
+  );
+  // A new time is the retry.
+  const retried = await req(`/users/@me/scheduled/${noSendSched.json.id}`, {
+    method: 'PATCH',
+    token: bobToken,
+    body: { sendAt: inMs(2200) },
+  });
+  check('a new time puts a failed one back in the queue', retried.json?.status === 'pending' && retried.json?.error === null);
+  check(
+    'and it then goes out',
+    await waitFor(async () => (await historyOf()).some((message) => message.content === 'without permission')),
+  );
+
+  // Slowmode is not bypassed: the message waits for the window instead.
+  const slowRoom = (
+    await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'send-later-slow', slowmodeSeconds: 4 } })
+  ).json;
+  await req(`/channels/${slowRoom.id}/messages`, { method: 'POST', token: bobToken, body: { content: 'just posted' } });
+  const slowQueued = await schedule(bobToken, { content: 'after the wait', sendAt: inMs(1600) }, slowRoom.id);
+  await sleep(2200);
+  check(
+    'slowmode holds a scheduled message back instead of failing it',
+    (await scheduledEntry(bobToken, slowQueued.json?.id))?.status === 'pending' &&
+      !(await historyOf(slowRoom.id)).some((message) => message.content === 'after the wait'),
+  );
+  check(
+    'and it is sent once the window has passed',
+    await waitFor(async () => (await historyOf(slowRoom.id)).some((message) => message.content === 'after the wait')),
+  );
+
+  // Attachments stay claimed for the schedule and survive retention.
+  const heldUpload = await uploadFor(bobToken, 'later.png');
+  const withFile = await schedule(bobToken, {
+    content: 'with a picture',
+    attachmentIds: [heldUpload.id],
+    sendAt: inMs(6000),
+  });
+  check(
+    'a scheduled message can carry an upload',
+    withFile.status === 201 && withFile.json?.attachments?.[0]?.id === heldUpload.id,
+  );
+  check(
+    'the same upload cannot be scheduled twice (400)',
+    (await schedule(bobToken, { content: 'again', attachmentIds: [heldUpload.id], sendAt: inMs(60_000) })).status === 400,
+  );
+  check(
+    'nor used in an ordinary message meanwhile (400)',
+    (
+      await req(`/channels/${schedChannel.id}/messages`, {
+        method: 'POST',
+        token: bobToken,
+        body: { content: 'sneaky', attachmentIds: [heldUpload.id] },
+      })
+    ).status === 400,
+  );
+  const foreignUpload = await uploadFor(ownerToken, 'theirs.png');
+  check(
+    "someone else's upload cannot be scheduled (403)",
+    (await schedule(bobToken, { content: 'x', attachmentIds: [foreignUpload.id], sendAt: inMs(60_000) })).status === 403,
+  );
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { imageRetentionDays: 0 } });
+  await req('/retention/run', { method: 'POST', token: ownerToken });
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { imageRetentionDays: null } });
+  check(
+    'retention spares an upload waiting for its scheduled message',
+    (await fetch(`${BASE}/attachments/${heldUpload.id}`, { headers: { authorization: `Bearer ${bobToken}` } })).status === 200,
+  );
+  check(
+    'and the message goes out with it',
+    await waitFor(async () =>
+      (await historyOf()).some(
+        (message) => message.content === 'with a picture' && message.attachments?.[0]?.id === heldUpload.id,
+      ),
+    ),
+  );
+
+  // A channel going away takes its scheduled messages with it.
+  const doomed = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'send-later-doomed' } })).json;
+  const doomedSched = await schedule(bobToken, { content: 'never', sendAt: inMs(86_400_000) }, doomed.id);
+  await req(`/channels/${doomed.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'deleting a channel drops its scheduled messages',
+    doomedSched.status === 201 &&
+      !(await scheduledOf(bobToken)).json?.scheduled?.some((item) => item.id === doomedSched.json.id),
+  );
+
+  schedWatcher.ws.close();
+  schedOther.ws.close();
+  await req(`/roles/${lockRole.id}`, { method: 'DELETE', token: ownerToken });
+
+  // Merging accounts moves the scheduled messages across.
+  const schedMergeDir = mkdtempSync(join(tmpdir(), 'harmony-scheduled-merge-'));
+  const schedMergeStore = new Database({
+    dataDir: schedMergeDir,
+    dbFile: join(schedMergeDir, 'harmony.db'),
+    uploadDir: join(schedMergeDir, 'uploads'),
+  });
+  insertUser(schedMergeStore.sqlite, { id: 'keeper', username: 'keeper', passwordHash: 'x', isOwner: false });
+  insertUser(schedMergeStore.sqlite, { id: 'leaver', username: 'leaver', passwordHash: 'x', isOwner: false });
+  schedMergeStore.sqlite
+    .prepare("INSERT INTO channels (id, name, type, position, created_at) VALUES ('sm-chan', 'general', 'text', 0, ?)")
+    .run(new Date().toISOString());
+  schedMergeStore.sqlite
+    .prepare(
+      "INSERT INTO scheduled_messages (id, user_id, channel_id, content, send_at, created_at) VALUES ('sm-1', 'leaver', 'sm-chan', 'carried', 1, 1)",
+    )
+    .run();
+  mergeUsers(schedMergeStore.sqlite, 'leaver', 'keeper');
+  check(
+    'merging accounts carries scheduled messages to the survivor',
+    schedMergeStore.sqlite.prepare("SELECT user_id FROM scheduled_messages WHERE id = 'sm-1'").get()?.user_id === 'keeper',
+  );
+  schedMergeStore.sqlite.prepare("DELETE FROM users WHERE id = 'keeper'").run();
+  check(
+    'a deleted account takes its scheduled messages along',
+    schedMergeStore.sqlite.prepare('SELECT COUNT(*) AS n FROM scheduled_messages').get()?.n === 0,
+  );
+  schedMergeStore.close();
+  rmSync(schedMergeDir, { recursive: true, force: true });
+  }
 
   // --- Admin media gallery ---
   const galleryPng = await sharp({

@@ -152,7 +152,8 @@ export interface RankInput<C extends ChannelLike, M extends MemberLike> {
  * one last since going there is going nowhere. Once something is typed it is
  * every channel and member that matches, best match first, channels ahead of
  * members on a tie. A leading `#` keeps to channels and a leading `@` to
- * members, as in Discord.
+ * members, as in Discord; either prefix with nothing after it (a bare `#` or
+ * `@`) lists that whole group as the empty query lists the channels.
  */
 export function rankSwitcher<C extends ChannelLike, M extends MemberLike>(
   input: RankInput<C, M>,
@@ -187,7 +188,11 @@ export function rankSwitcher<C extends ChannelLike, M extends MemberLike>(
   }
 
   if (query.length === 0) {
-    if (!wantChannels) return [];
+    // A bare `@`, before any name is typed, lists the members so they can be
+    // browsed; a bare `#` or an empty query still lists the channels alone.
+    if (!wantChannels) {
+      return input.members.slice(0, limit).map((member) => ({ kind: 'member', id: member.id, member }));
+    }
     return ordered
       .slice()
       .sort((a, b) => recency(a.id) - recency(b.id) || (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0))

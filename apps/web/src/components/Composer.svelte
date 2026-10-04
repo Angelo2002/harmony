@@ -140,6 +140,11 @@
       .then(() => uploadBatch(key, files))
       .finally(() => {
         uploadBatches -= 1;
+      })
+      .catch(() => {
+        // `uploadBatch` reports its own problems, but a rejection must still not
+        // be allowed to poison the chain: every later batch would be skipped and
+        // its files silently dropped.
       });
     return uploadChain;
   }
@@ -571,12 +576,14 @@
 
   function onKeydown(event: KeyboardEvent): void {
     if (suggestions.length > 0) {
-      if (event.key === 'ArrowDown') {
+      // Alt+Up/Down is the app's channel-jump shortcut. Leave those arrows alone
+      // so an open list does not swallow them and suppress the jump.
+      if (event.key === 'ArrowDown' && !event.altKey) {
         event.preventDefault();
         highlight = (highlight + 1) % suggestions.length;
         return;
       }
-      if (event.key === 'ArrowUp') {
+      if (event.key === 'ArrowUp' && !event.altKey) {
         event.preventDefault();
         highlight = (highlight - 1 + suggestions.length) % suggestions.length;
         return;
@@ -595,9 +602,11 @@
 
     // Enter sends and Shift+Enter starts a new line, as in Discord. A key that
     // finishes an IME composition is left to the IME, or picking a Japanese
-    // candidate would send the message. On touch keyboards there is no Shift, so
-    // the send key keeps sending; multi-line text there comes from pasting.
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    // candidate would send the message. Some browsers report `isComposing`
+    // false for that confirming Enter and set the legacy keyCode 229 instead,
+    // so both are checked. On touch keyboards there is no Shift, so the send key
+    // keeps sending; multi-line text there comes from pasting.
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
       event.preventDefault();
       void send();
       return;

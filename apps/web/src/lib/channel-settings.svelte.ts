@@ -28,14 +28,26 @@ class ChannelSettingsStore {
   now = $state(Date.now());
 
   #expiryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped on each load and reset, so a slow reply cannot land over newer state. */
+  #loadGeneration = 0;
 
   async load(): Promise<void> {
+    const generation = ++this.#loadGeneration;
     const data = await api<ChannelSettingsListResponse>('/users/@me/channel-settings');
-    this.byTarget = Object.fromEntries(data.settings.map((settings) => [settings.targetId, settings]));
+    // A newer load started, or the store was reset, while this one was in
+    // flight; that state is newer, so drop this stale snapshot.
+    if (generation !== this.#loadGeneration) return;
+    const loaded = Object.fromEntries(data.settings.map((settings) => [settings.targetId, settings]));
+    // Merge under what is already held, so a change that arrived over the
+    // gateway or came back from a PUT while the request was in flight is not
+    // undone by a snapshot taken before it.
+    this.byTarget = { ...loaded, ...this.byTarget };
     this.#tick();
   }
 
   reset(): void {
+    // Invalidate any load still in flight so it cannot repopulate a logged-out store.
+    this.#loadGeneration += 1;
     this.byTarget = {};
     if (this.#expiryTimer) clearTimeout(this.#expiryTimer);
     this.#expiryTimer = null;

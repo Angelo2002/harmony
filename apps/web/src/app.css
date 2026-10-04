@@ -3340,6 +3340,20 @@ button.roster-member:hover {
   color: var(--h-error);
 }
 
+/* Pinning is an affirmative, on-the-record action, so it takes the accent. */
+.audit-kind.kind-message_pin,
+.audit-kind.kind-message_unpin {
+  background: var(--h-accent-subtle);
+  color: var(--h-accent);
+}
+
+/* Data leaving the server is worth a caution color of its own. */
+.audit-kind.kind-backup_download,
+.audit-kind.kind-channel_export {
+  background: color-mix(in srgb, var(--h-warn) 12%, var(--h-bg-raised));
+  color: var(--h-warn);
+}
+
 .audit-text {
   max-height: 8em;
   margin-top: 0.5rem;

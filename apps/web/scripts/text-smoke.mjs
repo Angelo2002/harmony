@@ -615,7 +615,7 @@ check('a member is found by display name', rowIds(rank('minecraft b')) === 'memb
 check('a channel ranks ahead of a member matching as well', rowIds(rank('minecraft')) === 'channel:mc,member:u2');
 check('a leading # keeps to channels', rowIds(rank('#minecraft')) === 'channel:mc');
 check('a leading @ keeps to members', rowIds(rank('@minecraft')) === 'member:u2');
-check('a bare @ lists nobody rather than everyone', rank('@').length === 0);
+check('a bare @ lists the members so they can be browsed', rowIds(rank('@')) === 'member:u1,member:u2');
 check('a bare # lists channels as an empty query does', rowIds(rank('#')) === rowIds(rank('')));
 const twins = [
   { id: 'red', name: 'team-red', categoryId: null },

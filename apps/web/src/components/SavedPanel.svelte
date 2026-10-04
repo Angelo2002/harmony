@@ -122,7 +122,12 @@
   async function finishReminder(entry: SavedMessage): Promise<void> {
     error = null;
     try {
-      await saved.clearReminder(entry);
+      // Apply the change here as well as through the gateway echo, so a delayed or
+      // lost echo cannot leave the old reminder time showing on the row.
+      const updated = await saved.clearReminder(entry);
+      entries = entries.map((other) =>
+        other.message.id === entry.message.id ? { ...other, remindAt: updated.remindAt } : other,
+      );
     } catch (cause) {
       fail(cause);
     }
@@ -152,6 +157,9 @@
       } else if (frame.t === 'MESSAGE_DELETE') {
         const payload = frame.d as MessageDeletePayload;
         entries = entries.filter((entry) => entry.message.id !== payload.id);
+      } else if (frame.t === 'READY') {
+        // A reconnect may have missed saves made while the socket was down.
+        void load();
       }
     });
   });

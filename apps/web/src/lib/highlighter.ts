@@ -1,11 +1,11 @@
 /**
  * Syntax highlighting for code blocks, from highlight.js.
  *
- * Only the core and a handful of common languages are registered, rather than
- * the full set of nearly two hundred, which would be most of a megabyte for
- * languages hardly anyone posts. This module is only ever reached through the
- * dynamic import in code-highlight.ts, so it lands in a chunk of its own that a
- * session showing no code block never downloads.
+ * Only the core and a curated set of eighteen common languages are registered,
+ * rather than the full set of nearly two hundred, which would be most of a
+ * megabyte for languages hardly anyone posts. This module is only ever reached
+ * through the dynamic import in code-highlight.ts, so it lands in a chunk of its
+ * own that a session showing no code block never downloads.
  */
 import hljs from 'highlight.js/lib/core';
 import bash from 'highlight.js/lib/languages/bash';
@@ -33,8 +33,16 @@ const LANGUAGES = { bash, c, cpp, csharp, css, diff, go, java, javascript, json,
 for (const [name, definition] of Object.entries(LANGUAGES)) hljs.registerLanguage(name, definition);
 
 /**
- * The code as highlighted HTML, or null for a language that is not registered,
- * which the caller shows as plain text.
+ * Above this many characters, highlighting a fenced block synchronously on the
+ * main thread would stall the UI for longer than the color is worth: the library
+ * is roughly linear in the input but with a large enough constant to matter at
+ * this size. A longer block is left plain, which the caller already handles.
+ */
+const maxHighlightLength = 20_000;
+
+/**
+ * The code as highlighted HTML, or null for a language that is not registered
+ * or a block too long to highlight, which the caller shows as plain text.
  *
  * The HTML is safe to put on the page as it is. `highlight()` builds its output
  * from the source as text: every stretch of the code it emits goes through the
@@ -46,6 +54,7 @@ for (const [name, definition] of Object.entries(LANGUAGES)) hljs.registerLanguag
  * the page, and is not used here.)
  */
 export function highlight(code: string, language: string): string | null {
+  if (code.length > maxHighlightLength) return null;
   if (!hljs.getLanguage(language)) return null;
   return hljs.highlight(code, { language, ignoreIllegals: true }).value;
 }

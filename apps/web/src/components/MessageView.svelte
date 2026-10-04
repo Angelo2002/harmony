@@ -107,7 +107,9 @@
   /** Notes when the "new" line has come into view, from the scroll position. */
   function checkNewSeen(): void {
     const element = scroller;
-    if (newSeen || !element || !newDivider) return;
+    // `newDividerId` is set whenever the divider is mounted, so gating on it keeps
+    // a stale ref from a removed divider from being measured.
+    if (newSeen || !element || !newDividerId || !newDivider) return;
     // In view, or anywhere below the top edge of the list, counts as seen.
     if (newDivider.getBoundingClientRect().top >= element.getBoundingClientRect().top) newSeen = true;
   }
@@ -123,7 +125,11 @@
   async function jumpToNew(): Promise<void> {
     await chat.loadToFirstUnread();
     await tick();
-    newDivider?.scrollIntoView({ block: 'start' });
+    // A load that stopped short leaves no divider to scroll to; only count it as
+    // seen once the divider was actually reached and brought into view, so the
+    // bar stays put for another try rather than vanishing without the view moving.
+    if (!newDividerId || !newDivider) return;
+    newDivider.scrollIntoView({ block: 'start' });
     newSeen = true;
   }
 

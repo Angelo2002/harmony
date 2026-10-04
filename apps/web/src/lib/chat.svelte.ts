@@ -452,10 +452,18 @@ class ChatStore {
     let marked = false;
     for (const channelId of channelIds) {
       if (!this.unread.has(channelId) && !this.mention.has(channelId)) continue;
-      this.#markRead(channelId, false);
+      this.#queueRead(channelId);
       marked = true;
     }
     if (this.activeChannelId && channelIds.includes(this.activeChannelId)) this.newSince = null;
+    // Mark the whole batch first, then flush once, rather than flushing after each channel.
+    if (marked) {
+      if (this.#readTimer) {
+        clearTimeout(this.#readTimer);
+        this.#readTimer = null;
+      }
+      this.#flushRead();
+    }
     // Only the server knows which message a channel nobody opened was read up
     // to, and the next visit's "new" line needs it.
     if (marked) this.#refreshUnreadSoon();
@@ -479,12 +487,7 @@ class ChatStore {
    * within a moment is the same request.
    */
   #markRead(channelId: string, soon: boolean): void {
-    this.#clearUnread(channelId);
-    // The server moves its marker to the newest message; follow it as far as
-    // what has been seen here, so the next visit's "new" line starts after it.
-    if (channelId === this.activeChannelId) this.#advanceMarker(channelId, this.messages.at(-1)?.createdAt);
-    this.#advanceMarker(channelId, this.#latestSeen.get(channelId));
-    this.#readPending.add(channelId);
+    this.#queueRead(channelId);
 
     if (this.#readTimer) {
       clearTimeout(this.#readTimer);
@@ -498,6 +501,16 @@ class ChatStore {
     } else {
       this.#flushRead();
     }
+  }
+
+  /** Marks a channel read here and queues telling the server, without sending. */
+  #queueRead(channelId: string): void {
+    this.#clearUnread(channelId);
+    // The server moves its marker to the newest message; follow it as far as
+    // what has been seen here, so the next visit's "new" line starts after it.
+    if (channelId === this.activeChannelId) this.#advanceMarker(channelId, this.messages.at(-1)?.createdAt);
+    this.#advanceMarker(channelId, this.#latestSeen.get(channelId));
+    this.#readPending.add(channelId);
   }
 
   /** Drops a channel's unread mark and mention count, without telling the server. */

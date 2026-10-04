@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import type { Message } from '@harmony/shared';
   import { chat } from '../lib/chat.svelte';
   import { dragHasFiles, mediaFilesFrom } from '../lib/files';
   import { saved } from '../lib/saved.svelte';
@@ -47,6 +48,23 @@
     if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
     return 'Several people are typing…';
   });
+
+  /** The author shown in the due-reminder notice, matching SavedButton's. */
+  function reminderAuthor(message: Message): string {
+    return message.author?.displayName ?? message.author?.username ?? 'Deleted user';
+  }
+
+  /** A line of the message for the notice; the panel is where it is read in full. */
+  function reminderSnippet(message: Message): string {
+    const text = message.content.replace(/\s+/g, ' ').trim();
+    if (text.length === 0) return message.attachments.length > 0 ? '(attachment)' : '';
+    return text.length > 90 ? `${text.slice(0, 90)}…` : text;
+  }
+
+  function openSavedNotice(): void {
+    saved.notice = null;
+    ui.openSaved();
+  }
 
   /**
    * Dragging a file over the chat offers a drop zone. Enter and leave fire for
@@ -170,6 +188,25 @@
       </button>
       <p class="muted">No channels yet.</p>
     </section>
+  {/if}
+
+  <!--
+    With no channel open the header, and the notice beside its saved button, are
+    not on screen. The same due-reminder notice is shown here for that case; the
+    button draws it whenever a channel is open, so this does not double up.
+  -->
+  {#if !chat.activeChannel && saved.notice}
+    <div class="reminder-notice" role="status">
+      <p>
+        <strong>Reminder</strong>
+        <span class="muted">{reminderAuthor(saved.notice.message)}:</span>
+        {reminderSnippet(saved.notice.message)}
+      </p>
+      <div class="reminder-notice-actions">
+        <button type="button" onclick={openSavedNotice}>View</button>
+        <button type="button" class="ghost" onclick={() => (saved.notice = null)}>Dismiss</button>
+      </div>
+    </div>
   {/if}
 
   <MemberList />

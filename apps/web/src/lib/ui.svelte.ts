@@ -12,6 +12,7 @@ class UiState {
 
   openAbout(): void {
     this.closeDrawers();
+    this.#closePanels();
     this.aboutOpen = true;
   }
 
@@ -21,6 +22,7 @@ class UiState {
 
   openSearch(): void {
     this.closeDrawers();
+    this.#closePanels();
     this.searchOpen = true;
   }
 
@@ -30,6 +32,7 @@ class UiState {
 
   openInbox(): void {
     this.closeDrawers();
+    this.#closePanels();
     this.inboxOpen = true;
   }
 
@@ -39,6 +42,7 @@ class UiState {
 
   openPins(): void {
     this.closeDrawers();
+    this.#closePanels();
     this.pinsOpen = true;
   }
 
@@ -48,6 +52,7 @@ class UiState {
 
   openSaved(): void {
     this.closeDrawers();
+    this.#closePanels();
     this.savedOpen = true;
   }
 
@@ -57,6 +62,7 @@ class UiState {
 
   openAdmin(): void {
     this.closeDrawers();
+    this.#closePanels();
     this.adminOpen = true;
   }
 
@@ -66,11 +72,27 @@ class UiState {
 
   openProfile(): void {
     this.closeDrawers();
+    this.#closePanels();
     this.profileOpen = true;
   }
 
   closeProfile(): void {
     this.profileOpen = false;
+  }
+
+  /**
+   * Only one modal panel is ever open at once, so opening any of them closes
+   * the rest, however they were reached. Bumping a panel through the console or
+   * another asynchronous path cannot leave two overlays stacked.
+   */
+  #closePanels(): void {
+    this.aboutOpen = false;
+    this.adminOpen = false;
+    this.profileOpen = false;
+    this.searchOpen = false;
+    this.inboxOpen = false;
+    this.pinsOpen = false;
+    this.savedOpen = false;
   }
 
   /** Only one drawer is ever open, so they never overlap. */

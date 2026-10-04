@@ -93,12 +93,39 @@ class SavedState {
 
   async load(): Promise<void> {
     try {
-      const body = await api<SavedMessageListResponse>(`/users/@me/saved?reminders=true&limit=${reminderLimit}`);
-      this.reminders = body.saved;
+      const first = await api<SavedMessageListResponse>(`/users/@me/saved?reminders=true&limit=${reminderLimit}`);
+      // A full page means there may be more behind it, and the reminders view has
+      // no cursor to ask for them; a member with more reminders than one page
+      // would otherwise have the rest left unscheduled. Fall back to walking the
+      // paginated saved list, the only listing the server pages through.
+      this.reminders = first.saved.length < reminderLimit ? first.saved : await this.#loadAllReminders();
       this.#schedule();
     } catch {
       // Offline or signed out: keep whatever reminders were already known.
     }
+  }
+
+  /**
+   * Every save carrying a reminder, gathered by paging the saved list until a
+   * short page comes back. Used only when the reminders view fills a whole page,
+   * so the cost is paid only by a member with more reminders than one page holds.
+   */
+  async #loadAllReminders(): Promise<SavedMessage[]> {
+    const reminders: SavedMessage[] = [];
+    let before: SavedMessage | undefined;
+    for (;;) {
+      const query = new URLSearchParams({ limit: String(reminderLimit) });
+      if (before) {
+        query.set('before', before.savedAt);
+        query.set('beforeId', before.message.id);
+      }
+      const body = await api<SavedMessageListResponse>(`/users/@me/saved?${query}`);
+      reminders.push(...body.saved.filter((entry) => entry.remindAt !== null));
+      const oldest = body.saved.at(-1);
+      if (body.saved.length < reminderLimit || !oldest) break;
+      before = oldest;
+    }
+    return reminders.sort(bySoonest);
   }
 
   /**
@@ -121,8 +148,8 @@ class SavedState {
   }
 
   /** Done with a reminder: the message stays saved, it just stops reminding. */
-  async clearReminder(entry: SavedMessage): Promise<void> {
-    await this.save(entry.message, null);
+  async clearReminder(entry: SavedMessage): Promise<SavedMessage> {
+    return this.save(entry.message, null);
   }
 
   #apply(payload: SavedMessageUpdatePayload): void {
@@ -149,6 +176,9 @@ class SavedState {
     if (!next?.remindAt) return;
     // A few milliseconds late rather than early, so the reminder is due when it fires.
     const wait = Date.parse(next.remindAt) - Date.now() + 50;
+    // A time that cannot be parsed leaves `wait` NaN, which a timer fires at once
+    // and then re-arms forever over; leave that reminder unscheduled instead.
+    if (!Number.isFinite(wait)) return;
     this.#timer = setTimeout(() => this.#fire(), Math.min(wait, maxTimerMs));
   }
 

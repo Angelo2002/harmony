@@ -92,6 +92,9 @@
       } else if (frame.t === 'MESSAGE_DELETE') {
         const payload = frame.d as MessageDeletePayload;
         pins = pins.filter((pin) => pin.id !== payload.id);
+      } else if (frame.t === 'READY') {
+        // A reconnect may have missed pins added or removed while the socket was down.
+        void load();
       }
     });
   });

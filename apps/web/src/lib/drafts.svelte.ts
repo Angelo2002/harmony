@@ -7,6 +7,8 @@ export interface Draft {
 }
 
 const storageKey = 'harmony.drafts';
+/** How long typing pauses before drafts are written out, so every keystroke does not. */
+const persistDelayMs = 300;
 const empty: Draft = Object.freeze({ text: '', attachments: [] }) as Draft;
 
 /**
@@ -38,6 +40,7 @@ function readStored(): Record<string, Draft> {
  */
 class Drafts {
   #byKey = $state<Record<string, Draft>>(readStored());
+  #persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   get(key: string | null): Draft {
     return (key !== null ? this.#byKey[key] : undefined) ?? empty;
@@ -50,7 +53,7 @@ class Drafts {
     } else {
       this.#byKey[key] = draft;
     }
-    this.#persist();
+    this.#schedulePersist();
   }
 
   setText(key: string | null, text: string): void {
@@ -63,6 +66,22 @@ class Drafts {
 
   clear(key: string | null): void {
     this.set(key, empty);
+  }
+
+  /** Writes a pending change now instead of waiting out the debounce. */
+  flush(): void {
+    if (this.#persistTimer === null) return;
+    clearTimeout(this.#persistTimer);
+    this.#persistTimer = null;
+    this.#persist();
+  }
+
+  #schedulePersist(): void {
+    if (this.#persistTimer !== null) clearTimeout(this.#persistTimer);
+    this.#persistTimer = setTimeout(() => {
+      this.#persistTimer = null;
+      this.#persist();
+    }, persistDelayMs);
   }
 
   #persist(): void {
@@ -79,3 +98,9 @@ class Drafts {
 }
 
 export const drafts = new Drafts();
+
+// The debounce would otherwise drop the last keystrokes when the page goes away,
+// so write them out the moment the tab is hidden or closed.
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => drafts.flush());
+}

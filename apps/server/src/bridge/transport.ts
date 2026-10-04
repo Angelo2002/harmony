@@ -53,6 +53,11 @@ export interface DiscordIncomingMessage {
    * attachments instead.
    */
   forwarded?: boolean;
+  /**
+   * True for a message Discord generates itself rather than a person writing it,
+   * such as the "pinned a message to this channel" notice. Never bridged.
+   */
+  system?: boolean;
 }
 
 export interface DiscordIncomingEdit {
@@ -178,6 +183,19 @@ export interface ReactionInput {
   emoji: string;
 }
 
+/** One message pinned in a Discord channel. */
+export interface DiscordPin {
+  messageId: string;
+  /** When it was pinned, ISO 8601, or null when Discord did not say. */
+  pinnedAt: string | null;
+}
+
+/** Pins or unpins one Discord message. Needs the bot's Pin Messages permission there. */
+export interface PinInput {
+  channelId: string;
+  discordMessageId: string;
+}
+
 /**
  * Everything the bridge needs from Discord, behind one small interface. The
  * real implementation wraps discord.js; tests substitute a fake so the
@@ -202,6 +220,13 @@ export interface DiscordTransport {
    * then whenever someone's status changes.
    */
   onPresence(handler: (presence: DiscordIncomingPresence) => void): void;
+  /**
+   * Somebody pinned or unpinned a message in a Discord channel. Discord says only
+   * that the pins changed, never which message, so the bridge reads the list.
+   */
+  onPinsUpdated(handler: (channelId: string) => void): void;
+  /** The connection was re-established after a gap, so events may have been missed. */
+  onReconnected(handler: () => void): void;
   mirror(input: MirrorInput): Promise<MirrorResult>;
   editMessage(input: EditInput): Promise<void>;
   deleteMessage(input: DeleteInput): Promise<void>;
@@ -228,4 +253,8 @@ export interface DiscordTransport {
    * a newly linked channel. Bots and webhooks are included; the caller filters.
    */
   fetchRecentMessages(channelId: string, limit: number): Promise<DiscordIncomingMessage[]>;
+  /** A channel's current pins, newest first. Discord allows at most 50. */
+  fetchPinned(channelId: string): Promise<DiscordPin[]>;
+  pinMessage(input: PinInput): Promise<void>;
+  unpinMessage(input: PinInput): Promise<void>;
 }

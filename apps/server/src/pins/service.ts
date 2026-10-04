@@ -39,7 +39,9 @@ import type { GatewayHub } from '../realtime/hub.ts';
  * is expected to sync pins later. Local pins notify `onPinned` / `onUnpinned`,
  * which the bridge can subscribe to and pin on Discord; pins that came from
  * Discord go through the `*Bridged` variants, which skip permission checks and
- * notify nobody, so a pin can never bounce back and forth between the two.
+ * notify nobody, so a pin can never bounce back and forth between the two. The
+ * bridge (bridge/service.ts) is that subscriber. A bridged pin is still audited,
+ * with no actor, which the log shows as Discord.
  */
 export interface PinService {
   /** A channel's pins, newest pin first, for a member who can see the channel. */
@@ -249,6 +251,7 @@ export function createPinService(
         LIMITS.pinsPerChannel,
       );
       if (result !== 'pinned') return null;
+      audit.messagePinned(null, row.channel_id, row.author_id, row.content, true);
       return broadcast(row.id);
     },
 
@@ -256,6 +259,7 @@ export function createPinService(
       const row = findMessage(sqlite, messageId);
       if (!row || row.deleted_at) return null;
       if (!clearPinned(sqlite, row.id)) return null;
+      audit.messagePinned(null, row.channel_id, row.author_id, row.content, false);
       return broadcast(row.id);
     },
 

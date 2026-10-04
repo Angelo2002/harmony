@@ -150,6 +150,7 @@ const bridge = createBridgeService({
   messages: messageService,
   users: userService,
   hub,
+  pins: pinService,
   logger: bridgeLogger,
   transportFactory: (token, logger) => createDiscordTransport(token, logger),
   serverLog,

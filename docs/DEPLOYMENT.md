@@ -175,7 +175,8 @@ to walk you through this on first run, and **Admin → Bridge** does the same la
    Both are privileged: the toggles work right away for a bot in fewer than 100
    servers, and need Discord's approval beyond that.
 3. Invite the bot to your server with **View Channels**, **Send Messages**, **Read
-   Message History**, **Add Reactions** and **Manage Webhooks**.
+   Message History**, **Add Reactions** and **Manage Webhooks**. Add **Pin Messages** too if pinning
+   a message in Harmony should pin it on Discord as well.
 4. Paste the token into **Admin → Bridge**, set the public base URL, and enable it.
 
 **Restart Harmony after changing the intents.** The bot reads them only when it

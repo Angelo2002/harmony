@@ -62,6 +62,8 @@
   let showPicker = $state(false);
   let showGifs = $state(false);
   let showTimes = $state(false);
+  /** The phone-only + menu that gathers the four picker buttons. */
+  let showActions = $state(false);
 
   /** The `:emoji` or `@mention` fragment being typed at the caret, if any. */
   let activeTrigger = $state<Trigger | null>(null);
@@ -226,6 +228,38 @@
   function closeTimes(refocus: boolean): void {
     showTimes = false;
     if (refocus) textInput?.focus();
+  }
+
+  /*
+   * The four pickers, opened either from the desktop buttons or from the phone's
+   * + menu. Each closes the others so two panels are never open at once, and
+   * closes the menu itself, which is what makes tapping an item feel like it did
+   * something rather than leaving a menu sitting over the picker.
+   */
+  function toggleEmoji(): void {
+    showPicker = !showPicker;
+    showGifs = false;
+    showTimes = false;
+    showActions = false;
+  }
+
+  function toggleGifs(): void {
+    showGifs = !showGifs;
+    showPicker = false;
+    showTimes = false;
+    showActions = false;
+  }
+
+  function toggleTimes(): void {
+    showTimes = !showTimes;
+    showPicker = false;
+    showGifs = false;
+    showActions = false;
+  }
+
+  function pickFiles(): void {
+    showActions = false;
+    fileInput?.click();
   }
 
   const replyName = $derived(
@@ -743,25 +777,43 @@
   <form onsubmit={onSubmit}>
     <button
       type="button"
+      class="attach attach-more"
+      title="More actions"
+      aria-label="More actions"
+      aria-expanded={showActions}
+      aria-haspopup="menu"
+      onclick={() => (showActions = !showActions)}
+    ><Icon name="plus" size={20} /></button>
+    {#if showActions}
+      <button
+        type="button"
+        class="composer-actions-backdrop"
+        aria-label="Close menu"
+        onclick={() => (showActions = false)}
+      ></button>
+      <div class="composer-actions" role="menu">
+        <button type="button" role="menuitem" onclick={toggleEmoji}>
+          <span class="composer-actions-icon"><Icon name="smile" size={18} /></span> Emoji
+        </button>
+        <button type="button" role="menuitem" onclick={toggleGifs}>
+          <span class="composer-actions-icon"><Icon name="gif" size={18} /></span> Gif
+        </button>
+        <button type="button" role="menuitem" disabled={timeoutUntil !== null} onclick={toggleTimes}>
+          <span class="composer-actions-icon"><Icon name="clock" size={18} /></span> Timestamp
+        </button>
+        <button type="button" role="menuitem" disabled={uploading || timeoutUntil !== null} onclick={pickFiles}>
+          <span class="composer-actions-icon"><Icon name="paperclip" size={18} /></span> Attach image
+        </button>
+      </div>
+    {/if}
+    <button
+      type="button"
       class="attach"
       title="Add emoji"
       aria-label="Add emoji"
-      onclick={() => {
-        showPicker = !showPicker;
-        showGifs = false;
-        showTimes = false;
-      }}><Icon name="smile" size={20} /></button
+      onclick={toggleEmoji}><Icon name="smile" size={20} /></button
     >
-    <button
-      type="button"
-      class="attach attach-gif"
-      title="Add gif"
-      aria-label="Add gif"
-      onclick={() => {
-        showGifs = !showGifs;
-        showPicker = false;
-        showTimes = false;
-      }}>GIF</button>
+    <button type="button" class="attach attach-gif" title="Add gif" aria-label="Add gif" onclick={toggleGifs}>GIF</button>
     <button
       type="button"
       class="attach timestamp-trigger"
@@ -770,11 +822,7 @@
       aria-expanded={showTimes}
       aria-haspopup="dialog"
       disabled={timeoutUntil !== null}
-      onclick={() => {
-        showTimes = !showTimes;
-        showPicker = false;
-        showGifs = false;
-      }}><Icon name="clock" size={20} /></button
+      onclick={toggleTimes}><Icon name="clock" size={20} /></button
     >
     <button
       type="button"
@@ -782,7 +830,7 @@
       title="Attach image"
       aria-label="Attach image"
       disabled={uploading || timeoutUntil !== null}
-      onclick={() => fileInput?.click()}
+      onclick={pickFiles}
     >
       {#if uploading}…{:else}<Icon name="paperclip" size={20} />{/if}
     </button>
@@ -814,6 +862,14 @@
       onfocus={updateAutocomplete}
       onblur={() => (activeTrigger = null)}
     ></textarea>
-    <button type="submit" disabled={busy || uploading || timeoutUntil !== null || slowmodeRemaining > 0}>Send</button>
+    <button
+      type="submit"
+      class="send"
+      aria-label="Send"
+      disabled={busy || uploading || timeoutUntil !== null || slowmodeRemaining > 0}
+    >
+      <span class="send-label">Send</span>
+      <span class="send-icon"><Icon name="send" size={20} /></span>
+    </button>
   </form>
 </div>

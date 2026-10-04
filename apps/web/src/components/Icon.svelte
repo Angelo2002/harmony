@@ -63,6 +63,16 @@
     <path d="M12 7v5l3 2" />
   {:else if name === 'paperclip'}
     <path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7-7" />
+  {:else if name === 'gif'}
+    <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+    <path d="M3 16l4.5-4 4 3.5 3-2.5L21 17" />
+    <circle cx="8.5" cy="9" r="1.3" />
+  {:else if name === 'plus'}
+    <path d="M12 5v14" />
+    <path d="M5 12h14" />
+  {:else if name === 'send'}
+    <path d="M21.5 2.5 10.5 13.5" />
+    <path d="M21.5 2.5 14.5 21l-4-7.5-7.5-4z" />
   {:else if name === 'heart-filled'}
     <path
       d="M12 20.7C7.2 17 3.6 13.9 3.6 10.2 3.6 7.4 5.8 5.2 8.5 5.2c1.6 0 3 .7 3.5 1.9.6-1.2 2-1.9 3.5-1.9 2.7 0 4.9 2.2 4.9 5 0 3.7-3.6 6.8-8.4 10.5z"

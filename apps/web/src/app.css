@@ -1799,6 +1799,19 @@ button.mention:hover {
   letter-spacing: 0.02em;
 }
 
+/*
+ * The + button and its menu are the phone affordance: a wide screen shows the
+ * four picker buttons directly, so these stay out of the layout there. The send
+ * label likewise swaps for an icon only on small screens (see the max-width
+ * block at the end of this file).
+ */
+.attach-more,
+.composer-actions,
+.composer-actions-backdrop,
+.send-icon {
+  display: none;
+}
+
 /* ---- Pending attachments ---- */
 
 .pending {
@@ -3649,6 +3662,96 @@ button.roster-member:hover {
 
   .messages {
     padding: 0.8rem;
+  }
+
+  /*
+   * Phones get one + button that opens the picker menu, and an icon send button,
+   * so the text field keeps most of the width instead of sharing it with four
+   * circles and the word Send.
+   */
+  .composer form {
+    position: relative;
+  }
+
+  .composer .attach:not(.attach-more) {
+    display: none;
+  }
+
+  .attach-more {
+    display: inline-flex;
+  }
+
+  .composer .send {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border-radius: 50%;
+  }
+
+  .send-label {
+    display: none;
+  }
+
+  .send-icon {
+    display: inline-flex;
+  }
+
+  .composer-actions-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: rgb(0 0 0 / 35%);
+    box-shadow: none;
+    cursor: default;
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+  }
+
+  .composer-actions {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 0.5rem);
+    z-index: 91;
+    min-width: 11rem;
+    padding: 0.35rem;
+    border-radius: var(--h-radius);
+    background: var(--h-bg-overlay);
+    border: 1px solid var(--h-border-strong);
+    box-shadow: var(--h-shadow-lg);
+  }
+
+  .composer .composer-actions button {
+    justify-content: flex-start;
+    gap: 0.6rem;
+    width: auto;
+    height: auto;
+    margin-bottom: 0;
+    padding: 0.6rem 0.7rem;
+    border-radius: var(--h-radius-sm);
+    background: none;
+    color: var(--h-text);
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+
+  .composer .composer-actions button:hover:not(:disabled) {
+    background: var(--h-hover);
+    box-shadow: none;
+  }
+
+  .composer-actions-icon {
+    display: inline-flex;
+    color: var(--h-text-muted);
   }
 
   /* 16px prevents iOS Safari from zooming on focus */

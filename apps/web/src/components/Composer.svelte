@@ -308,6 +308,7 @@
   /** Opens the "send later" popover, from the + menu, the button by Send or Ctrl+Shift+Enter. */
   function toggleSchedule(): void {
     showSchedule = !showSchedule;
+    showPoll = false;
     showPicker = false;
     showGifs = false;
     showTimes = false;
@@ -327,6 +328,7 @@
 
   function togglePoll(): void {
     showPoll = !showPoll;
+    showSchedule = false;
     showPicker = false;
     showGifs = false;
     showTimes = false;

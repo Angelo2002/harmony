@@ -4058,6 +4058,18 @@ button.roster-member:hover {
   cursor: zoom-out;
 }
 
+/*
+ * The backdrop is a button so a tap closes the lightbox, but the shared button
+ * styles would tint it accent on hover and shrink it on press, which reads as the
+ * scrim flashing when the pointer is over it rather than the picture. It stays put.
+ */
+.lightbox-backdrop:hover:not(:disabled),
+.lightbox-backdrop:active:not(:disabled) {
+  background: rgb(0 0 0 / 82%);
+  box-shadow: none;
+  transform: none;
+}
+
 .lightbox-image {
   position: relative;
   max-width: 100%;

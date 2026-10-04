@@ -9,6 +9,7 @@ import type {
   Mention,
   Message,
   Role,
+  SavedMessage,
   User,
 } from './types.ts';
 import type { ThemeSettings } from './theme.ts';
@@ -70,6 +71,14 @@ export interface MessageListResponse {
 /** Response for `GET /api/v1/channels/:id/pins`: the channel's pins, newest pin first. */
 export interface PinListResponse {
   messages: Message[];
+}
+
+/**
+ * Response for `GET /api/v1/users/@me/saved`: the caller's own saved messages,
+ * newest save first, or their reminders soonest first when asked for those.
+ */
+export interface SavedMessageListResponse {
+  saved: SavedMessage[];
 }
 
 /** Public instance metadata, used by clients before they sign in. */

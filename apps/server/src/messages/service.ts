@@ -30,6 +30,7 @@ import { markChannelRead } from '../db/channel_reads.ts';
 import { findChannel, type ChannelRow } from '../db/channels.ts';
 import { findEmoji } from '../db/emojis.ts';
 import { insertMention, listMentions, type MentionRow } from '../db/mentions.ts';
+import { listSavedAmong } from '../db/saved_messages.ts';
 import {
   findMessage,
   insertMessage,
@@ -134,6 +135,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     attachments: Attachment[],
     reactions: Reaction[],
     stickers: Sticker[],
+    saved = false,
   ): Message {
     const authorRow = row.author_id ? findUserById(sqlite, row.author_id) : null;
     return {
@@ -149,6 +151,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       reactions,
       embed: parseMessageEmbed(row.embed),
       pinnedAt: row.pinned_at,
+      saved,
     };
   }
 
@@ -161,7 +164,13 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
   }
 
   function render(row: MessageRow, viewerId: string): Message {
-    return toMessage(row, attachmentsFor(row.id), reactionsFor(row.id, viewerId), stickersFor(row.id));
+    return toMessage(
+      row,
+      attachmentsFor(row.id),
+      reactionsFor(row.id, viewerId),
+      stickersFor(row.id),
+      listSavedAmong(sqlite, viewerId, [row.id]).has(row.id),
+    );
   }
 
   /** Validates a reply target: it must exist, be visible and be in the same channel. */
@@ -391,9 +400,16 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     const byMessage = listAttachmentsForMessages(sqlite, ids);
     const reactions = listReactionsForMessages(sqlite, ids, viewerId);
     const stickers = listStickersForMessages(sqlite, ids);
+    const saved = listSavedAmong(sqlite, viewerId, ids);
     return {
       messages: rows.map((row) =>
-        toMessage(row, byMessage.get(row.id) ?? [], reactions.get(row.id) ?? [], stickers.get(row.id) ?? []),
+        toMessage(
+          row,
+          byMessage.get(row.id) ?? [],
+          reactions.get(row.id) ?? [],
+          stickers.get(row.id) ?? [],
+          saved.has(row.id),
+        ),
       ),
     };
   }
@@ -404,10 +420,17 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     const byMessage = listAttachmentsForMessages(sqlite, ids);
     const reactions = listReactionsForMessages(sqlite, ids, viewerId);
     const stickers = listStickersForMessages(sqlite, ids);
+    const saved = listSavedAmong(sqlite, viewerId, ids);
     const mentions: Mention[] = rows.map((row) => ({
       kind: row.mention_kind === 'reply' ? 'reply' : 'mention',
       unread: row.mention_unread === 1,
-      message: toMessage(row, byMessage.get(row.id) ?? [], reactions.get(row.id) ?? [], stickers.get(row.id) ?? []),
+      message: toMessage(
+        row,
+        byMessage.get(row.id) ?? [],
+        reactions.get(row.id) ?? [],
+        stickers.get(row.id) ?? [],
+        saved.has(row.id),
+      ),
     }));
     return { mentions };
   }
@@ -500,8 +523,9 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     byId(messageId, viewerId = '') {
       const row = findMessage(sqlite, messageId);
       if (!row || row.deleted_at) return null;
-      // The viewer is only used for the `me` reaction badge, which the clients
-      // keep themselves for an update, so a broadcast needs no particular viewer.
+      // The viewer is only used for the `me` reaction badge and the `saved` flag,
+      // which the clients keep themselves for an update, so a broadcast needs no
+      // particular viewer.
       return render(row, viewerId);
     },
 

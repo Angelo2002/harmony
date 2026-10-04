@@ -252,6 +252,23 @@ export interface Message {
   embed: LinkEmbed | null;
   /** When the message was pinned to its channel, or null when it is not pinned. */
   pinnedAt: IsoTimestamp | null;
+  /**
+   * Whether the viewer has saved this message for later. Like a reaction's `me`
+   * it is one member's perspective, so a broadcast always carries false and
+   * clients keep the value they already hold.
+   */
+  saved: boolean;
+}
+
+/**
+ * One message a member saved for later, as their saved list shows it. Saves are
+ * private: nobody but the member who made one ever sees it.
+ */
+export interface SavedMessage {
+  message: Message;
+  savedAt: IsoTimestamp;
+  /** When to remind them about it, or null for a plain save. */
+  remindAt: IsoTimestamp | null;
 }
 
 /**

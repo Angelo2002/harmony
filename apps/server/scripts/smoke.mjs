@@ -23,7 +23,7 @@ import { isDiscordAttachment, isGifPage, isGiphyPage, tweetStatusId, youtubeVide
 import { isKlipyAddress, klipySearchUrl, normalizeKlipySearch } from '../src/gifs/klipy.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
-import { insertGhostUser, insertUser } from '../src/db/users.ts';
+import { insertGhostUser, insertUser, mergeUsers } from '../src/db/users.ts';
 import { insertInvite } from '../src/db/invites.ts';
 import { insertBan } from '../src/db/bans.ts';
 import { createAuthService } from '../src/auth/service.ts';
@@ -3723,6 +3723,227 @@ try {
     lockedWatcher.events.every((frame) => frame.d?.channelId !== lockedPins.id),
   );
   lockedWatcher.ws.close();
+
+  // --- Saved messages ---
+  const savedChannel = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'bookmarks' } }))
+    .json;
+  const postInSaved = async (content, channelId = savedChannel.id) =>
+    (await req(`/channels/${channelId}/messages`, { method: 'POST', token: ownerToken, body: { content } })).json;
+  const savedOf = (token, query = '') => req(`/users/@me/saved${query}`, { token });
+  const saveAs = (token, messageId, body) => req(`/users/@me/saved/${messageId}`, { method: 'PUT', token, body });
+  const savedIds = (response) => (response.json?.saved ?? []).map((entry) => entry.message.id).join();
+  const keepFirst = await postInSaved('keep me');
+  const keepSecond = await postInSaved('keep me too');
+
+  check('a new message is not saved', keepFirst.saved === false);
+  check('nothing is saved at first', (await savedOf(bobToken)).json?.saved?.length === 0);
+
+  // Bob's second session, to see a save follow him, and Alice's, to see it does not reach her.
+  const bobElsewhere = await openGateway({ token: bobToken });
+  const aliceWatching = await openGateway({ token: ownerToken });
+  const savedOne = await saveAs(bobToken, keepFirst.id);
+  check(
+    'any member who can see a message can save it',
+    savedOne.status === 200 &&
+      savedOne.json?.message?.id === keepFirst.id &&
+      savedOne.json.message.saved === true &&
+      savedOne.json.remindAt === null,
+    `status ${savedOne.status}`,
+  );
+  await sleep(250);
+  check(
+    "a save reaches the saver's other sessions",
+    bobElsewhere.events.some(
+      (frame) =>
+        frame.t === 'SAVED_MESSAGE_UPDATE' &&
+        frame.d?.messageId === keepFirst.id &&
+        frame.d?.saved?.savedAt === savedOne.json?.savedAt,
+    ),
+  );
+  check(
+    'a save is sent to nobody else, not even as a message update',
+    aliceWatching.events.every(
+      (frame) => frame.t !== 'SAVED_MESSAGE_UPDATE' && !(frame.t === 'MESSAGE_UPDATE' && frame.d?.id === keepFirst.id),
+    ),
+  );
+
+  bobElsewhere.events.length = 0;
+  const savedAgain = await saveAs(bobToken, keepFirst.id);
+  await sleep(250);
+  check(
+    'saving again keeps the original save time',
+    savedAgain.status === 200 && savedAgain.json?.savedAt === savedOne.json?.savedAt,
+  );
+  check(
+    'saving again changes nothing, so nothing is sent',
+    bobElsewhere.events.every((frame) => frame.t !== 'SAVED_MESSAGE_UPDATE'),
+  );
+
+  // Save times are ISO strings to the millisecond; make sure the second is later.
+  await sleep(5);
+  await saveAs(bobToken, keepSecond.id);
+  check(
+    'the saved list is newest save first',
+    savedIds(await savedOf(bobToken)) === [keepSecond.id, keepFirst.id].join(),
+  );
+  check(
+    'history marks a message saved for whoever saved it',
+    (await req(`/channels/${savedChannel.id}/messages`, { token: bobToken })).json?.messages?.find(
+      (message) => message.id === keepFirst.id,
+    )?.saved === true,
+  );
+  check(
+    'and for nobody else',
+    (await req(`/channels/${savedChannel.id}/messages`, { token: ownerToken })).json?.messages?.find(
+      (message) => message.id === keepFirst.id,
+    )?.saved === false,
+  );
+  check("another member's saved list does not show them", (await savedOf(ownerToken)).json?.saved?.length === 0);
+
+  const savedTop = (await savedOf(bobToken, '?limit=1')).json?.saved ?? [];
+  const savedNext = savedTop[0]
+    ? (
+        await savedOf(
+          bobToken,
+          `?limit=1&before=${encodeURIComponent(savedTop[0].savedAt)}&beforeId=${savedTop[0].message.id}`,
+        )
+      ).json?.saved ?? []
+    : [];
+  check(
+    'the saved list pages backwards',
+    savedTop.length === 1 &&
+      savedTop[0].message.id === keepSecond.id &&
+      savedNext.length === 1 &&
+      savedNext[0].message.id === keepFirst.id,
+    JSON.stringify([savedTop.map((entry) => entry.message.content), savedNext.map((entry) => entry.message.content)]),
+  );
+
+  // Reminders ride on the save.
+  const remindAt = new Date(Date.now() + 3_600_000).toISOString();
+  const reminded = await saveAs(bobToken, keepFirst.id, { remindAt });
+  check(
+    'a save can carry a reminder, without moving in the list',
+    reminded.status === 200 && reminded.json?.remindAt === remindAt && reminded.json?.savedAt === savedOne.json?.savedAt,
+    JSON.stringify(reminded.json),
+  );
+  check('the reminders list holds it', savedIds(await savedOf(bobToken, '?reminders=true')) === keepFirst.id);
+  check(
+    'saving again without a reminder keeps the one it had',
+    (await saveAs(bobToken, keepFirst.id)).json?.remindAt === remindAt,
+  );
+  check(
+    'a reminder in the past is refused (400)',
+    (await saveAs(bobToken, keepFirst.id, { remindAt: '2000-01-01T00:00:00.000Z' })).status === 400,
+  );
+  check(
+    'a reminder that is not a time is refused (400)',
+    (await saveAs(bobToken, keepFirst.id, { remindAt: 'tomorrow' })).status === 400,
+  );
+  const unreminded = await saveAs(bobToken, keepFirst.id, { remindAt: null });
+  check(
+    'a reminder can be cleared, leaving the message saved',
+    unreminded.json?.remindAt === null && (await savedOf(bobToken, '?reminders=true')).json?.saved?.length === 0,
+  );
+
+  check(
+    'a message that does not exist cannot be saved (404)',
+    (await saveAs(bobToken, 'no-such-message')).status === 404,
+  );
+
+  bobElsewhere.events.length = 0;
+  const unsaved = await req(`/users/@me/saved/${keepSecond.id}`, { method: 'DELETE', token: bobToken });
+  await sleep(250);
+  check('a save can be removed', unsaved.status === 204, `status ${unsaved.status}`);
+  check(
+    'removing it reaches the other sessions too',
+    bobElsewhere.events.some(
+      (frame) => frame.t === 'SAVED_MESSAGE_UPDATE' && frame.d?.messageId === keepSecond.id && frame.d?.saved === null,
+    ),
+  );
+  check('a removed save leaves the list', savedIds(await savedOf(bobToken)) === keepFirst.id);
+  check(
+    'removing one that is not saved is harmless',
+    (await req(`/users/@me/saved/${keepSecond.id}`, { method: 'DELETE', token: bobToken })).status === 204,
+  );
+
+  // Like a pin, a deleted message drops out: there is nothing left to jump to.
+  await req(`/messages/${keepFirst.id}`, { method: 'DELETE', token: ownerToken });
+  check('a deleted message drops out of the saved list', (await savedOf(bobToken)).json?.saved?.length === 0);
+  check('a deleted message cannot be saved (404)', (await saveAs(bobToken, keepFirst.id)).status === 404);
+
+  // A save in a channel the member loses is hidden, not deleted, and returns with access.
+  const savedLockRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Bookmark keepers' } });
+  const savedLocked = (
+    await req('/channels', {
+      method: 'POST',
+      token: ownerToken,
+      body: { name: 'locked-bookmarks', requiredRoleId: savedLockRole.json.id },
+    })
+  ).json;
+  const lockedKeep = await postInSaved('keep this quiet', savedLocked.id);
+  check(
+    'a message in a locked channel cannot be saved without the role (404)',
+    (await saveAs(bobToken, lockedKeep.id)).status === 404,
+  );
+  await req(`/members/${bob.json.user.id}/roles/${savedLockRole.json.id}`, { method: 'PUT', token: ownerToken });
+  check('with the role it can be saved', (await saveAs(bobToken, lockedKeep.id)).status === 200);
+  check('and it is listed', savedIds(await savedOf(bobToken)) === lockedKeep.id);
+  await req(`/members/${bob.json.user.id}/roles/${savedLockRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  check('losing the role hides the save', (await savedOf(bobToken)).json?.saved?.length === 0);
+  await req(`/members/${bob.json.user.id}/roles/${savedLockRole.json.id}`, { method: 'PUT', token: ownerToken });
+  check('regaining it brings the save back', savedIds(await savedOf(bobToken)) === lockedKeep.id);
+  await req(`/members/${bob.json.user.id}/roles/${savedLockRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/users/@me/saved/${lockedKeep.id}`, { method: 'DELETE', token: bobToken });
+  await req(`/roles/${savedLockRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  bobElsewhere.ws.close();
+  aliceWatching.ws.close();
+
+  // Merging accounts carries the saves across, keeping one where both saved the
+  // same message. Run on a throwaway database, as the Discord link merge is.
+  const mergeDir = mkdtempSync(join(tmpdir(), 'harmony-saved-merge-'));
+  const mergeStore = new Database({
+    dataDir: mergeDir,
+    dbFile: join(mergeDir, 'harmony.db'),
+    uploadDir: join(mergeDir, 'uploads'),
+  });
+  insertUser(mergeStore.sqlite, { id: 'keeper', username: 'keeper', passwordHash: 'x', isOwner: false });
+  insertUser(mergeStore.sqlite, { id: 'leaver', username: 'leaver', passwordHash: 'x', isOwner: false });
+  mergeStore.sqlite
+    .prepare("INSERT INTO channels (id, name, type, position, created_at) VALUES ('merge-chan', 'general', 'text', 0, ?)")
+    .run(new Date().toISOString());
+  for (const id of ['merge-a', 'merge-b']) {
+    insertMessage(mergeStore.sqlite, {
+      id,
+      channelId: 'merge-chan',
+      authorId: 'keeper',
+      content: id,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  const saveRow = mergeStore.sqlite.prepare(
+    'INSERT INTO saved_messages (user_id, message_id, saved_at, remind_at) VALUES (?, ?, ?, NULL)',
+  );
+  saveRow.run('keeper', 'merge-a', '2026-01-01T00:00:00.000Z');
+  saveRow.run('leaver', 'merge-a', '2026-02-01T00:00:00.000Z');
+  saveRow.run('leaver', 'merge-b', '2026-03-01T00:00:00.000Z');
+  let savedMergeError = null;
+  try {
+    mergeUsers(mergeStore.sqlite, 'leaver', 'keeper');
+  } catch (error) {
+    savedMergeError = error;
+  }
+  const mergedSaves = mergeStore.sqlite
+    .prepare('SELECT user_id, message_id, saved_at FROM saved_messages ORDER BY message_id')
+    .all();
+  check(
+    'merging accounts moves the saves, keeping one per message',
+    savedMergeError === null &&
+      mergedSaves.length === 2 &&
+      mergedSaves.every((row) => row.user_id === 'keeper') &&
+      mergedSaves[0].saved_at === '2026-01-01T00:00:00.000Z',
+    String(savedMergeError ?? JSON.stringify(mergedSaves)),
+  );
+  mergeStore.close();
 
   // --- Admin media gallery ---
   const galleryPng = await sharp({

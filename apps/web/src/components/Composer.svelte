@@ -17,16 +17,21 @@
   import { mediaFilesFrom } from '../lib/files';
   import { members } from '../lib/members.svelte';
   import { meta } from '../lib/meta.svelte';
+  import type { IconName } from '../lib/icons';
   import { session } from '../lib/session.svelte';
+  import { parseTimeExpression, timestampChoices, type ParsedMoment } from '../lib/time-input';
   import { uploads } from '../lib/upload-queue.svelte';
   import EmojiPicker from './EmojiPicker.svelte';
   import GifPicker from './GifPicker.svelte';
   import Icon from './Icon.svelte';
+  import TimestampPicker from './TimestampPicker.svelte';
 
   const acceptAttribute = ALLOWED_ATTACHMENT_TYPES.join(',');
   const maxAttachments = LIMITS.attachmentsPerMessage;
   /** How many matches any autocomplete offers at once. */
   const maxSuggestions = 8;
+  /** What may follow an `@` and still be the start of a member's name. */
+  const mentionQuery = /^[a-zA-Z0-9._-]{0,32}$/;
   /** How stale the member directory may be before a mention refreshes it. */
   const directoryMaxAgeMs = 30_000;
   /**
@@ -56,14 +61,20 @@
   let textInput = $state<HTMLTextAreaElement | null>(null);
   let showPicker = $state(false);
   let showGifs = $state(false);
+  let showTimes = $state(false);
 
   /** The `:emoji` or `@mention` fragment being typed at the caret, if any. */
   let activeTrigger = $state<Trigger | null>(null);
   let highlight = $state(0);
+  let suggestionList = $state<HTMLUListElement | null>(null);
 
+  /**
+   * An `@` starts both a mention and a timestamp, so a mention trigger also
+   * carries the moment its text reads as, when it reads as one.
+   */
   type Trigger =
     | { kind: 'emoji'; start: number; query: string }
-    | { kind: 'mention'; start: number; query: string }
+    | { kind: 'mention'; start: number; query: string; moment: ParsedMoment | null }
     | { kind: 'channel'; start: number; query: string };
 
   /** One row in the autocomplete popup, whichever kind it is. */
@@ -73,6 +84,7 @@
     detail: string | null;
     imageUrl: string | null;
     initial: string | null;
+    icon: IconName | null;
     /** The text inserted when the row is accepted. */
     insert: string;
   }
@@ -183,15 +195,16 @@
   }
 
   /**
-   * Inserts whatever the picker chose where the caret was, replacing any
+   * Inserts whatever a picker chose where the caret was, replacing any
    * selection, then puts the caret back after it so typing carries on. A server
-   * emoji arrives as its `:name:` shortcode and a unicode one as the character
-   * itself, so either way the text is what goes in the field.
+   * emoji arrives as its `:name:` shortcode, a unicode one as the character
+   * itself and a timestamp as its `<t:…>` tag, so either way the text is what
+   * goes in the field.
    *
    * A textarea keeps its selection while the picker has focus, which is what
    * makes the caret still readable here.
    */
-  async function insertEmoji(emoji: string): Promise<void> {
+  async function insertAtCaret(text: string): Promise<void> {
     const input = textInput;
     const start = input?.selectionStart ?? value.length;
     const end = input?.selectionEnd ?? value.length;
@@ -199,13 +212,20 @@
     const after = value.slice(end);
     const lead = before.length > 0 && !/\s$/.test(before) ? ' ' : '';
     const trail = after.length > 0 && !/^\s/.test(after) ? ' ' : '';
-    drafts.setText(draftKey, `${before}${lead}${emoji}${trail}${after}`);
+    drafts.setText(draftKey, `${before}${lead}${text}${trail}${after}`);
     showPicker = false;
+    showTimes = false;
 
     await tick();
-    const position = start + lead.length + emoji.length + trail.length;
+    const position = start + lead.length + text.length + trail.length;
     input?.focus();
     input?.setSelectionRange(position, position);
+  }
+
+  /** Escape hands the caret back to the message; a click elsewhere keeps its own focus. */
+  function closeTimes(refocus: boolean): void {
+    showTimes = false;
+    if (refocus) textInput?.focus();
   }
 
   const replyName = $derived(
@@ -287,8 +307,9 @@
   }
 
   /**
-   * Finds the `:name` or `@name` fragment ending at the caret, delimited by the
-   * start of the line or whitespace, the way Discord triggers autocomplete.
+   * Finds the `:name`, `@name`, `@time` or `#channel` fragment ending at the
+   * caret, delimited by the start of the line or whitespace, the way Discord
+   * triggers autocomplete.
    */
   function detectTrigger(text: string, caret: number): Trigger | null {
     const before = text.slice(0, caret);
@@ -299,10 +320,16 @@
       return { kind: 'emoji', start: caret - query.length - 1, query };
     }
 
-    const mention = /(?:^|\s)@([a-zA-Z0-9._-]{0,32})$/.exec(before);
+    // A time may hold spaces ("tomorrow 18:00") where a name cannot, so the
+    // fragment runs to the caret and is then asked whether it is either. When it
+    // is neither, it is ordinary text that happens to follow an `@`.
+    const mention = /(?:^|\s)@([^@\n]{0,40})$/.exec(before);
     if (mention) {
       const query = mention[1] ?? '';
-      return { kind: 'mention', start: caret - query.length - 1, query };
+      const moment = parseTimeExpression(query, { now: Date.now() });
+      if (moment || mentionQuery.test(query)) {
+        return { kind: 'mention', start: caret - query.length - 1, query, moment };
+      }
     }
 
     // A channel name may contain a space, but the query stops at one: typing
@@ -378,6 +405,7 @@
         detail: null,
         imageUrl: `/api/v1/emojis/${emoji.id}`,
         initial: null,
+        icon: null,
         insert: `:${emoji.name}: `,
       }));
     }
@@ -397,23 +425,49 @@
         detail: null,
         imageUrl: null,
         initial: null,
+        icon: null,
         insert: `#${channel.name} `,
       }));
     }
 
-    return mentionableUsers
-      .map((user) => ({ user, rank: rankMember(user, needle) }))
-      .filter((entry) => entry.rank < 2)
-      .sort((a, b) => a.rank - b.rank || a.user.username.localeCompare(b.user.username))
-      .slice(0, maxSuggestions)
-      .map(({ user }) => ({
-        key: `mention:${user.id}`,
-        label: user.displayName ?? user.username,
-        detail: `@${user.username}`,
-        imageUrl: avatarUrl(user),
-        initial: initial(user),
-        insert: `@${user.username} `,
-      }));
+    const people: Suggestion[] = mentionQuery.test(trigger.query)
+      ? mentionableUsers
+          .map((user) => ({ user, rank: rankMember(user, needle) }))
+          .filter((entry) => entry.rank < 2)
+          .sort((a, b) => a.rank - b.rank || a.user.username.localeCompare(b.user.username))
+          .slice(0, maxSuggestions)
+          .map(({ user }) => ({
+            key: `mention:${user.id}`,
+            label: user.displayName ?? user.username,
+            detail: `@${user.username}`,
+            imageUrl: avatarUrl(user),
+            initial: initial(user),
+            icon: null,
+            insert: `@${user.username} `,
+          }))
+      : [];
+
+    // Members come first: whoever types `@fri` is more likely after Frida than
+    // Friday, and a time is never more than a few arrow presses below. When
+    // nobody matches, the times are all there is and lead on their own.
+    const times: Suggestion[] = trigger.moment
+      ? timestampChoices(trigger.moment, { now: Date.now() }).map((choice) => ({
+          key: `time:${choice.style}`,
+          label: choice.preview,
+          detail: choice.name,
+          imageUrl: null,
+          initial: null,
+          icon: 'clock',
+          insert: `${choice.token} `,
+        }))
+      : [];
+    return [...people, ...times];
+  });
+
+  /** Arrowing through a list longer than its box keeps the highlighted row in view. */
+  $effect(() => {
+    const row = suggestionList?.querySelectorAll('[role="option"]')[highlight];
+    row?.scrollIntoView({ block: 'nearest' });
   });
 
   async function acceptSuggestion(suggestion: Suggestion): Promise<void> {
@@ -467,6 +521,11 @@
 
     // Escape only ever backs out of something; the draft itself is never cleared.
     if (event.key === 'Escape') {
+      if (showTimes) {
+        event.preventDefault();
+        showTimes = false;
+        return;
+      }
       if (activeTrigger) {
         event.preventDefault();
         activeTrigger = null;
@@ -617,11 +676,15 @@
   {/if}
 
   {#if showPicker}
-    <EmojiPicker onpick={(emoji) => insertEmoji(emoji)} />
+    <EmojiPicker onpick={(emoji) => insertAtCaret(emoji)} />
   {/if}
 
   {#if showGifs}
     <GifPicker onpick={addGif} />
+  {/if}
+
+  {#if showTimes}
+    <TimestampPicker onpick={(token) => insertAtCaret(token)} onclose={closeTimes} />
   {/if}
 
   {#if pending.length > 0}
@@ -649,7 +712,7 @@
   {/if}
 
   {#if suggestions.length > 0}
-    <ul class="autocomplete" role="listbox" aria-label="Suggestions">
+    <ul class="autocomplete" role="listbox" aria-label="Suggestions" bind:this={suggestionList}>
       {#each suggestions as suggestion, index (suggestion.key)}
         <li>
           <button
@@ -666,6 +729,8 @@
               <img class="autocomplete-image" src={suggestion.imageUrl} alt="" />
             {:else if suggestion.initial}
               <span class="autocomplete-initial">{suggestion.initial}</span>
+            {:else if suggestion.icon}
+              <span class="autocomplete-icon"><Icon name={suggestion.icon} size={18} /></span>
             {/if}
             <span class="autocomplete-name">{suggestion.label}</span>
             {#if suggestion.detail}<span class="autocomplete-detail">{suggestion.detail}</span>{/if}
@@ -684,6 +749,7 @@
       onclick={() => {
         showPicker = !showPicker;
         showGifs = false;
+        showTimes = false;
       }}><Icon name="smile" size={20} /></button
     >
     <button
@@ -694,7 +760,22 @@
       onclick={() => {
         showGifs = !showGifs;
         showPicker = false;
+        showTimes = false;
       }}>GIF</button>
+    <button
+      type="button"
+      class="attach timestamp-trigger"
+      title="Add timestamp"
+      aria-label="Add timestamp"
+      aria-expanded={showTimes}
+      aria-haspopup="dialog"
+      disabled={timeoutUntil !== null}
+      onclick={() => {
+        showTimes = !showTimes;
+        showPicker = false;
+        showGifs = false;
+      }}><Icon name="clock" size={20} /></button
+    >
     <button
       type="button"
       class="attach"

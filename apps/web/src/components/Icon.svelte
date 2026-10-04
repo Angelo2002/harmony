@@ -56,6 +56,9 @@
     <path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" />
     <path d="M9.5 9.75h.01" />
     <path d="M14.5 9.75h.01" />
+  {:else if name === 'clock'}
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
   {:else if name === 'paperclip'}
     <path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7-7" />
   {:else if name === 'heart-filled'}

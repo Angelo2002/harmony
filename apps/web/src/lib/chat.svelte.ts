@@ -5,6 +5,8 @@ import type {
   ChannelNotificationSettings,
   MeResponse,
   Message,
+  Poll,
+  PollUpdatePayload,
   PruneSummary,
   Reaction,
   ReactionsClearPayload,
@@ -13,6 +15,7 @@ import type {
   TypingStartPayload,
   User,
 } from '@harmony/shared';
+import { applyPollUpdate } from '@harmony/shared';
 import { ApiError, api } from './api';
 import { emojis } from './emojis.svelte';
 import { gifs } from './gifs.svelte';
@@ -200,6 +203,11 @@ class ChatStore {
   /** Whether a channel stands out as unread: something new in it, and not muted. */
   unreadShown(channel: Pick<Channel, 'id' | 'categoryId'>): boolean {
     return this.unread.has(channel.id) && !channelSettings.resolve(channel).muted;
+  }
+
+  /** Replaces the poll on a loaded message, with the one the server just answered with. */
+  applyPoll(messageId: string, poll: Poll): void {
+    this.messages = this.messages.map((message) => (message.id === messageId ? { ...message, poll } : message));
   }
 
   /**
@@ -988,10 +996,26 @@ class ChatStore {
           // The same goes for `saved`, which a broadcast never knows.
           this.messages = this.messages.map((existing) =>
             existing.id === message.id
-              ? { ...message, reactions: existing.reactions, saved: existing.saved }
+              ? {
+                  ...message,
+                  reactions: existing.reactions,
+                  saved: existing.saved,
+                  // The same for the member's own poll choice, which a broadcast never knows.
+                  poll: message.poll && existing.poll ? { ...message.poll, myVotes: existing.poll.myVotes } : message.poll,
+                }
               : existing,
           );
         }
+        break;
+      }
+      case 'POLL_UPDATE': {
+        const payload = frame.d as PollUpdatePayload;
+        if (payload.channelId !== this.activeChannelId) break;
+        this.messages = this.messages.map((message) =>
+          message.id === payload.messageId && message.poll
+            ? { ...message, poll: applyPollUpdate(message.poll, payload, session.user?.id ?? null) }
+            : message,
+        );
         break;
       }
       case 'MESSAGE_REACTION_ADD':

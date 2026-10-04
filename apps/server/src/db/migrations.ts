@@ -527,4 +527,40 @@ export const migrations: Migration[] = [
       db.exec(`CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at) WHERE pinned_at IS NOT NULL`);
     },
   },
+  {
+    version: 24,
+    name: 'channel_settings',
+    up(db) {
+      /*
+       * Each member's mute and notification choices for a channel or a category.
+       * A row names exactly one of the two, each through its own foreign key, so
+       * deleting the channel or category takes the row with it rather than
+       * leaving a setting for something that is gone. Only rows that differ from
+       * the defaults are kept: undoing everything deletes the row.
+       *
+       * `muted` and `mute_ends_at` together describe a mute: an end in the past
+       * simply means it has lifted, which is read off the clock rather than
+       * swept, so nothing has to run for a mute to end on time. A null end with
+       * `muted` set lasts until the member turns it off.
+       *
+       * Like the read marker this is one member's business and nobody else's.
+       */
+      db.exec(`
+        CREATE TABLE channel_settings (
+          user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          channel_id   TEXT REFERENCES channels(id) ON DELETE CASCADE,
+          category_id  TEXT REFERENCES categories(id) ON DELETE CASCADE,
+          muted        INTEGER NOT NULL DEFAULT 0,
+          mute_ends_at TEXT,
+          level        TEXT NOT NULL DEFAULT 'default',
+          updated_at   TEXT NOT NULL,
+          CHECK ((channel_id IS NULL) <> (category_id IS NULL))
+        );
+        CREATE UNIQUE INDEX idx_channel_settings_channel
+          ON channel_settings(user_id, channel_id) WHERE channel_id IS NOT NULL;
+        CREATE UNIQUE INDEX idx_channel_settings_category
+          ON channel_settings(user_id, category_id) WHERE category_id IS NOT NULL;
+      `);
+    },
+  },
 ];

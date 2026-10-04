@@ -34,6 +34,7 @@ code wins — please open an issue.
   - [Custom emoji](#custom-emoji)
   - [Stickers](#stickers)
   - [Users and avatars](#users-and-avatars)
+  - [Channel notification settings](#channel-notification-settings)
   - [Roles](#roles)
   - [Members](#members)
   - [Audit log](#audit-log)
@@ -595,6 +596,8 @@ has no password, since Discord is its only way in.
   "channels": [ /* Channel */ ],
   "unreadChannelIds": [ "..." ],
   "mentionChannelIds": [ "..." ],
+  "mentionCounts": { "<channelId>": 3 },
+  "readMarkers": { "<channelId>": "2026-01-01T12:00:00.000Z" },
   "defaultChannelId": "..."
 }
 ```
@@ -613,6 +616,18 @@ member can tell what you have seen.
 the caller, which is what draws the red mark beside a channel. A channel drops off it exactly when it
 is read, so it moves together with `unreadChannelIds`. See
 [Mentions and replies](#mentions-and-replies).
+
+`mentionCounts` says how many unread mentions and replies each of those channels holds, for the red
+number beside it; its keys are exactly `mentionChannelIds`. Deleted messages count for neither list,
+and neither do the caller's own messages: a channel whose only new message was deleted is read
+again.
+
+`readMarkers` gives, for each listed channel the caller has ever read, the timestamp of the newest
+message they had seen. A client compares it with message timestamps to draw a "new" line above the
+first message after it when the channel is opened. Channels never read are absent.
+
+Mutes and notification levels do not change any of these lists, which describe what is unread, not
+what is worth a notification; see [Channel notification settings](#channel-notification-settings).
 
 #### `POST /api/v1/channels/:id/read` — `ViewChannels`
 
@@ -1319,6 +1334,54 @@ normal `ViewChannels` check applies. This exists so Discord's servers can fetch 
 mirrored messages; the hash is already public in every avatar URL. Returns `404 avatar_not_found`
 when the user has no picture.
 
+### Channel notification settings
+
+Each member's own mute and notification choices for channels and categories, as on Discord. They are
+private: there is no way to read another member's, and changes are announced only to the member's own
+sessions. A channel inherits from its category, which a client works out itself (the server stores
+each target's settings separately):
+
+- A muted category mutes every channel in it; a channel is muted while either mute is in force.
+- A channel's `level` of `default` takes its category's level; a category's (or an uncategorized
+  channel's) `default` means the server default, `all`.
+- On the web client a muted channel is dimmed, is not shown as unread and plays no sounds, but still
+  shows its mention count unless its level is `nothing`. `mentions` plays a sound only for mentions,
+  and `nothing` plays none and hides the mention count. Muted channels do not mark the tab title;
+  their mentions still do unless the level is `nothing`.
+
+```ts
+type ChannelNotificationSettings = {
+  targetId: string;                 // a channel or category id
+  targetType: 'channel' | 'category';
+  muted: boolean;                   // in force right now; an expired mute reads false
+  muteEndsAt: string | null;        // when it lifts, or null for "until I turn it back on"
+  level: 'default' | 'all' | 'mentions' | 'nothing';
+};
+```
+
+#### `GET /api/v1/users/@me/channel-settings` — `ViewChannels`
+
+`{ "settings": [ /* ChannelNotificationSettings */ ] }` for every channel and category the caller has
+changed anything on and can currently see. Anything absent is on the defaults (not muted, level
+`default`). A mute lifts on its own at `muteEndsAt` with nothing to call; clients should schedule
+their own timer for it.
+
+#### `PUT /api/v1/users/@me/channel-settings/:targetId` — `ViewChannels`
+
+```json
+{ "muted": true, "muteSeconds": 900, "level": "mentions" }
+```
+
+Changes the caller's settings for one channel or category, whichever the id names. Fields left out
+keep their value, but at least one of `muted` and `level` is required. `muteSeconds` (1 to one year)
+goes only with `muted: true`; leaving it out or passing `null` mutes until turned back off. The end is
+computed from the server's clock. The client offers Discord's choices: 15 minutes, 1, 3, 8 and 24
+hours, or indefinitely. `muted: false` lifts any mute. Settings that end up back on the defaults are
+deleted. Returns the new `ChannelNotificationSettings` and sends `CHANNEL_SETTINGS_UPDATE` to the
+caller's own sessions only. `400 validation_error` for a bad body; `404 target_not_found` both for an
+id that does not exist and for a locked channel or category the caller cannot see. Deleting a channel
+or category deletes everyone's settings for it.
+
 ### Roles
 
 #### `GET /api/v1/roles` — `ViewChannels`
@@ -1981,6 +2044,7 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | `EMOJI_CREATE` | `Emoji` |
 | `EMOJI_DELETE` | `{ id }` |
 | `RETENTION_APPLIED` | `PruneSummary` |
+| `CHANNEL_SETTINGS_UPDATE` | `ChannelNotificationSettings`, sent only to the member it belongs to |
 
 `MEMBER_UPDATE` fires for a member's own profile and avatar changes as well as administrator edits,
 role changes, timeouts, kicks and bans, so a client should refetch the roster (and its own profile,

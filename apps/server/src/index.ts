@@ -58,6 +58,7 @@ import { registerStickerRoutes } from './routes/stickers.ts';
 import { registerMediaRoutes } from './routes/media.ts';
 import { registerGifRoutes } from './routes/gifs.ts';
 import { registerUserRoutes } from './routes/users.ts';
+import { registerChannelSettingsRoutes } from './routes/channel-settings.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
 import { registerBridgeRoutes } from './routes/bridge.ts';
 import { registerAuditRoutes } from './routes/audit.ts';
@@ -231,6 +232,7 @@ registerGifRoutes(app, { service: gifService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
 registerStickerRoutes(app, { service: stickerService });
 registerUserRoutes(app, { db, users: userService, hub });
+registerChannelSettingsRoutes(app, { db, hub });
 registerGateway(app, {
   heartbeatIntervalMs: config.gatewayHeartbeatMs,
   cookieName: config.cookieName,

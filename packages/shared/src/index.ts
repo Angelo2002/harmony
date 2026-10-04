@@ -4,6 +4,7 @@ export * from './types.ts';
 export * from './theme.ts';
 export * from './moderation.ts';
 export * from './slowmode.ts';
+export * from './channel-settings.ts';
 export * from './mentions.ts';
 export * from './embeds.ts';
 export * from './gateway.ts';

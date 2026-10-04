@@ -437,6 +437,14 @@ is treated as a wait and retried for five minutes. Uploads linked from the queue
 "abandoned upload" and age rules in `db/attachments.ts`, and `MessageService` refuses to attach them to
 any other message. `mergeUsers` re-owns the rows; deleting a channel or user cascades them away.
 
+On the client, `lib/scheduled.svelte.ts` only mirrors the queue (it loads the list and follows
+`SCHEDULED_MESSAGE_UPDATE`); nothing is timed in the browser, so a message goes out whether or not a tab
+is open. The pure parts (reading the typed time with the same parser the composer's `@` timestamps use,
+checking it, describing it in the member's own zone) are in `lib/schedule-time.ts` and covered by the
+text smoke test. The composer opens `SchedulePicker` from the chevron by Send, the + menu or
+Ctrl+Shift+Enter, and `ScheduledPanel` (header clock button, with a count badge) lists, edits, sends
+and deletes entries, failed ones included.
+
 ## Notification sounds
 
 Two sounds ship with the client, in `apps/web/public/sounds`: a louder one for a

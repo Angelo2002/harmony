@@ -24,6 +24,7 @@ import {
   type DiscordIncomingReaction,
   type DiscordIncomingReactionsRemoved,
   type DiscordMention,
+  type DiscordPin,
   type DiscordTransport,
   type EditInput,
   type DeleteInput,
@@ -63,6 +64,9 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
   const reactionClearedHandlers: Array<(reaction: DiscordIncomingReaction) => void> = [];
   const reactionsRemovedAllHandlers: Array<(removed: DiscordIncomingReactionsRemoved) => void> = [];
   const presenceHandlers: Array<(presence: DiscordIncomingPresence) => void> = [];
+  const pinsUpdatedHandlers: Array<(channelId: string) => void> = [];
+  const reconnectedHandlers: Array<() => void> = [];
+  let readyOnce = false;
   let status: BridgeStatus = { ready: false, botTag: null, guildName: null, error: null };
 
   function reportPresence(presence: Presence): void {
@@ -133,6 +137,8 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       // Webhook messages are ours; never echo them back.
       fromBot: isFromBot(message),
       forwarded: forward !== null,
+      // The "pinned a message" notice and the like: Discord's own, not a person's.
+      system: message.system,
     };
   }
 
@@ -245,6 +251,22 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
   client.on(Events.MessageReactionRemoveAll, (message) => {
     const removed: DiscordIncomingReactionsRemoved = { messageId: message.id, channelId: message.channelId };
     for (const handler of reactionsRemovedAllHandlers) handler(removed);
+  });
+
+  // Discord reports only that a channel's pins changed, not which message.
+  client.on(Events.ChannelPinsUpdate, (channel) => {
+    for (const handler of pinsUpdatedHandlers) handler(channel.id);
+  });
+
+  // A shard becoming ready again means a fresh session, so events in the gap are
+  // gone for good; a resume replays them and needs nothing. The first ready is
+  // the initial connection, which the bridge already handles by itself.
+  client.on(Events.ShardReady, () => {
+    if (!readyOnce) {
+      readyOnce = true;
+      return;
+    }
+    for (const handler of reconnectedHandlers) handler();
   });
 
   // Somebody came online, went idle or signed off.
@@ -368,6 +390,14 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       presenceHandlers.push(handler);
     },
 
+    onPinsUpdated(handler) {
+      pinsUpdatedHandlers.push(handler);
+    },
+
+    onReconnected(handler) {
+      reconnectedHandlers.push(handler);
+    },
+
     async guildEmojis(): Promise<DiscordEmoji[]> {
       const guild = firstGuild();
       if (!guild) return [];
@@ -471,6 +501,31 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       await client.rest.delete(
         `/channels/${input.channelId}/messages/${input.discordMessageId}/reactions/${input.emoji}/@me`,
       );
+    },
+
+    async fetchPinned(channelId): Promise<DiscordPin[]> {
+      // Discord caps a channel at 50 pins and a page holds 50, so one request is all.
+      const response = (await client.rest.get(`/channels/${channelId}/messages/pins`, {
+        query: new URLSearchParams({ limit: '50' }),
+      })) as { items?: Array<{ pinned_at?: unknown; message?: { id?: unknown } }> };
+      const pins: DiscordPin[] = [];
+      for (const item of response.items ?? []) {
+        if (typeof item.message?.id !== 'string') continue;
+        pins.push({
+          messageId: item.message.id,
+          pinnedAt: typeof item.pinned_at === 'string' ? item.pinned_at : null,
+        });
+      }
+      return pins;
+    },
+
+    async pinMessage(input) {
+      // Needs the bot's "Pin Messages" permission in the channel.
+      await client.rest.put(`/channels/${input.channelId}/messages/pins/${input.discordMessageId}`);
+    },
+
+    async unpinMessage(input) {
+      await client.rest.delete(`/channels/${input.channelId}/messages/pins/${input.discordMessageId}`);
     },
 
     async download(url: string) {

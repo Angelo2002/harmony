@@ -13,7 +13,7 @@ import { Database } from '../src/db/index.ts';
 import { insertChannel, listChannels } from '../src/db/channels.ts';
 import { listCategories } from '../src/db/categories.ts';
 import { findUserById, findUserByDiscordId, insertUser } from '../src/db/users.ts';
-import { findBridgeMessageByHarmonyId, hasSeenBridgeMessage } from '../src/db/bridge.ts';
+import { findBridgeMessageByDiscordId, findBridgeMessageByHarmonyId, hasSeenBridgeMessage } from '../src/db/bridge.ts';
 import { listLinkedAttachments } from '../src/db/attachments.ts';
 import { createEmbedService } from '../src/embeds/service.ts';
 import { deleteEmoji, findEmojiByName, insertEmoji, toEmoji } from '../src/db/emojis.ts';
@@ -25,6 +25,7 @@ import { GatewayHub } from '../src/realtime/hub.ts';
 import { createSettingsService } from '../src/settings/service.ts';
 import { createMessageService } from '../src/messages/service.ts';
 import { createAuditService } from '../src/audit/service.ts';
+import { createPinService } from '../src/pins/service.ts';
 import { createUserService } from '../src/users/service.ts';
 import { createBridgeService } from '../src/bridge/service.ts';
 import { createChannelImportService } from '../src/channels/import.ts';
@@ -58,6 +59,13 @@ function createFakeTransport() {
     reactionCleared: [],
     reactionsRemovedAll: [],
     presence: [],
+    // What the fake Discord has pinned per channel, newest first, and what was asked of it.
+    pinned: new Map(),
+    pinCalls: [],
+    pinReads: 0,
+    failPin: false,
+    pinsUpdated: [],
+    reconnected: [],
     guildEmojis: [{ id: '700', name: 'YES', animated: false }],
     // A mutable channel list, so a test can add one to import selectively.
     textChannels: [
@@ -115,6 +123,31 @@ function createFakeTransport() {
     },
     onPresence(handler) {
       state.presence.push(handler);
+    },
+    onPinsUpdated(handler) {
+      state.pinsUpdated.push(handler);
+    },
+    onReconnected(handler) {
+      state.reconnected.push(handler);
+    },
+    async fetchPinned(channelId) {
+      state.pinReads++;
+      return [...(state.pinned.get(channelId) ?? [])];
+    },
+    async pinMessage(input) {
+      if (state.failPin) throw new Error('Missing Permissions');
+      const list = state.pinned.get(input.channelId) ?? [];
+      if (list.length >= 50) throw new Error('Maximum number of pins reached (30003)');
+      state.pinCalls.push({ kind: 'pin', ...input });
+      state.pinned.set(input.channelId, [{ messageId: input.discordMessageId, pinnedAt: new Date().toISOString() }, ...list]);
+    },
+    async unpinMessage(input) {
+      if (state.failPin) throw new Error('Missing Permissions');
+      state.pinCalls.push({ kind: 'unpin', ...input });
+      state.pinned.set(
+        input.channelId,
+        (state.pinned.get(input.channelId) ?? []).filter((pin) => pin.messageId !== input.discordMessageId),
+      );
     },
     async guildEmojis() {
       return state.guildEmojis;
@@ -176,6 +209,12 @@ function createFakeTransport() {
     emitPresence(presence) {
       for (const handler of state.presence) handler(presence);
     },
+    emitPinsUpdated(channelId) {
+      for (const handler of state.pinsUpdated) handler(channelId);
+    },
+    emitReconnected() {
+      for (const handler of state.reconnected) handler();
+    },
   };
 }
 
@@ -203,6 +242,8 @@ const messages = createMessageService(db.sqlite, hub, audit);
 const attachments = createAttachmentService(db.sqlite, config, settings);
 const users = createUserService(db.sqlite, config);
 const transport = createFakeTransport();
+const pins = createPinService(db.sqlite, hub, audit, messages);
+const serverWarnings = [];
 
 const previews = [];
 const bridge = createBridgeService({
@@ -212,7 +253,9 @@ const bridge = createBridgeService({
   messages,
   users,
   hub,
+  pins,
   logger,
+  serverLog: { info() {}, warn: (event) => serverWarnings.push(event) },
   transportFactory: () => transport,
   resolvePreview: (messageId, content) => previews.push({ messageId, content }),
 });
@@ -1531,6 +1574,197 @@ try {
   const bridgedMention = messages.createBridged(channelId, samId, 'from discord', [], null);
   messages.editBridged(bridgedMention.id, 'from discord, for @bob');
   check('a bridged edit that names someone reaches their inbox', inbox().some((entry) => entry.message.id === bridgedMention.id));
+
+  // 13d. Pins, both ways. The fake models Discord's own pin list, and a pin
+  // change on either side is followed by the update event Discord would send.
+  const pinCallCount = () => transport.state.pinCalls.length;
+  const settle = () => sleep(80);
+  const pinRows = () =>
+    db.sqlite
+      .prepare("SELECT kind, actor_id, detail FROM audit_log WHERE kind IN ('message_pin', 'message_unpin') ORDER BY rowid")
+      .all();
+  const pinned = (id) => Boolean(messages.byId(id)?.pinnedAt);
+  const discordIdOf = (harmonyId) => findBridgeMessageByHarmonyId(db.sqlite, harmonyId)?.discord_message_id;
+  const harmonyIdOf = (discordId) => findBridgeMessageByDiscordId(db.sqlite, discordId)?.harmony_message_id;
+
+  const pinMine = messages.create(auth, channelId, 'pin this one', [], null);
+  await sleep(50);
+  const pinMineDiscord = discordIdOf(pinMine.id);
+
+  // Harmony -> Discord, before the channel's pins were ever read.
+  const callsBefore = pinCallCount();
+  pins.pin(modAuth, channelId, pinMine.id);
+  await settle();
+  check(
+    'pinning a mirrored message in Harmony pins it on Discord',
+    transport.state.pinCalls.slice(callsBefore).some(
+      (call) => call.kind === 'pin' && call.channelId === '111' && call.discordMessageId === pinMineDiscord,
+    ),
+  );
+  check('and Harmony keeps its pin', pinned(pinMine.id));
+  pins.unpin(modAuth, channelId, pinMine.id);
+  await settle();
+  check(
+    'unpinning it in Harmony unpins it on Discord',
+    transport.state.pinCalls.at(-1)?.kind === 'unpin' &&
+      transport.state.pinCalls.at(-1)?.discordMessageId === pinMineDiscord &&
+      !(transport.state.pinned.get('111') ?? []).some((pin) => pin.messageId === pinMineDiscord),
+  );
+
+  // The first update for a channel reads its pins; nothing is pinned yet.
+  transport.emitPinsUpdated('111');
+  await settle();
+  check('the first pin read changes nothing in Harmony', !pinned(pinMine.id));
+
+  // Discord -> Harmony.
+  transport.emit(fromDiscord({ id: 'pn1', content: 'pin me from discord' }));
+  transport.emit(fromDiscord({ id: 'pn2', content: 'and me too' }));
+  await settle();
+  const pn1 = harmonyIdOf('pn1');
+  const pn2 = harmonyIdOf('pn2');
+  const callsAfterIngest = pinCallCount();
+  const auditBefore = pinRows().length;
+  transport.state.pinned.set('111', [{ messageId: 'pn1', pinnedAt: '2026-01-02T03:04:05.000Z' }]);
+  transport.emitPinsUpdated('111');
+  await settle();
+  check('a message pinned on Discord is pinned in Harmony', pinned(pn1));
+  check('it keeps the time Discord pinned it', messages.byId(pn1)?.pinnedAt === '2026-01-02T03:04:05.000Z');
+  check('and a message that was not pinned stays unpinned', !pinned(pn2));
+  check('a pin that began on Discord is never sent back', pinCallCount() === callsAfterIngest);
+  const newRows = pinRows().slice(auditBefore);
+  check(
+    'it is audited with no actor, as Discord',
+    newRows.length === 1 && newRows[0].kind === 'message_pin' && newRows[0].actor_id === null &&
+      JSON.parse(newRows[0].detail).actorName === 'Discord',
+    JSON.stringify(newRows),
+  );
+
+  // Two pins at once, and a repeated event, are applied exactly once.
+  transport.state.pinned.set('111', [
+    { messageId: 'pn2', pinnedAt: '2026-01-03T00:00:00.000Z' },
+    { messageId: 'pn1', pinnedAt: '2026-01-02T03:04:05.000Z' },
+  ]);
+  transport.emitPinsUpdated('111');
+  transport.emitPinsUpdated('111');
+  transport.emitPinsUpdated('111');
+  await settle();
+  check('a second pin on Discord reaches Harmony', pinned(pn2));
+  check('a burst of updates is not applied repeatedly', pinRows().length === auditBefore + 2, String(pinRows().length));
+  check('and still nothing is sent back', pinCallCount() === callsAfterIngest);
+
+  // Unpinned on Discord.
+  transport.state.pinned.set('111', [{ messageId: 'pn2', pinnedAt: '2026-01-03T00:00:00.000Z' }]);
+  transport.emitPinsUpdated('111');
+  await settle();
+  check('a message unpinned on Discord is unpinned in Harmony', !pinned(pn1) && pinned(pn2));
+  check('which is audited too', pinRows().at(-1)?.kind === 'message_unpin' && pinRows().at(-1)?.actor_id === null);
+  check('and not echoed', pinCallCount() === callsAfterIngest);
+
+  // Echo: our own pin comes back as an update and must change nothing.
+  pins.pin(modAuth, channelId, pinMine.id);
+  await settle();
+  const readsBefore = transport.state.pinReads;
+  const rowsBeforeEcho = pinRows().length;
+  const callsBeforeEcho = pinCallCount();
+  transport.emitPinsUpdated('111');
+  await settle();
+  check('the update our own pin causes is read', transport.state.pinReads > readsBefore);
+  check('but changes nothing in Harmony', pinned(pinMine.id) && pinned(pn2) && pinRows().length === rowsBeforeEcho);
+  check('and sends nothing more to Discord', pinCallCount() === callsBeforeEcho);
+  pins.unpin(modAuth, channelId, pinMine.id);
+  await settle();
+  transport.emitPinsUpdated('111');
+  await settle();
+  check('the same holds for our own unpin', !pinned(pinMine.id) && pinned(pn2));
+
+  // A pin made without Discord's permission: Harmony keeps it, once-logged.
+  const noRights1 = messages.create(auth, channelId, 'pin without rights', [], null);
+  const noRights2 = messages.create(auth, channelId, 'and another', [], null);
+  await sleep(50);
+  const warningsBefore = serverWarnings.filter((event) => event === 'bridge_pin_failed').length;
+  transport.state.failPin = true;
+  pins.pin(modAuth, channelId, noRights1.id);
+  await settle();
+  pins.pin(modAuth, channelId, noRights2.id);
+  await settle();
+  transport.state.failPin = false;
+  check('a pin Discord refuses stays pinned in Harmony', pinned(noRights1.id) && pinned(noRights2.id));
+  check(
+    'and the failure is reported once, not per pin',
+    serverWarnings.filter((event) => event === 'bridge_pin_failed').length === warningsBefore + 1,
+  );
+  transport.emitPinsUpdated('111');
+  await settle();
+  check('a later update does not undo a pin Discord never had', pinned(noRights1.id) && pinned(noRights2.id));
+  pins.unpin(modAuth, channelId, noRights1.id);
+  pins.unpin(modAuth, channelId, noRights2.id);
+  await settle();
+
+  // A success clears the once-only flag, so a later failure is reported again.
+  const recovers = messages.create(auth, channelId, 'recovers', [], null);
+  await sleep(50);
+  pins.pin(modAuth, channelId, recovers.id);
+  await settle();
+  transport.state.failPin = true;
+  pins.unpin(modAuth, channelId, recovers.id);
+  await settle();
+  transport.state.failPin = false;
+  check(
+    'a failure after a success is reported again',
+    serverWarnings.filter((event) => event === 'bridge_pin_failed').length === warningsBefore + 2,
+  );
+  // The unpin failed, so Discord still holds it; Harmony stays unpinned.
+  transport.emitPinsUpdated('111');
+  await settle();
+  check('Harmony stays unpinned after a failed unpin', !pinned(recovers.id));
+  transport.state.pinned.set('111', (transport.state.pinned.get('111') ?? []).filter((pin) => pin.messageId !== discordIdOf(recovers.id)));
+  transport.emitPinsUpdated('111');
+  await settle();
+
+  // Discord's own "pinned a message" notice is not a message.
+  const beforeNotices = recent().length;
+  transport.emit(fromDiscord({ id: 'sys1', content: '', system: true }));
+  transport.emit(fromDiscord({ id: 'sys2', content: 'Sam pinned a message to this channel.', system: true }));
+  await settle();
+  check('the pinned-a-message notice is not mirrored', recent().length === beforeNotices);
+
+  // Harmony is full: a Discord pin that does not fit is left alone, then taken once there is room.
+  transport.emitPinsUpdated('222');
+  await settle();
+  const capIds = [];
+  for (let i = 1; i <= 51; i++) {
+    transport.emit(fromDiscord({ id: `cap${i}`, channelId: '222', content: `cap message ${i}` }));
+  }
+  await sleep(300);
+  for (let i = 1; i <= 51; i++) capIds.push(harmonyIdOf(`cap${i}`));
+  check('the capped channel received its messages', capIds.every(Boolean));
+  for (let i = 0; i < 50; i++) pins.pinBridged(capIds[i]);
+  check('Harmony holds 50 pins', capIds.slice(0, 50).every(pinned));
+  transport.state.pinned.set('222', [{ messageId: 'cap51', pinnedAt: new Date().toISOString() }]);
+  transport.emitPinsUpdated('222');
+  await settle();
+  check('a pin that does not fit in a full Harmony channel is skipped', !pinned(capIds[50]));
+  check('without disturbing the pins already there', capIds.slice(0, 50).every(pinned));
+  pins.unpinBridged(capIds[0]);
+  transport.emitPinsUpdated('222');
+  await settle();
+  check('it is taken on the next update once there is room', pinned(capIds[50]));
+
+  // Reconnecting reads every bridged channel again and adds what either side is missing.
+  const harmonyOnly = messages.create(auth, channelId, 'pinned only in Harmony', [], null);
+  await sleep(50);
+  pins.pinBridged(harmonyOnly.id);
+  transport.emit(fromDiscord({ id: 'bf1', content: 'pinned on Discord while away' }));
+  await settle();
+  transport.state.pinned.set('111', [{ messageId: 'bf1', pinnedAt: '2026-02-01T00:00:00.000Z' }]);
+  transport.emitReconnected();
+  await sleep(250);
+  check('a reconnect picks up a pin made on Discord meanwhile', pinned(harmonyIdOf('bf1')));
+  check(
+    'and sends over a Harmony pin Discord is missing',
+    (transport.state.pinned.get('111') ?? []).some((pin) => pin.messageId === discordIdOf(harmonyOnly.id)),
+  );
+  check('without removing anything from Harmony', pinned(harmonyOnly.id) && pinned(pn2));
 
   // 14. Disabling stops the transport, and takes the presence with it.
   settings.updateBridge({ enabled: false });

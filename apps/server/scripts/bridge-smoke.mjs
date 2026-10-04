@@ -758,6 +758,7 @@ try {
   // message has carried them for a while. The instance's own emoji are exempt.
   const pruner = createPruner({ sqlite: db.sqlite, config, settings, hub, log: () => {} });
   settings.updateRetention({ externalEmojiRetentionDays: 0 });
+  const emojiDeletesBefore = broadcasts.filter((entry) => entry.event === 'EMOJI_DELETE').length;
   const emojiPrune = pruner.runNow();
   check(
     'learned emoji are pruned once unused',
@@ -765,6 +766,10 @@ try {
     String(emojiPrune.deletedExternalEmojis),
   );
   check('a learned emoji is gone', findEmojiByName(db.sqlite, 'party') === null);
+  check(
+    'pruning a learned emoji is announced to clients',
+    broadcasts.filter((entry) => entry.event === 'EMOJI_DELETE').length > emojiDeletesBefore,
+  );
   check('the instance emoji survives the learned-emoji rule', findEmojiByName(db.sqlite, 'YES') !== null);
   settings.updateRetention({ externalEmojiRetentionDays: null });
 

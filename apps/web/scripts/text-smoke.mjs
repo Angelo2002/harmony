@@ -18,7 +18,7 @@ import {
   resolveChannelSettings,
   rewriteChannelMentions,
 } from '@harmony/shared';
-import { highlight } from '../src/lib/highlighter.ts';
+import { HIGHLIGHT_LANGUAGES, highlight } from '../src/lib/highlighter.ts';
 import { inlineSegmentsOf, parseMessage } from '../src/lib/message-text.ts';
 import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
 import {
@@ -398,10 +398,31 @@ check('a code block may sit on one line', parse('```x = 1```')[0].type === 'code
 check('markdown inside code is literal', parse('```\n- a\n# b\n```').length === 1);
 
 // The highlighter's output goes into the page as markup, so it must escape the
-// code it is given; this is what makes that safe.
-const hostile = highlight('<img src=x onerror="alert(1)"> & </code><script>', 'html');
-check('highlighted code is escaped', hostile !== null && !hostile.includes('<img') && !hostile.includes('<script') && hostile.includes('&lt;'));
-check('highlighting adds only its own spans', hostile.replace(/<span class="hljs-[a-z_ .-]+">|<\/span>/g, '').search(/[<>]/) === -1);
+// code it is given; this is what makes that safe. Run every hostile payload
+// through every registered language, so the whole {@html} surface is held to the
+// claim rather than a single language that happens to escape well.
+const hostileSources = [
+  '<img src=x onerror="alert(1)"> & </code><script>',
+  '"><svg onload=alert(1)>',
+  "'; alert(1) //",
+  '<a href="javascript:alert(1)">link</a>',
+];
+for (const language of HIGHLIGHT_LANGUAGES) {
+  for (const source of hostileSources) {
+    const hostile = highlight(source, language);
+    check(
+      `highlighted ${language} code is escaped`,
+      hostile !== null && !hostile.includes('<img') && !hostile.includes('<script') && !hostile.includes('<svg'),
+    );
+    check(
+      `highlighting ${language} adds only its own spans`,
+      hostile !== null &&
+        hostile
+          .replace(/<span class="(?:hljs-[a-z0-9_ .-]+|language-[a-z0-9_ .-]+)">|<\/span>/g, '')
+          .search(/[<>]/) === -1,
+    );
+  }
+}
 check('a language alias resolves', highlight('const a = 1;', 'js')?.includes('hljs-keyword'));
 check('a language name ignores case', highlight('x = 1', 'Python') !== null);
 check('an unknown language is left plain', highlight('x', 'brainfudge') === null);

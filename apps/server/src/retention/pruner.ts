@@ -129,7 +129,8 @@ export function createPruner(deps: PrunerDeps): Pruner {
       deletedExternalEmojis += removedEmojiIds.length;
 
       // Clients keep their own emoji list and only refresh it on EMOJI_DELETE, so
-      // without this a pruned emoji would linger in their picker until a reload.
+      // without this a pruned emoji would keep rendering in messages until a
+      // reload. Learned emoji are never offered in a picker to begin with.
       for (const id of removedEmojiIds) deps.hub.dispatch(GatewayEvent.EmojiDelete, { id });
     }
 

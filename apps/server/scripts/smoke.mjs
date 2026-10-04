@@ -3725,10 +3725,22 @@ try {
       'channel and category settings are kept apart, the channel only inheriting on the client',
       mine.length === 2 && ofRoom?.level === 'mentions' && ofCategory?.level === 'nothing' && ofCategory?.muted === true,
     );
+    // Positive control: the owner holds a setting of their own, so "only visible
+    // to their owner" is checked against a non-empty list rather than passing on
+    // an empty one.
+    const ownerRoom = (
+      await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'owner-settings' } })
+    ).json;
+    await put(ownerRoom.id, { muted: true }, ownerToken);
+    const ownerSettings = await settingsOf(ownerToken);
     check(
       'settings are only visible to their owner',
-      (await settingsOf(ownerToken)).every((entry) => entry.targetId !== quietRoom.id && entry.targetId !== quietCategory.id),
+      ownerSettings.length === 1 &&
+        ownerSettings[0].targetId === ownerRoom.id &&
+        !ownerSettings.some((entry) => entry.targetId === quietRoom.id || entry.targetId === quietCategory.id),
+      JSON.stringify(ownerSettings),
     );
+    await req(`/channels/${ownerRoom.id}`, { method: 'DELETE', token: ownerToken });
 
     await put(quietCategory.id, { muted: false });
     mine = await settingsOf(bobToken);
@@ -4135,6 +4147,26 @@ try {
     })
   ).json;
   const lockedWatcher = await openGateway({ token: bobToken });
+  // Positive control: a pin in a channel this member can see does reach him, so
+  // the check below is not passing merely because his gateway is silent.
+  const publicPinRoom = (
+    await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'public-pins' } })
+  ).json;
+  const publicPost = (
+    await req(`/channels/${publicPinRoom.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'public pin' },
+    })
+  ).json;
+  await req(`/channels/${publicPinRoom.id}/pins/${publicPost.id}`, { method: 'PUT', token: ownerToken });
+  await sleep(250);
+  check(
+    'a pin in a channel the member can see is broadcast',
+    lockedWatcher.events.some(
+      (frame) => frame.t === 'MESSAGE_UPDATE' && frame.d?.channelId === publicPinRoom.id && frame.d?.pinnedAt,
+    ),
+  );
   await req(`/channels/${lockedPins.id}/pins/${lockedPost.id}`, { method: 'PUT', token: ownerToken });
   await sleep(250);
   check(
@@ -4147,8 +4179,9 @@ try {
   );
   check(
     'a pin in a locked channel is not broadcast to a member without the role',
-    lockedWatcher.events.every((frame) => frame.d?.channelId !== lockedPins.id),
+    !lockedWatcher.events.some((frame) => frame.d?.channelId === lockedPins.id),
   );
+  await req(`/channels/${publicPinRoom.id}`, { method: 'DELETE', token: ownerToken });
   lockedWatcher.ws.close();
 
   // --- Saved messages ---
@@ -4561,6 +4594,13 @@ try {
     (await req(`/channels/${exportChannel.id}/export?format=pdf`, { token: ownerToken })).status === 400,
   );
 
+  // Plant an orphan snapshot so the cleanup checks below are not vacuous: a
+  // backup sweeps stale snapshots as it starts, and its own snapshot must be gone
+  // when it ends. If either failed, this seeded file would still be here.
+  const orphanSnapshot = join(dataDir, '.backup-orphan.db');
+  writeFileSync(orphanSnapshot, 'orphan');
+  check('the seeded orphan snapshot exists before the backup', existsSync(orphanSnapshot));
+
   const backupRes = await fetch(`${BASE}/backup`, { headers: { authorization: `Bearer ${ownerToken}` } });
   const backupName = /filename="([^"]+)"/.exec(backupRes.headers.get('content-disposition') ?? '')?.[1] ?? '';
   check('the owner can download a backup', backupRes.status === 200, `status ${backupRes.status}`);
@@ -4605,6 +4645,7 @@ try {
     readdirSync(dataDir).every((name) => !name.startsWith('.backup-')),
     readdirSync(dataDir).join(', '),
   );
+  check('the seeded orphan snapshot was swept', !existsSync(orphanSnapshot));
 
   // Walking away halfway still cleans up, and does not wedge the next backup.
   const abandoned = new AbortController();
@@ -4688,6 +4729,19 @@ try {
 
   // --- Audit retention and clearing ---
   check('a member cannot clear the log (403)', (await req('/audit', { method: 'DELETE', token: bobToken })).status === 403);
+  // The Clear button is shown to anyone with Manage Server, not only the owner, so
+  // a non-owner administrator clearing must be allowed.
+  const auditorRole = await req('/roles', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Auditor', permissions: String(1n << 9n) },
+  });
+  await req(`/members/${bobId}/roles/${auditorRole.json.id}`, { method: 'PUT', token: ownerToken });
+  check(
+    'a Manage Server administrator can clear the log',
+    (await req('/audit', { method: 'DELETE', token: bobToken })).status === 204,
+  );
+  await req(`/roles/${auditorRole.json.id}`, { method: 'DELETE', token: ownerToken });
   check('the log can be cleared', (await req('/audit', { method: 'DELETE', token: ownerToken })).status === 204);
   check('the log is empty after clearing', (await req('/audit', { token: ownerToken })).json?.entries?.length === 0);
 

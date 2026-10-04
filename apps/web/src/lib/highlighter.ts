@@ -32,6 +32,9 @@ import yaml from 'highlight.js/lib/languages/yaml';
 const LANGUAGES = { bash, c, cpp, csharp, css, diff, go, java, javascript, json, markdown, python, rust, shell, sql, typescript, xml, yaml };
 for (const [name, definition] of Object.entries(LANGUAGES)) hljs.registerLanguage(name, definition);
 
+/** The registered language names, so callers (and the smoke test) can enumerate them. */
+export const HIGHLIGHT_LANGUAGES: string[] = Object.keys(LANGUAGES);
+
 /**
  * Above this many characters, highlighting a fenced block synchronously on the
  * main thread would stall the UI for longer than the color is worth: the library

@@ -41,6 +41,16 @@ import {
 import { firstUnreadIndex, muteLabel, newMessageCount, newMessagesLabel, pillCount } from '../src/lib/unread.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
+import {
+  activeToken,
+  applySuggestion,
+  buildSearchParams,
+  filterToken,
+  mergeFilters,
+  parseSearchDate,
+  parseSearchInput,
+  suggestFor,
+} from '../src/lib/search-query.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -774,6 +784,88 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('one message is singular', newMessagesLabel(1, false, at(1), clock) === '1 new message since 12:01');
   check('a partial count gets a plus', newMessagesLabel(50, true, at(1), clock) === '50+ new messages since 12:01');
   check('pills cap at 99+', pillCount(5) === '5' && pillCount(99) === '99' && pillCount(100) === '99+');
+}
+
+// --- Search filter syntax ---
+{
+  const keys = (parsed) => parsed.filters.map((filter) => `${filter.key}=${filter.value}`).join('|');
+
+  const basic = parseSearchInput('hello from:alice in:general world has:image ');
+  check('filters come out of the text', basic.text === 'hello world');
+  check('every filter is kept in order', keys(basic) === 'from=alice|in=general|has=image');
+  check('keys are case-insensitive', keys(parseSearchInput('FROM:Bob Has:GIF ')) === 'from=Bob|has=GIF');
+  check('a quoted value may hold spaces', keys(parseSearchInput('from:"Some Name" ')) === 'from=Some Name');
+  check('quoted values do not leak into the text', parseSearchInput('x from:"Some Name" y ').text === 'x y');
+  check('an unknown key stays as text', parseSearchInput('re:thing ').text === 're:thing');
+  check('a time-looking word stays text', parseSearchInput('meet at 10:30 ').text === 'meet at 10:30');
+  check('a bare key is dropped, not searched', parseSearchInput('from: hello ').text === 'hello');
+  check('a token still being typed stays in the text', parseSearchInput('hi from:ali', false).text === 'hi from:ali');
+  check('a finished token is taken while typing', keys(parseSearchInput('hi from:ali ', false)) === 'from=ali');
+  check('the last token is taken on submit', keys(parseSearchInput('hi from:ali')) === 'from=ali');
+  check(
+    'an unterminated quote is one token',
+    parseSearchInput('from:"Some Na', false).text === 'from:"Some Na' && keys(parseSearchInput('from:"Some Na')) === 'from=Some Na',
+  );
+  check('tokens round-trip with quoting', filterToken({ key: 'from', value: 'Some Name' }) === 'from:"Some Name"');
+  check('a plain value is not quoted', filterToken({ key: 'in', value: 'general' }) === 'in:general');
+  check(
+    'duplicate filters are merged away',
+    mergeFilters([{ key: 'from', value: 'Al' }], [{ key: 'from', value: 'al' }, { key: 'has', value: 'pin' }]).length === 2,
+  );
+
+  const now = new Date(2024, 4, 15, 13, 30);
+  const day = (y, m, d) => new Date(y, m - 1, d).getTime();
+  check('a date is the local start of that day', parseSearchDate('2024-05-01', now)?.getTime() === day(2024, 5, 1));
+  check('today and yesterday work', parseSearchDate('today', now)?.getTime() === day(2024, 5, 15) && parseSearchDate('Yesterday', now)?.getTime() === day(2024, 5, 14));
+  check('an impossible date is refused', parseSearchDate('2024-02-31', now) === null && parseSearchDate('soon', now) === null);
+
+  const request = (text, filters) => buildSearchParams(text, filters, now);
+  const built = request('cats', [
+    { key: 'from', value: 'alice' },
+    { key: 'from', value: '@Bob' },
+    { key: 'in', value: '#general' },
+    { key: 'has', value: 'Image' },
+  ]);
+  check('text becomes q', built.params.get('q') === 'cats');
+  check('repeated from values are all sent, without the @', built.params.getAll('from').join() === 'alice,Bob');
+  check('in drops a leading hash', built.params.get('in') === 'general');
+  check('has is lower-cased', built.params.get('has') === 'image' && built.problems.length === 0);
+  check('on: is the whole local day', (() => {
+    const r = request('', [{ key: 'on', value: '2024-05-01' }]);
+    return r.params.get('sentAfter') === String(day(2024, 5, 1)) && r.params.get('sentBefore') === String(day(2024, 5, 2));
+  })());
+  check('before: is the start of the day', request('', [{ key: 'before', value: 'today' }]).params.get('sentBefore') === String(day(2024, 5, 15)));
+  check('after: is the end of the day', request('', [{ key: 'after', value: 'yesterday' }]).params.get('sentAfter') === String(day(2024, 5, 15)));
+  check('a filter alone is searchable', request('', [{ key: 'has', value: 'pin' }]).searchable === true);
+  check('nothing at all is not searchable', request('', []).searchable === false);
+  const bad = request('x', [{ key: 'has', value: 'banana' }, { key: 'after', value: 'whenever' }]);
+  check('bad values are reported and block the search', bad.problems.length === 2 && bad.searchable === false);
+
+  const sources = {
+    members: [
+      { username: 'alice', displayName: 'Alice Liddell' },
+      { username: 'bob', displayName: null },
+      { username: 'malice', displayName: null },
+    ],
+    channels: [{ name: 'general' }, { name: 'off topic' }, { name: 'gaming' }],
+  };
+  const text = 'hello from:ali';
+  const token = activeToken(text, text.length);
+  check('the token under the caret is found', token?.key === 'from' && token.partial === 'ali' && token.start === 6);
+  check('plain text under the caret has no token', activeToken('hello wor', 9) === null);
+  check('after trailing whitespace there is no token', activeToken('from:alice ', 11) === null);
+  check('an unknown key has no token', activeToken('re:ali', 6) === null);
+  check('a quoted partial is read without its quote', activeToken('from:"Some Na', 13)?.partial === 'Some Na');
+  const people = suggestFor(token, sources);
+  check('members match by username or display name', people.map((s) => s.value).join() === 'alice,malice');
+  check('a prefix match ranks first', people[0]?.value === 'alice' && people[0].label === 'Alice Liddell' && people[0].detail === '@alice');
+  check('an empty partial offers everyone', suggestFor({ key: 'from', partial: '', start: 0, end: 5 }, sources).length === 3);
+  check('channels are offered by name', suggestFor({ key: 'in', partial: 'g', start: 0, end: 4 }, sources).map((s) => s.value).join() === 'general,gaming');
+  check('has offers the fixed list', suggestFor({ key: 'has', partial: 'p', start: 0, end: 5 }, sources).map((s) => s.value).join() === 'pin');
+  check('dates offer today and yesterday', suggestFor({ key: 'on', partial: 'to', start: 0, end: 5 }, sources, now).map((s) => s.value).join() === 'today');
+  const applied = applySuggestion('hello in:off other', activeToken('hello in:off other', 12), { label: '#off topic', value: 'off topic' });
+  check('applying a suggestion quotes a name with spaces', applied.text === 'hello in:"off topic" other');
+  check('and puts the caret after the token', applied.caret === 'hello in:"off topic" '.length);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

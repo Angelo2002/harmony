@@ -145,7 +145,8 @@ The bridge mirrors messages both ways. On the Discord side you need to:
    are privileged: the toggles work right away for a bot in fewer than 100
    servers, and need Discord's approval beyond that. Message Content is what makes
    message text readable. Presence is what tells Harmony who on the Discord side is
-   online, for the member list of a bridged channel.
+   online, for the member list of a bridged channel. The poll intent the bridge also
+   asks for is not privileged and needs no toggle.
 3. Invite the bot with at least **View Channels**, **Send Messages**, **Read
    Message History**, **Add Reactions** and **Manage Webhooks**. Add **Manage
    Messages** too if a message written on Discord should also disappear there when
@@ -407,6 +408,60 @@ The logic lives in `pins/service.ts`, deliberately shaped like the message servi
 applied through `pinBridged` / `unpinBridged`, which skip permission checks and notify no listener,
 so a pin can never echo back and forth. Its update is broadcast straight from the pin service, not
 through the message service's edit path, so a pin is never mistaken for an edit and mirrored as one.
+
+## Polls
+
+A poll is a message whose text is the question, plus three tables (`polls`, `poll_options`,
+`poll_votes`, migration 28) that cascade from the message. Making the question the message text
+means search, reply quotes, the inbox and notifications need no poll awareness, and a poll message
+refuses edits because the options are fixed once people vote. A soft delete keeps the rows and every
+read filters the message out like any other; a retention delete takes the poll with it through the
+foreign keys.
+
+A vote is one row per person per option, with `poll_id` repeated on it so "has this person voted"
+and the distinct-voter count need no join. Casting a vote replaces the caller's whole choice in a
+transaction. `mergeUsers` keeps one vote per person when two accounts merge: the survivor's choice
+stands in a single-answer poll and the sets are united in a multiple-answer one.
+
+Results are live. A vote or a close broadcasts `POLL_UPDATE` through the hub with the channel's
+visibility rules, so a locked channel's polls never reach a member without the role. The payload
+carries counts and the actor, not a per-viewer view, in the same way reaction events carry the user:
+each client keeps its own `myVotes`. A timer (`polls/service.ts`, every 15 seconds; the smoke test
+shortens it with `HARMONY_POLL_SWEEP_MS`) closes polls whose time is up, and a vote that lands after
+the time but before the sweep closes the poll itself and is refused. Voting is rate limited per
+member.
+
+### Polls across the bridge
+
+What the Discord API allows decides what crosses:
+
+- **Harmony to Discord, the poll itself.** A poll made here is posted to the bridged channel as a
+  native Discord poll with the same options, emoji, multiple-answer setting and duration. A webhook
+  cannot carry a poll, so the *bot* posts it, with a line above saying whose question it is. A poll
+  with no expiry is posted with Discord's longest duration (32 days).
+- **Discord to Harmony, the poll itself.** A native poll arrives as a poll message (`source` is
+  `discord`) with its options. Only unicode emoji on options are carried; a custom emoji is dropped.
+  Text posted with the poll is not carried.
+- **Discord to Harmony, votes.** Votes arrive live through the `GuildMessagePolls` intent (not
+  privileged, so there is nothing to enable) and are counted under the voter's stand-in account, or
+  under the member whose Discord id is linked. When a poll is first read, its existing voters are
+  fetched too, up to the 100 per answer that Discord's endpoint returns, so a poll with more voters on
+  Discord than that is undercounted here.
+- **Harmony to Discord, votes: not possible.** Discord gives a bot no way to vote, so a vote made
+  in Harmony never reaches Discord. Discord's own tally shows only Discord voters, while Harmony shows
+  the union. This is a limit of the platform, not of the bridge.
+- **Closing, both ways.** Ending a Harmony poll by hand ends the Discord poll through the bot (it
+  is the poll's author there). Discord closing a poll that was made there closes it here. A poll
+  made here is governed by Harmony's clock: Discord's own timer on it, which differs for a poll with
+  no expiry, is ignored. A poll made on Discord cannot be ended from Harmony.
+- **Deleting** a poll message here deletes the Discord message, as for any other message.
+
+A person is never counted twice. A Discord account linked to a member resolves to that member, so
+their Discord vote and their Harmony vote are the same row, and in a single-answer poll the latest
+choice from either side replaces the earlier one. There is no loop to guard against beyond the usual
+rule: bridged votes and closes go through `voteBridged` / `closeBridged`, which skip permission
+checks and notify no listener, and only a local early end notifies the bridge. The poll's Discord
+message is also recorded in the permanent seen-set, like any other mirrored message.
 
 ## Saved messages
 

@@ -24,6 +24,7 @@ code wins — please open an issue.
   - [Auth](#auth)
   - [Channels and categories](#channels-and-categories)
   - [Messages](#messages)
+  - [Polls](#polls)
   - [Search](#search)
   - [Mentions and replies](#mentions-and-replies)
   - [Pinned messages](#pinned-messages)
@@ -238,6 +239,7 @@ type Message = {
   embed: LinkEmbed | null;      // link preview, see "Link previews"
   pinnedAt: string | null;      // when it was pinned, see "Pinned messages"
   saved: boolean;               // whether the viewer saved it, see "Saved messages"
+  poll: Poll | null;            // the poll this message carries, see "Polls"
 };
 
 type LinkEmbed = {
@@ -929,6 +931,95 @@ The URL is treated as hostile exactly like the metadata fetch — public hosts o
 re-checked — the response must be an `image/*` type of at most 8 MB, and SVG is refused because it
 can carry script. Returns `404 media_unavailable` when the image cannot be fetched, so a client
 should tolerate a broken image rather than expect one.
+
+### Polls
+
+A poll is a message. Its `content` is the question, so search, reply quotes and notifications work
+without knowing about polls, and the message carries the poll in `Message.poll`. A client should
+draw the poll instead of the text. A poll message cannot be edited (`400 poll_not_editable`);
+deleting the message deletes the poll and its votes.
+
+```ts
+type Poll = {
+  messageId: string;
+  question: string;
+  allowMultiple: boolean;
+  closesAt: string | null;     // when it closes by itself, or null for no expiry
+  closedAt: string | null;     // when it was closed, by the clock or by hand
+  source: 'harmony' | 'discord'; // where it was made, see "Discord polls" below
+  options: PollOption[];       // in the order they were asked
+  totalVoters: number;         // distinct people; below the sum of counts when allowMultiple
+  myVotes: string[];           // option ids the viewer chose (a broadcast carries [])
+};
+
+type PollOption = {
+  id: string;
+  text: string;                // 1-55 characters
+  emoji: string | null;        // a unicode emoji, or null
+  count: number;
+};
+```
+
+The limits are Discord's, so any poll can be posted there as a native one: a question of up to 300
+characters, 2 to 10 options, a duration of 1 to 768 hours (32 days). Results are live and are never
+hidden: everyone who can see the channel sees the counts at any time, and who voted for an option
+is available on demand (polls are not anonymous, as on Discord).
+
+#### `POST /api/v1/channels/:id/polls` — `SendMessages`
+
+```json
+{
+  "question": "Pizza or tacos?",
+  "options": [{ "text": "Pizza", "emoji": "🍕" }, { "text": "Tacos" }],
+  "allowMultiple": false,
+  "durationHours": 24,
+  "replyToId": null
+}
+```
+
+`allowMultiple` defaults to `false` and `durationHours` to `24`; `durationHours: null` is a poll that
+never closes. Everything that applies to sending a message applies here (channel access, timeouts,
+slowmode). Returns the new `Message` (with `poll`) and fires `MESSAGE_CREATE`.
+
+#### `PUT /api/v1/messages/:id/poll/votes` — `ViewChannels`, rate limited
+
+```json
+{ "optionIds": ["…"] }
+```
+
+Replaces the caller's whole choice, so changing a vote and withdrawing one (`[]`) are the same
+call. A poll that takes one answer refuses more than one (`400 single_choice`); an option from
+another poll is `400 invalid_option`; a closed poll, including one whose time ran out a moment ago,
+is `409 poll_closed`. Needs access to the channel (`403 channel_forbidden`) and refuses a timed-out
+member (`403 timed_out`). Returns the `Poll` as the caller sees it and fires `POLL_UPDATE`.
+
+#### `POST /api/v1/messages/:id/poll/end` — auth (author or `ManageMessages`)
+
+Closes the poll now; the counts stay. `409 poll_closed` when it already is. A poll that was made on
+Discord is closed by Discord, not from here (`409 poll_external`). Returns the `Poll` and fires
+`POLL_UPDATE`.
+
+#### `GET /api/v1/messages/:id/poll/voters` — `ViewChannels`
+
+| Query | Type |
+| --- | --- |
+| `optionId` | required |
+
+```json
+{ "optionId": "…", "total": 3, "voters": [ { "user": { /* User */ }, "votedAt": "…" } ] }
+```
+
+Who chose one option, earliest first, at most 100 (`total` is the full count). Follows channel
+locking like history does.
+
+#### Discord polls
+
+On a bridged channel a poll made here is posted to Discord as a native poll, and a native Discord
+poll arrives here as a poll message (`source: "discord"`). Discord's API gives a bot no way to cast
+a vote, so **votes made in Harmony stay in Harmony**: Discord shows only its own voters, while
+Harmony shows both. Votes made on Discord are counted here under the voter's stand-in account, or
+under their own account when their Discord id is linked, so one person is one voter however they
+vote. See [the technical notes](TECHNICAL.md#polls) for what crosses the bridge and what does not.
 
 ### Search
 
@@ -2185,6 +2276,7 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | `MESSAGE_REACTION_ADD` | `ReactionUpdatePayload` |
 | `MESSAGE_REACTION_REMOVE` | `ReactionUpdatePayload` |
 | `MESSAGE_REACTIONS_CLEAR` | `ReactionsClearPayload` |
+| `POLL_UPDATE` | `PollUpdatePayload`, to members who can see the channel |
 | `TYPING_START` | `TypingStartPayload` |
 | `PRESENCE_UPDATE` | `PresenceUpdatePayload` |
 | `CHANNEL_CREATE` / `CHANNEL_UPDATE` | `Channel` |
@@ -2211,6 +2303,24 @@ locks a channel or category behind a role (or moves a channel into a locked cate
 could see it but no longer can receive a `CHANNEL_DELETE` / `CATEGORY_DELETE` carrying only the id,
 while the `CHANNEL_UPDATE` / `CATEGORY_UPDATE` goes only to those who still can. Treat either as
 "this is gone for you"; refetching `GET /api/v1/channels` gives the authoritative list.
+
+`POLL_UPDATE` fires when a vote changes or a poll closes, with the new counts rather than a per-viewer
+view:
+
+```ts
+type PollUpdatePayload = {
+  messageId: string;
+  channelId: string;
+  closedAt: string | null;
+  options: { id: string; count: number }[];
+  totalVoters: number;
+  actorId: string | null;       // who voted; null when the poll closed
+  actorVotes: string[] | null;  // that member's choices now; null with actorId
+};
+```
+
+A client applies the counts, and replaces its own `myVotes` only when `actorId` is its own user. A
+`MESSAGE_UPDATE` for a poll message (a pin, say) carries `myVotes: []` and must not clobber it.
 
 `ReactionUpdatePayload` carries the reacting user so each client can decide whether the `me` flag
 applies to itself; the server broadcasts one payload to everyone:

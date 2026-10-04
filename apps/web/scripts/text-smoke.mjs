@@ -73,8 +73,6 @@ import {
   parseSearchInput,
   suggestFor,
 } from '../src/lib/search-query.ts';
-}
-
 import { SLASH_COMMANDS, applySlashCommand, matchSlashCommands, slashQuery } from '../src/lib/slash-commands.ts';
 
 const require = createRequire(import.meta.url);

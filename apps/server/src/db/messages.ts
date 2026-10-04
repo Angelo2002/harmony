@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { EmbedPlayer, LinkEmbed } from '@harmony/shared';
+import { isGifLinkUrl, isLinkedGifType, type EmbedPlayer, type LinkEmbed, type LinkedGif } from '@harmony/shared';
 
 /** YouTube video ids are 11 URL-safe characters; anything else is not offered. */
 function parsePlayer(value: unknown): EmbedPlayer | null {
@@ -8,6 +8,20 @@ function parsePlayer(value: unknown): EmbedPlayer | null {
   if (player.provider !== 'youtube') return null;
   if (typeof player.id !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(player.id)) return null;
   return { provider: 'youtube', id: player.id };
+}
+
+/**
+ * A linked gif, kept only when the embed's address is itself on the gif host
+ * allowlist and the type is a gif-like one, so nothing stored can make a client
+ * load from anywhere else.
+ */
+function parseGif(value: unknown, url: string): LinkedGif | null {
+  if (!value || typeof value !== 'object' || !isGifLinkUrl(url)) return null;
+  const gif = value as { contentType?: unknown; width?: unknown; height?: unknown };
+  if (typeof gif.contentType !== 'string' || !isLinkedGifType(gif.contentType)) return null;
+  const size = (n: unknown): number | null =>
+    typeof n === 'number' && Number.isInteger(n) && n > 0 && n <= 20000 ? n : null;
+  return { contentType: gif.contentType.toLowerCase(), width: size(gif.width), height: size(gif.height) };
 }
 
 export interface MessageRow {
@@ -35,6 +49,7 @@ export function parseMessageEmbed(raw: string | null): LinkEmbed | null {
   try {
     const value = JSON.parse(raw) as Partial<LinkEmbed>;
     if (typeof value.url !== 'string' || value.url.length === 0) return null;
+    const gif = parseGif(value.gif, value.url);
     return {
       url: value.url,
       title: typeof value.title === 'string' ? value.title : null,
@@ -42,6 +57,8 @@ export function parseMessageEmbed(raw: string | null): LinkEmbed | null {
       siteName: typeof value.siteName === 'string' ? value.siteName : null,
       imageUrl: typeof value.imageUrl === 'string' ? value.imageUrl : null,
       player: parsePlayer(value.player),
+      // Left off entirely for an ordinary preview, so the wire shape is unchanged.
+      ...(gif ? { gif } : {}),
     };
   } catch {
     return null;

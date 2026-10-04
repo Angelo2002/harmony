@@ -196,7 +196,7 @@ warnAboutExposure(app.log, {
 });
 
 registerErrorHandler(app, { spaIndex: webClientIndex(config.webDir), serverLog });
-registerSecurityHeaders(app, { csp: config.csp });
+registerSecurityHeaders(app, { csp: config.csp, linkedGifs: () => settingsService.getGifStorage() === 'link' });
 registerAuth(app, { cookieName: config.cookieName, resolveToken: authService.resolveToken });
 
 registerHealthRoutes(app, db);

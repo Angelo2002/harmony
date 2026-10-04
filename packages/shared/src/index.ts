@@ -7,6 +7,7 @@ export * from './slowmode.ts';
 export * from './channel-settings.ts';
 export * from './mentions.ts';
 export * from './embeds.ts';
+export * from './gif-hosts.ts';
 export * from './gateway.ts';
 export * from './schemas.ts';
 export * from './api.ts';

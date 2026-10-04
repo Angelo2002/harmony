@@ -32,6 +32,7 @@ import { insertChannel } from '../src/db/channels.ts';
 import { insertMessage } from '../src/db/messages.ts';
 import { listLinkedAttachments } from '../src/db/attachments.ts';
 import { createEmbedService } from '../src/embeds/service.ts';
+import { verifyLinkedGif } from '../src/embeds/linked-gif.ts';
 import { createAttachmentService } from '../src/attachments/service.ts';
 import { createSettingsService } from '../src/settings/service.ts';
 import { createUserService } from '../src/users/service.ts';
@@ -1266,6 +1267,9 @@ try {
     );
 
     // --- Removing a message's embeds by hand ---
+    // Off by default in this throwaway instance; the checks below need the
+    // resolver switched on or they would pass for the wrong reason.
+    pictureSettings.update({ embedsEnabled: true });
     const sent = [];
     const embedsHere = createEmbedService({
       sqlite: pictureDb.sqlite,
@@ -1308,6 +1312,176 @@ try {
     check(
       'a later resolution (an edit) does not bring them back',
       listLinkedAttachments(pictureDb.sqlite, 'm1').length === 0,
+    );
+
+    // --- Linking a gif instead of storing it (gif storage mode "link") ---
+    const verifyCalls = [];
+    const linkingEmbeds = createEmbedService({
+      sqlite: pictureDb.sqlite,
+      settings: pictureSettings,
+      hub: { dispatch: (event, payload) => sent.push({ event, payload }) },
+      attachments: pictures,
+      renderMessage: (id) => ({ id, channelId: 'c1', author: { id: 'u1' }, attachments: [] }),
+      verifyLinkedGif: async (url, limits) => {
+        verifyCalls.push({ url, limits });
+        return { contentType: 'image/gif', width: null, height: null };
+      },
+    });
+    const embedOf = (id) => parseMessageEmbed(pictureDb.sqlite.prepare('SELECT embed FROM messages WHERE id = ?').get(id)?.embed ?? null);
+    const addMessage = (id, content) =>
+      insertMessage(pictureDb.sqlite, { id, channelId: 'c1', authorId: 'u1', content, createdAt: new Date().toISOString() });
+
+    pictureSettings.update({ gifStorage: 'link' });
+    check('the setting is stored', pictureSettings.get().gifStorage === 'link' && pictureSettings.getGifStorage() === 'link');
+
+    const GIPHY = 'https://media.giphy.com/media/abc123/giphy.gif';
+    addMessage('g1', GIPHY);
+    linkingEmbeds.resolve('g1', GIPHY);
+    await sleep(150);
+    const linkedEmbed = embedOf('g1');
+    check(
+      'link mode: an allowlisted gif becomes a linked embed carrying its remote address',
+      linkedEmbed?.url === GIPHY && linkedEmbed?.gif?.contentType === 'image/gif',
+      JSON.stringify(linkedEmbed),
+    );
+    check('and nothing was downloaded or stored for it', listLinkedAttachments(pictureDb.sqlite, 'g1').length === 0);
+    check(
+      'the check got the instance upload limits',
+      verifyCalls.length === 1 && verifyCalls[0].limits.maxImageBytes === pictureSettings.get().maxImageBytes,
+    );
+    check(
+      'clients are told',
+      sent.some((entry) => entry.payload?.id === 'g1'),
+    );
+    linkingEmbeds.resolve('g1', GIPHY);
+    await sleep(100);
+    check('the same address is not checked again', verifyCalls.length === 1);
+
+    addMessage('g2', 'http://127.0.0.1:9/z.gif');
+    linkingEmbeds.resolve('g2', 'http://127.0.0.1:9/z.gif');
+    await sleep(150);
+    check(
+      'link mode: any other address is not linked, nor even checked',
+      verifyCalls.length === 1 && embedOf('g2') === null,
+    );
+
+    // A copy this instance already holds is reused rather than linked past.
+    const HELD = 'https://media.tenor.com/held/cat.gif';
+    addMessage('g3', HELD);
+    await pictures.storeLinkedImage({
+      messageId: 'g3',
+      uploaderId: 'u1',
+      sourceUrl: HELD,
+      filename: 'cat.png',
+      contentType: 'image/png',
+      data: gifBytes,
+    });
+    addMessage('g4', HELD);
+    linkingEmbeds.resolve('g4', HELD);
+    await sleep(150);
+    check(
+      'link mode: a gif already stored here is reused, not linked',
+      listLinkedAttachments(pictureDb.sqlite, 'g4').length === 1 && embedOf('g4') === null && verifyCalls.length === 1,
+    );
+
+    // A linked embed only survives parsing for an allowlisted address and type.
+    check(
+      'a stored gif record on a foreign address is ignored',
+      parseMessageEmbed(JSON.stringify({ url: 'https://example.com/a.gif', gif: { contentType: 'image/gif' } }))?.gif === undefined,
+    );
+    check(
+      'and so is one with a type that is not gif-like',
+      parseMessageEmbed(JSON.stringify({ url: GIPHY, gif: { contentType: 'text/html' } }))?.gif === undefined &&
+        parseMessageEmbed(JSON.stringify({ url: GIPHY, gif: { contentType: 'image/svg+xml' } }))?.gif === undefined,
+    );
+    check(
+      'an allowlisted one is kept, with sizes sanitized',
+      JSON.stringify(parseMessageEmbed(JSON.stringify({ url: GIPHY, gif: { contentType: 'video/mp4', width: 'x', height: 90 } }))?.gif) ===
+        JSON.stringify({ contentType: 'video/mp4', width: null, height: 90 }),
+    );
+
+    // The check itself, against a stand-in for the network.
+    const limits = { maxImageBytes: 1000, maxVideoBytes: 5000, userAgent: 'test' };
+    const fakeIO = (respond, { publicHost = true } = {}) => {
+      const calls = [];
+      return {
+        calls,
+        io: {
+          isPublicHost: async () => publicHost,
+          fetch: async (target, init) => {
+            calls.push({ target: String(target), init });
+            return respond(String(target));
+          },
+        },
+      };
+    };
+    const serve = (type, { length, body = 'GIF89a', status = 200, location } = {}) => () =>
+      new Response(body, {
+        status,
+        headers: {
+          ...(type ? { 'content-type': type } : {}),
+          ...(length !== undefined ? { 'content-length': String(length) } : {}),
+          ...(location ? { location } : {}),
+        },
+      });
+
+    const good = fakeIO(serve('image/gif', { length: 500 }));
+    check(
+      'verify: an allowlisted https gif passes',
+      (await verifyLinkedGif(GIPHY, limits, good.io))?.contentType === 'image/gif' && good.calls.length === 1,
+    );
+    check('verify: redirects are never followed', good.calls[0]?.init?.redirect === 'manual');
+    for (const [name, url] of [
+      ['a foreign host', 'https://example.com/a.gif'],
+      ['plain http', 'http://media.giphy.com/a.gif'],
+      ['a lookalike suffix', 'https://media.giphy.com.evil.test/a.gif'],
+      ['a lookalike prefix', 'https://notmedia.giphy.com/a.gif'],
+      ['credentials', 'https://u:p@media.giphy.com/a.gif'],
+      ['a port', 'https://media.giphy.com:444/a.gif'],
+      ['a bare klipy page host', 'https://klipy.com/a.gif'],
+      ['a discord attachment', 'https://cdn.discordapp.com/attachments/1/2/a.gif'],
+    ]) {
+      const probe = fakeIO(serve('image/gif', { length: 10 }));
+      check(`verify: ${name} is refused before any request`, (await verifyLinkedGif(url, limits, probe.io)) === null && probe.calls.length === 0);
+    }
+    check(
+      'verify: a klipy media subdomain is allowed',
+      (await verifyLinkedGif('https://static.klipy.com/ii/x/y.gif', limits, fakeIO(serve('image/gif', { length: 10 })).io)) !== null,
+    );
+    check(
+      'verify: a host resolving to a private address is refused',
+      (await verifyLinkedGif(GIPHY, limits, fakeIO(serve('image/gif', { length: 10 }), { publicHost: false }).io)) === null,
+    );
+    check(
+      'verify: a redirect is refused, even to another allowlisted host',
+      (await verifyLinkedGif(GIPHY, limits, fakeIO(serve('', { status: 302, location: 'https://media.tenor.com/a.gif' })).io)) === null,
+    );
+    check('verify: an error status is refused', (await verifyLinkedGif(GIPHY, limits, fakeIO(serve('image/gif', { status: 404 })).io)) === null);
+    for (const type of ['text/html', 'image/svg+xml', 'image/png', 'application/octet-stream', '']) {
+      check(
+        `verify: a "${type}" response is refused`,
+        (await verifyLinkedGif(GIPHY, limits, fakeIO(serve(type, { length: 10 })).io)) === null,
+      );
+    }
+    check('verify: an animated webp passes', (await verifyLinkedGif(GIPHY, limits, fakeIO(serve('image/webp', { length: 10 })).io))?.contentType === 'image/webp');
+    check('verify: an mp4 passes', (await verifyLinkedGif(GIPHY, limits, fakeIO(serve('video/mp4', { length: 10 })).io))?.contentType === 'video/mp4');
+    check(
+      'verify: a declared size over the image limit is refused',
+      (await verifyLinkedGif(GIPHY, limits, fakeIO(serve('image/gif', { length: 1001 })).io)) === null,
+    );
+    check(
+      'verify: a clip gets the video limit instead',
+      (await verifyLinkedGif(GIPHY, limits, fakeIO(serve('video/mp4', { length: 4000 })).io)) !== null &&
+        (await verifyLinkedGif(GIPHY, limits, fakeIO(serve('video/mp4', { length: 5001 })).io)) === null,
+    );
+    check(
+      'verify: with no declared size the body is read up to the limit',
+      (await verifyLinkedGif(GIPHY, limits, fakeIO(serve('image/gif', { body: 'x'.repeat(900) })).io)) !== null &&
+        (await verifyLinkedGif(GIPHY, limits, fakeIO(serve('image/gif', { body: 'x'.repeat(1200) })).io)) === null,
+    );
+    check(
+      'verify: a failing network is a refusal, not an error',
+      (await verifyLinkedGif(GIPHY, limits, { isPublicHost: async () => true, fetch: async () => { throw new Error('down'); } })) === null,
     );
 
     pictureDb.close();
@@ -2563,6 +2737,70 @@ try {
   );
   const withoutKey = await req('/settings', { method: 'PATCH', token: ownerToken, body: { klipyApiKey: '' } });
   check('clearing the key takes the tab away', withoutKey.json?.klipyConfigured === false);
+
+  // --- Gif storage: store a copy (default) or link to allowlisted gif hosts ---
+  const cspOf = async () => (await fetch(`${BASE}/health`)).headers.get('content-security-policy') ?? '';
+  const directive = (csp, name) => csp.split('; ').find((entry) => entry.startsWith(`${name} `)) ?? '';
+  check('gifs are stored by default', (await req('/meta')).json?.gifStorage === 'store');
+  const storeCsp = await cspOf();
+  check(
+    'so the policy lets the page load only its own images and media',
+    !directive(storeCsp, 'img-src').includes('tenor') && !directive(storeCsp, 'media-src').includes('giphy'),
+    storeCsp,
+  );
+  check(
+    'linking is refused while the instance stores (409)',
+    (await req('/gifs/link', { method: 'POST', token: ownerToken, body: { url: 'https://media.tenor.com/x/y.gif' } })).status === 409,
+  );
+  check(
+    'an unknown storage mode is refused (400)',
+    (await req('/settings', { method: 'PATCH', token: ownerToken, body: { gifStorage: 'hotlink' } })).status === 400,
+  );
+  check(
+    'a member cannot change it (403)',
+    (await req('/settings', { method: 'PATCH', token: bobToken, body: { gifStorage: 'link' } })).status === 403,
+  );
+
+  const linkOn = await req('/settings', { method: 'PATCH', token: ownerToken, body: { gifStorage: 'link' } });
+  check('an admin can switch to linking', linkOn.json?.gifStorage === 'link' && (await req('/meta')).json?.gifStorage === 'link');
+  const linkCsp = await cspOf();
+  for (const source of ['https://media.tenor.com', 'https://media1.tenor.com', 'https://media.giphy.com', 'https://*.klipy.com']) {
+    check(
+      `linking opens images and media to ${source}`,
+      directive(linkCsp, 'img-src').includes(source) && directive(linkCsp, 'media-src').includes(source),
+      linkCsp,
+    );
+  }
+  check(
+    'and nothing else in the policy changes',
+    linkCsp.replace(/(img|media)-src [^;]*/g, '') === storeCsp.replace(/(img|media)-src [^;]*/g, '') &&
+      directive(linkCsp, 'script-src') === "script-src 'self'" &&
+      directive(linkCsp, 'connect-src') === "connect-src 'self'" &&
+      !linkCsp.includes('*.giphy.com'),
+  );
+  for (const bad of [
+    'https://example.com/cat.gif',
+    'http://media.tenor.com/x/y.gif',
+    'https://media.tenor.com.evil.test/x.gif',
+    'https://evilklipy.com/x.gif',
+    'https://klipy.com/gifs/page',
+    'https://user:pw@media.tenor.com/x.gif',
+    'https://media.tenor.com:8443/x.gif',
+    'https://cdn.discordapp.com/attachments/1/2/x.gif',
+    'not a url',
+  ]) {
+    const refused = await req('/gifs/link', { method: 'POST', token: ownerToken, body: { url: bad } });
+    check(`a non-allowlisted address is refused (${bad})`, refused.status === 400, `status ${refused.status}`);
+  }
+  // An allowlisted host that cannot be verified (no gif there, or no network in
+  // the sandbox) is refused too, never recorded blindly.
+  check(
+    'an allowlisted address that is not a reachable gif is refused (415)',
+    (await req('/gifs/link', { method: 'POST', token: ownerToken, body: { url: 'https://media.tenor.com/nonexistent/none.gif' } })).status === 415,
+  );
+
+  await req('/settings', { method: 'PATCH', token: ownerToken, body: { gifStorage: 'store' } });
+  check('switching back closes the policy again', !directive(await cspOf(), 'img-src').includes('tenor'));
 
   // Only the service's own addresses are ever fetched, so the picker cannot be
   // turned into a way to make the server fetch arbitrary pages.

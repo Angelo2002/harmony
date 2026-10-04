@@ -791,7 +791,10 @@
   {/if}
 
   {#if showGifs}
-    <GifPicker onpick={addGif} />
+    <GifPicker onpick={addGif} onlink={(url) => {
+        showGifs = false;
+        void insertAtCaret(url);
+      }} />
   {/if}
 
   {#if showTimes}

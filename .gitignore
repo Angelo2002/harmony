@@ -12,3 +12,6 @@ data/
 
 *.log
 .DS_Store
+
+# Local working notes (scratch, not part of the project).
+REVIEW_NOTES.md

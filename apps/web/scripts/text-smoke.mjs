@@ -1,7 +1,8 @@
 // Focused checks for the client's pure logic: parsing message text into markdown,
 // links, emoji and mentions, the merge that catches up after being away, deciding
 // whether a message is aimed at you, what the emoji picker offers and finds, and
-// the quick switcher's matching, the channel arrows and the unread tab title.
+// the quick switcher's matching, the channel arrows and the unread tab title,
+// and reading the time expressions the composer turns into timestamps.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -18,6 +19,14 @@ import {
   unreadBadge,
   unreadTitle,
 } from '../src/lib/quick-switch.ts';
+import {
+  dayFirst,
+  fromDateTimeInputs,
+  parseTimeExpression,
+  timestampChoices,
+  timestampToken,
+  toDateTimeInputs,
+} from '../src/lib/time-input.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
 
@@ -263,6 +272,80 @@ check('the tooltip is the full date', formatTimestampTitle(0, utc) === formatTim
 const hour = 60 * 60 * 1000;
 check('R reads ahead', formatTimestamp(10 * hour, 'R', { now: 7 * hour, locale: 'en-US' }) === 'in 3 hours');
 check('R reads behind', formatTimestamp(0, 'R', { now: 50 * hour, locale: 'en-US' }) === '2 days ago');
+
+// --- Writing timestamps ---
+// "Now" is pinned to Wednesday 24 December 2025, 15:00 UTC, and the zone to UTC,
+// so every expression has one right answer.
+const writeNow = Date.UTC(2025, 11, 24, 15, 0, 0);
+const gb = { now: writeNow, locale: 'en-GB', timeZone: 'UTC' };
+const us = { ...gb, locale: 'en-US' };
+const at = (text, options = gb) => parseTimeExpression(text, options);
+const iso = (text, options = gb) => {
+  const moment = at(text, options);
+  return moment ? new Date(moment.epochMs).toISOString().slice(0, 16) : null;
+};
+check('@5pm is today while ahead', iso('5pm') === '2025-12-24T17:00');
+check('@17:30 is today while ahead', iso('17:30') === '2025-12-24T17:30');
+check('@5:30pm reads the minutes', iso('5:30pm') === '2025-12-24T17:30');
+check('@5 pm may have a space', iso('5 pm') === '2025-12-24T17:00');
+check('@2pm has passed, so it is tomorrow', iso('2pm') === '2025-12-25T14:00');
+check('@5pm after 5pm is tomorrow', iso('5pm', { ...gb, now: Date.UTC(2025, 11, 24, 17, 30) }) === '2025-12-25T17:00');
+check('@5pm at exactly 5pm is tomorrow', iso('5pm', { ...gb, now: Date.UTC(2025, 11, 24, 17, 0) }) === '2025-12-25T17:00');
+check('@12am is midnight', iso('12am') === '2025-12-25T00:00');
+check('@noon is midday', iso('noon') === '2025-12-25T12:00');
+check('@tomorrow keeps the time of day', iso('tomorrow') === '2025-12-25T15:00');
+check('@tomorrow 18:00', iso('tomorrow 18:00') === '2025-12-25T18:00');
+check('@tomorrow at 6pm', iso('tomorrow at 6pm') === '2025-12-25T18:00');
+check('@tomorrow 18 takes the bare hour', iso('tomorrow 18') === '2025-12-25T18:00');
+check('@monday 9am is the coming Monday', iso('monday 9am') === '2025-12-29T09:00');
+check('@mon 9am takes the short name', iso('mon 9am') === '2025-12-29T09:00');
+check('@wed 4pm on a Wednesday is today', iso('wed 4pm') === '2025-12-24T16:00');
+check('@wed 9am on a Wednesday is next week', iso('wed 9am') === '2025-12-31T09:00');
+check('@wednesday on a Wednesday is next week', iso('wednesday') === '2025-12-31T15:00');
+check('@in 2h', iso('in 2h') === '2025-12-24T17:00');
+check('@in 30 minutes', iso('in 30 minutes') === '2025-12-24T15:30');
+check('@in 3 days', iso('in 3 days') === '2025-12-27T15:00');
+check('@in an hour', iso('in an hour') === '2025-12-24T16:00');
+check('@2025-12-24 20:00', iso('2025-12-24 20:00') === '2025-12-24T20:00');
+check('@2025-12-24 keeps the time of day', iso('2025-12-24') === '2025-12-24T15:00');
+check('@24/12 20:00 reads day first in en-GB', iso('24/12 20:00') === '2025-12-24T20:00');
+check('@12/24 20:00 reads month first in en-US', iso('12/24 20:00', us) === '2025-12-24T20:00');
+check('@01/02 follows the locale', iso('01/02 10:00') === '2026-02-01T10:00' && iso('01/02 10:00', us) === '2026-01-02T10:00');
+check('@24/12 is still a date in en-US', iso('24/12 20:00', us) === '2025-12-24T20:00');
+check('@24.12.2026 takes a year', iso('24.12.2026 20:00') === '2026-12-24T20:00');
+check('@24/12 9am has passed, so next year', iso('24/12 9am') === '2026-12-24T09:00');
+check('@24/12 alone is today', iso('24/12') === '2025-12-24T15:00');
+check('@29/02 waits for a leap year', iso('29/02') === '2028-02-29T15:00');
+check('@now is now', at('now')?.epochMs === writeNow && at('now')?.kind === 'now');
+check('@NOW ignores case', at('NOW')?.epochMs === writeNow);
+check('now is counted from a whole second', at('now', { ...gb, now: writeNow + 999 })?.epochMs === writeNow);
+check('@14:00 is read in the given zone', iso('14:00', { ...gb, timeZone: 'America/New_York' }) === '2025-12-24T19:00');
+for (const nonsense of ['25:00', '24:00', '17:60', '13pm', '0pm', 'in 0h', 'in 2 parsecs', '31/02', '2025-13-01', 'tom', 'tomo', '17', 'bob', 'tomorrow bob', '']) {
+  check(`@${nonsense} is not a time`, at(nonsense) === null);
+}
+check('the leading style suits what was typed', [
+  ['5pm', 't'],
+  ['tomorrow', 'D'],
+  ['tomorrow 18:00', 'f'],
+  ['in 2h', 'R'],
+  ['now', 'f'],
+].every(([text, style]) => timestampChoices(at(text), gb)[0].style === style));
+const choices = timestampChoices(at('5pm'), gb);
+check('every style is offered once', choices.map((choice) => choice.style).sort().join('') === 'DFRTdft');
+check('a time-only preview names the day', choices.find((choice) => choice.style === 't').preview === 'Today at 17:00');
+check('a time tomorrow says so', timestampChoices(at('2pm'), gb)[0].preview === 'Tomorrow at 14:00');
+check('a time further out names the weekday', timestampChoices(at('monday 9am'), gb).find((c) => c.style === 't').preview === 'Monday at 9:00');
+check('the full preview has the weekday', choices.find((choice) => choice.style === 'F').preview.startsWith('Wednesday, 24 December 2025'));
+check('the relative preview counts from now', choices.find((choice) => choice.style === 'R').preview === 'in 2 hours');
+check('the inserted token is <t:seconds:style>', choices[0].token === '<t:1766595600:t>');
+check('the token holds whole seconds', timestampToken(1_766_595_600_999, 'R') === '<t:1766595600:R>');
+const written = inline(`see you ${choices[0].token}`).find((segment) => segment.type === 'timestamp');
+check('a written token renders as a timestamp', written?.epochMs === 1_766_595_600_000 && written.style === 't');
+check('en-GB writes the day first', dayFirst('en-GB') && !dayFirst('en-US'));
+check('the picker fields show the moment', JSON.stringify(toDateTimeInputs(writeNow, 'UTC')) === '{"date":"2025-12-24","time":"15:00"}');
+check('the picker fields round-trip', fromDateTimeInputs('2025-12-24', '15:00', 'UTC') === writeNow);
+check('the picker fields read the zone', fromDateTimeInputs('2025-12-24', '14:00', 'America/New_York') === Date.UTC(2025, 11, 24, 19));
+check('an incomplete picker field is no moment', fromDateTimeInputs('', '15:00', 'UTC') === null);
 
 // --- Code blocks ---
 check('a code block keeps its language', parse('```python\nprint(1)\n```')[0].language === 'python');

@@ -1,11 +1,27 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { GatewayEvent, LIMITS, Permission, hasPermission, type Message, type PinListResponse } from '@harmony/shared';
+import {
+  GatewayEvent,
+  LIMITS,
+  Permission,
+  hasPermission,
+  type Attachment,
+  type Message,
+  type MessageReference,
+  type PinListResponse,
+  type Reaction,
+  type Sticker,
+} from '@harmony/shared';
 import type { AuthContext } from '../auth/service.ts';
 import type { AuditService } from '../audit/service.ts';
 import { canAccessChannel, channelAccessFor } from '../access/service.ts';
+import { listAttachmentsForMessages } from '../db/attachments.ts';
 import { findChannel } from '../db/channels.ts';
-import { findMessage, type MessageRow } from '../db/messages.ts';
-import { clearPinned, countPinnedMessages, listPinnedMessages, setPinned } from '../db/pins.ts';
+import { findMessage, parseMessageEmbed, type MessageRow } from '../db/messages.ts';
+import { clearPinned, listPinnedMessages, setPinnedWithinCap } from '../db/pins.ts';
+import { listReactionsForMessages } from '../db/reactions.ts';
+import { listSavedAmong } from '../db/saved_messages.ts';
+import { listStickersForMessages } from '../db/stickers.ts';
+import { findUserById, presentUser } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import type { MessageService } from '../messages/service.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
@@ -91,10 +107,6 @@ export function createPinService(
     }
   }
 
-  function isFull(channelId: string): boolean {
-    return countPinnedMessages(sqlite, channelId) >= LIMITS.pinsPerChannel;
-  }
-
   /** Sends the new pin state to everyone who can see the channel. */
   function broadcast(messageId: string): Message | null {
     const message = messages.byId(messageId);
@@ -108,16 +120,75 @@ export function createPinService(
     return message;
   }
 
+  /** The reply a message answers, with its parent's author resolved. */
+  function buildReply(row: MessageRow): MessageReference | null {
+    if (!row.reply_to_id) return null;
+    const parent = findMessage(sqlite, row.reply_to_id);
+    if (!parent) return null;
+    const authorRow = parent.author_id ? findUserById(sqlite, parent.author_id) : null;
+    return {
+      id: parent.id,
+      author: authorRow ? presentUser(sqlite, authorRow) : null,
+      content: parent.deleted_at ? '' : parent.content,
+      deleted: parent.deleted_at != null,
+    };
+  }
+
+  /** One pin row plus its already-batched related rows, as the API shape. */
+  function toMessage(
+    row: MessageRow,
+    attachments: Attachment[],
+    reactions: Reaction[],
+    stickers: Sticker[],
+    saved: boolean,
+  ): Message {
+    const authorRow = row.author_id ? findUserById(sqlite, row.author_id) : null;
+    return {
+      id: row.id,
+      channelId: row.channel_id,
+      author: authorRow ? presentUser(sqlite, authorRow) : null,
+      content: row.content,
+      createdAt: row.created_at,
+      editedAt: row.edited_at,
+      attachments,
+      stickers,
+      replyTo: buildReply(row),
+      reactions,
+      embed: parseMessageEmbed(row.embed),
+      pinnedAt: row.pinned_at,
+      saved,
+    };
+  }
+
+  /**
+   * Renders a page of pin rows the way the message service renders a history
+   * page: the per-message lookups (attachments, reactions, stickers, saves) are
+   * batched into one query each, so a full page costs a bounded handful of
+   * queries rather than a round trip per pin. The shape matches `renderPage` in
+   * messages/service.ts, which is private to that service, so it is mirrored here.
+   */
+  function renderPins(rows: MessageRow[], viewerId: string): Message[] {
+    const ids = rows.map((row) => row.id);
+    const attachments = listAttachmentsForMessages(sqlite, ids);
+    const reactions = listReactionsForMessages(sqlite, ids, viewerId);
+    const stickers = listStickersForMessages(sqlite, ids);
+    const saved = listSavedAmong(sqlite, viewerId, ids);
+    return rows.map((row) =>
+      toMessage(
+        row,
+        attachments.get(row.id) ?? [],
+        reactions.get(row.id) ?? [],
+        stickers.get(row.id) ?? [],
+        saved.has(row.id),
+      ),
+    );
+  }
+
   return {
     list(auth, channelId) {
       assertChannel(auth.user.id, channelId);
       const rows = listPinnedMessages(sqlite, channelId);
-      return {
-        messages: rows.flatMap((row) => {
-          const message = messages.byId(row.id, auth.user.id);
-          return message ? [message] : [];
-        }),
-      };
+      return { messages: renderPins(rows, auth.user.id) };
     },
 
     pin(auth, channelId, messageId) {
@@ -126,7 +197,17 @@ export function createPinService(
       assertCanPin(auth);
       if (row.pinned_at) return render(row.id, auth.user.id);
 
-      if (isFull(channelId)) {
+      // Counted and written in one statement, so two pins racing for the last
+      // slot cannot both pass the cap.
+      const result = setPinnedWithinCap(
+        sqlite,
+        row.id,
+        auth.user.id,
+        new Date().toISOString(),
+        channelId,
+        LIMITS.pinsPerChannel,
+      );
+      if (result === 'full') {
         throw new HttpError(
           400,
           'too_many_pins',
@@ -134,7 +215,7 @@ export function createPinService(
         );
       }
 
-      if (setPinned(sqlite, row.id, auth.user.id, new Date().toISOString())) {
+      if (result === 'pinned') {
         const message = broadcast(row.id);
         audit.messagePinned(auth.user.id, channelId, row.author_id, row.content, true);
         if (message) for (const listener of pinnedListeners) safeNotify(listener, message);
@@ -157,9 +238,17 @@ export function createPinService(
 
     pinBridged(messageId, pinnedAt) {
       const row = findMessage(sqlite, messageId);
-      if (!row || row.deleted_at || row.pinned_at || isFull(row.channel_id)) return null;
+      if (!row || row.deleted_at) return null;
       // Nobody here pinned it, so there is no one to credit.
-      if (!setPinned(sqlite, row.id, null, pinnedAt ?? new Date().toISOString())) return null;
+      const result = setPinnedWithinCap(
+        sqlite,
+        row.id,
+        null,
+        pinnedAt ?? new Date().toISOString(),
+        row.channel_id,
+        LIMITS.pinsPerChannel,
+      );
+      if (result !== 'pinned') return null;
       return broadcast(row.id);
     },
 

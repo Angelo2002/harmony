@@ -19,9 +19,28 @@ const PAGE_SIZE = 500;
 
 export interface ChannelExportContext {
   serverName: string;
-  /** The origin attachment links are built on, e.g. `https://chat.example.com`. */
+  /**
+   * Origin attachment links fall back to, e.g. `https://chat.example.com`.
+   * Callers often derive it from the request's protocol and host, which a client
+   * can spoof behind a proxy (`X-Forwarded-Host`), so `publicBaseUrl` wins when
+   * the instance has one.
+   */
   origin: string;
+  /**
+   * Admin-configured, publicly reachable base URL for this instance, or null
+   * when it has none. See `SettingsService.getBridge().publicBaseUrl`.
+   */
+  publicBaseUrl?: string | null;
   exportedAt: Date;
+}
+
+/**
+ * The base attachment links are built on: the instance's configured public URL
+ * when it has one, otherwise the request-derived origin. The public URL is what
+ * keeps a spoofed request host from being baked into an exported file's links.
+ */
+function attachmentBase(context: ChannelExportContext): string {
+  return (context.publicBaseUrl ?? context.origin).replace(/\/+$/, '');
 }
 
 /**
@@ -32,7 +51,7 @@ export interface ChannelExportContext {
 function* exportMessages(
   sqlite: DatabaseSync,
   channelId: string,
-  origin: string,
+  baseUrl: string,
 ): Generator<ChannelExportMessage> {
   const authors = new Map<string, ChannelExportAuthor | null>();
   function author(id: string | null): ChannelExportAuthor | null {
@@ -79,7 +98,7 @@ function* exportMessages(
           filename: attachment.filename,
           contentType: attachment.contentType,
           size: attachment.size,
-          url: `${origin}/api/v1/attachments/${attachment.id}`,
+          url: `${baseUrl}/api/v1/attachments/${attachment.id}`,
           sourceUrl: attachment.sourceUrl,
         })),
         stickers: (stickers.get(row.id) ?? []).map((sticker) => ({ id: sticker.id, name: sticker.name })),
@@ -115,7 +134,7 @@ export function* channelExportJson(
   const head = JSON.stringify(envelope);
   yield `${head.slice(0, -1)},"messages":[`;
   let first = true;
-  for (const message of exportMessages(sqlite, channel.id, context.origin)) {
+  for (const message of exportMessages(sqlite, channel.id, attachmentBase(context))) {
     yield `${first ? '' : ','}\n${JSON.stringify(message)}`;
     first = false;
   }
@@ -204,7 +223,7 @@ ${channel.topic ? `<p>${escapeHtml(channel.topic)}</p>\n` : ''}</header>
 
   let day: string | null = null;
   let count = 0;
-  for (const message of exportMessages(sqlite, channel.id, context.origin)) {
+  for (const message of exportMessages(sqlite, channel.id, attachmentBase(context))) {
     count++;
     const parts: string[] = [];
 

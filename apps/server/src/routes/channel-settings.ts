@@ -8,7 +8,15 @@ import {
   type ChannelSettingsListResponse,
 } from '@harmony/shared';
 import { requirePermission } from '../auth/plugin.ts';
-import { channelAccessFor, visibleCategories, visibleChannels } from '../access/service.ts';
+import {
+  canAccessChannel,
+  canSeeResource,
+  channelAccessFor,
+  visibleCategories,
+  visibleChannels,
+} from '../access/service.ts';
+import { findCategory } from '../db/categories.ts';
+import { findChannel } from '../db/channels.ts';
 import {
   findChannelSettings,
   listChannelSettings,
@@ -43,6 +51,23 @@ export function registerChannelSettingsRoutes(app: FastifyInstance, deps: Channe
     return targets;
   }
 
+  /**
+   * The type of one named target the member can see, or undefined when it does
+   * not exist or is locked away. The write path only ever looks at the one id it
+   * was handed, so this resolves just that row rather than rebuilding the whole
+   * channel and category visibility sets with `visibleTargets`.
+   */
+  function visibleTarget(userId: string, targetId: string): SettingsTarget['type'] | undefined {
+    const access = channelAccessFor(db.sqlite, userId);
+    if (findChannel(db.sqlite, targetId)) {
+      return canAccessChannel(db.sqlite, access, targetId) ? 'channel' : undefined;
+    }
+    if (findCategory(db.sqlite, targetId)) {
+      return canSeeResource(db.sqlite, access, { categoryId: targetId }) ? 'category' : undefined;
+    }
+    return undefined;
+  }
+
   app.get('/api/v1/users/@me/channel-settings', async (request) => {
     const auth = requirePermission(request, Permission.ViewChannels);
     // A setting on something since locked away stays stored, in case access
@@ -66,7 +91,7 @@ export function registerChannelSettingsRoutes(app: FastifyInstance, deps: Channe
   app.put('/api/v1/users/@me/channel-settings/:targetId', async (request) => {
     const auth = requirePermission(request, Permission.ViewChannels);
     const { targetId } = request.params as { targetId: string };
-    const type = visibleTargets(auth.user.id).get(targetId);
+    const type = visibleTarget(auth.user.id, targetId);
     if (!type) throw new HttpError(404, 'target_not_found', 'That channel or category does not exist.');
     const input = parseBody(updateChannelSettingsSchema, request.body);
 

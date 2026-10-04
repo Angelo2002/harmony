@@ -73,18 +73,17 @@ export function saveChannelSettings(
 
   const muted = values.muted ? 1 : 0;
   const muteEndsAt = values.muted ? values.muteEndsAt : null;
-  const updated = sqlite
-    .prepare(
-      `UPDATE channel_settings SET muted = ?, mute_ends_at = ?, level = ?, updated_at = ?
-        WHERE user_id = ? AND ${key} = ?`,
-    )
-    .run(muted, muteEndsAt, values.level, values.updatedAt, userId, target.id);
-  if (Number(updated.changes) > 0) return;
-
+  // One upsert rather than an update then an insert: two first saves of the same
+  // target racing each other would otherwise have one hit the partial unique
+  // index. The conflict target names the same partial index that applies to this
+  // column, so SQLite can match it.
   sqlite
     .prepare(
       `INSERT INTO channel_settings (user_id, ${key}, muted, mute_ends_at, level, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, ${key}) WHERE ${key} IS NOT NULL
+       DO UPDATE SET muted = excluded.muted, mute_ends_at = excluded.mute_ends_at,
+                     level = excluded.level, updated_at = excluded.updated_at`,
     )
     .run(userId, target.id, muted, muteEndsAt, values.level, values.updatedAt);
 }

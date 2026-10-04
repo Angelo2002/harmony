@@ -76,9 +76,16 @@ export function registerBackupRoutes(app: FastifyInstance, deps: BackupRouteDeps
     const now = new Date();
     const serverName = deps.settings.get().serverName;
     const filename = `harmony-${fileSlug(serverName, 'server')}-${fileSlug(channel.name, 'channel')}-${fileDate(now)}.${format}`;
-    // Attachment links point back at the address the export was asked for on,
+    // Attachment links point back at this instance. A configured public URL wins
+    // when there is one, since the request's protocol and host can be spoofed
+    // behind a proxy; otherwise the address the export was asked for on is used,
     // which is the one the person downloading it knows the server by.
-    const context = { serverName, origin: `${request.protocol}://${request.host}`, exportedAt: now };
+    const context = {
+      serverName,
+      origin: `${request.protocol}://${request.host}`,
+      publicBaseUrl: deps.settings.getBridge().publicBaseUrl,
+      exportedAt: now,
+    };
     const body =
       format === 'html'
         ? channelExportHtml(deps.db.sqlite, channel, context)

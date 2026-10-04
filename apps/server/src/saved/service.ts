@@ -127,7 +127,12 @@ export function createSavedMessageService(
       // one for a message they can no longer read.
       const row = findMessage(sqlite, messageId);
       if (!unsaveMessage(sqlite, auth.user.id, messageId)) return;
-      notify(auth.user.id, { messageId, channelId: row?.channel_id ?? '', saved: null });
+      // A hard-deleted message leaves no row to read a channel from. The
+      // `SavedMessageUpdatePayload` contract requires a channelId, and an empty
+      // one cannot be routed by a client, so the update is skipped rather than
+      // sent with a made-up channel.
+      if (!row) return;
+      notify(auth.user.id, { messageId, channelId: row.channel_id, saved: null });
     },
   };
 }

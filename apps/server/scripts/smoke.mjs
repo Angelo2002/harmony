@@ -3791,6 +3791,30 @@ try {
       'while someone who can see it may mute it',
       (await put(settingsLocked.json.id, { muted: true }, ownerToken)).status === 200,
     );
+
+    // Two first saves of the same target at once must upsert rather than have
+    // one collide on the partial unique index and 500. Both are accepted and one
+    // row is kept, holding whichever write won.
+    const upsertRoom = (
+      await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'settings-race' } })
+    ).json;
+    const raceWrites = await Promise.all([
+      put(upsertRoom.id, { level: 'mentions' }),
+      put(upsertRoom.id, { level: 'nothing' }),
+    ]);
+    check(
+      'two first saves of the same target do not collide',
+      raceWrites.every((result) => result.status === 200),
+      JSON.stringify(raceWrites.map((result) => result.status)),
+    );
+    const raced = (await settingsOf(bobToken)).filter((entry) => entry.targetId === upsertRoom.id);
+    check(
+      'and exactly one row is kept, holding one of the written values',
+      raced.length === 1 && (raced[0].level === 'mentions' || raced[0].level === 'nothing'),
+      JSON.stringify(raced),
+    );
+    await req(`/channels/${upsertRoom.id}`, { method: 'DELETE', token: ownerToken });
+
     await req(`/channels/${settingsLocked.json.id}`, { method: 'DELETE', token: ownerToken });
     check(
       'deleting a channel takes its settings with it',
@@ -4064,6 +4088,36 @@ try {
     (await req(`/channels/${pinCap.id}/pins/${capIds[50]}`, { method: 'PUT', token: ownerToken })).status === 200,
   );
 
+  // Two pins racing for the last slot: the cap is enforced by the write itself,
+  // so exactly one can land and the channel can never tip over 50. The outcome
+  // is deterministic (one winner regardless of order), not a flaky race.
+  const pinRace = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'pin-race' } })).json;
+  const raceIds = [];
+  for (let index = 0; index < 51; index++) {
+    const posted = await req(`/channels/${pinRace.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: `race ${index}` },
+    });
+    raceIds.push(posted.json.id);
+  }
+  for (const id of raceIds.slice(0, 49)) {
+    await req(`/channels/${pinRace.id}/pins/${id}`, { method: 'PUT', token: ownerToken });
+  }
+  const race = await Promise.all([
+    req(`/channels/${pinRace.id}/pins/${raceIds[49]}`, { method: 'PUT', token: ownerToken }),
+    req(`/channels/${pinRace.id}/pins/${raceIds[50]}`, { method: 'PUT', token: ownerToken }),
+  ]);
+  check(
+    'two pins racing for the last slot cannot both land',
+    race.map((result) => result.status).sort().join() === '200,400' &&
+      (await pinsIn(pinRace.id)).json?.messages?.length === 50 &&
+      race
+        .filter((result) => result.status === 400)
+        .every((result) => result.json?.error?.code === 'too_many_pins'),
+    JSON.stringify(race.map((result) => ({ status: result.status, code: result.json?.error?.code }))),
+  );
+
   // A locked channel's pins are as hidden as its history.
   const pinLockRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Pin keepers' } });
   const lockedPins = (
@@ -4231,6 +4285,15 @@ try {
     'removing it reaches the other sessions too',
     bobElsewhere.events.some(
       (frame) => frame.t === 'SAVED_MESSAGE_UPDATE' && frame.d?.messageId === keepSecond.id && frame.d?.saved === null,
+    ),
+  );
+  check(
+    "a removal names the message's channel so it can be routed",
+    bobElsewhere.events.some(
+      (frame) =>
+        frame.t === 'SAVED_MESSAGE_UPDATE' &&
+        frame.d?.messageId === keepSecond.id &&
+        frame.d?.channelId === savedChannel.id,
     ),
   );
   check('a removed save leaves the list', savedIds(await savedOf(bobToken)) === keepFirst.id);

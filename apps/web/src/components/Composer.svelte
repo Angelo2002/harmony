@@ -868,7 +868,6 @@
       aria-label="Send"
       disabled={busy || uploading || timeoutUntil !== null || slowmodeRemaining > 0}
     >
-      <span class="send-label">Send</span>
       <span class="send-icon"><Icon name="send" size={20} /></span>
     </button>
   </form>

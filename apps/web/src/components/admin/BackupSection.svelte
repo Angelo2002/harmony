@@ -1,16 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { Channel, ChannelExportFormat, ChannelListResponse } from '@harmony/shared';
+  import type { ApiErrorBody, Channel, ChannelExportFormat, ChannelListResponse } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
   import { session } from '../../lib/session.svelte';
-
-  /**
-   * How long a download button stays disabled after a click. Both downloads are
-   * plain links, so the browser streams the file to disk and shows its progress
-   * itself; the page never learns when one starts or ends. A short pause is
-   * enough to stop a double click from asking the server for two at once.
-   */
-  const PREPARING_MS = 4000;
 
   const isOwner = $derived(session.user?.isOwner === true);
 
@@ -37,19 +29,68 @@
   });
 
   /**
-   * Swaps the link for a disabled button. Deferred a tick so the link is still
-   * on the page when the browser acts on the click that started the download.
+   * Fetches a download and hands the bytes to the browser as a file. Routing it
+   * through fetch instead of a plain link is what keeps a failure inside the
+   * app: a link answered with 409 or 403 navigates away and shows the raw error
+   * body, while this reports the message in the panel. The archive is held in
+   * memory before it is saved, which is fine at the size one community produces.
    */
-  function pause(set: (value: boolean) => void): void {
-    setTimeout(() => {
-      set(true);
-      setTimeout(() => set(false), PREPARING_MS);
-    });
+  async function saveFile(path: string): Promise<void> {
+    const response = await fetch(path, { credentials: 'include' });
+    if (!response.ok) {
+      let message = 'The download failed.';
+      try {
+        const body = (await response.json()) as ApiErrorBody;
+        message = body?.error?.message ?? message;
+      } catch {
+        // A body that is not our error JSON leaves the generic message.
+      }
+      throw new ApiError(response.status, 'download_failed', message);
+    }
+
+    const disposition = response.headers.get('Content-Disposition') ?? '';
+    const name = /filename="?([^"]+)"?/.exec(disposition)?.[1] ?? 'download';
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    // Revoke on the next task, so the click still has its moment to start the save.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  async function downloadBackup(): Promise<void> {
+    error = null;
+    preparingBackup = true;
+    try {
+      await saveFile('/api/v1/backup');
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      preparingBackup = false;
+    }
+  }
+
+  async function downloadExport(): Promise<void> {
+    if (!exportHref) return;
+    error = null;
+    preparingExport = true;
+    try {
+      await saveFile(exportHref);
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : String(cause);
+    } finally {
+      preparingExport = false;
+    }
   }
 </script>
 
 <section>
   <h3>Backup</h3>
+
+  {#if error}<p class="form-error">{error}</p>{/if}
 
   {#if isOwner}
     <div class="panel">
@@ -65,16 +106,12 @@
         only you can read.
       </div>
       <div class="editor-actions">
-        {#if preparingBackup}
-          <button type="button" disabled>Preparing backup…</button>
-        {:else}
-          <a class="button-link" href="/api/v1/backup" download onclick={() => pause((value) => (preparingBackup = value))}>
-            Download backup
-          </a>
-        {/if}
+        <button type="button" class="primary" disabled={preparingBackup} onclick={downloadBackup}>
+          {preparingBackup ? 'Preparing backup…' : 'Download backup'}
+        </button>
       </div>
       {#if preparingBackup}
-        <p class="muted">Your browser shows the download's progress. Large instances take a while.</p>
+        <p class="muted">The archive is built and held in the browser before it is saved. Large instances take a while.</p>
       {/if}
     </div>
   {:else}
@@ -90,7 +127,6 @@
       attachments (the files themselves stay on the server). HTML is a page to read in any browser; JSON is
       for other tools. Deleted messages are left out.
     </p>
-    {#if error}<p class="form-error">{error}</p>{/if}
     <div class="inline">
       <select bind:value={channelId} aria-label="Channel">
         {#each channels as channel (channel.id)}
@@ -101,13 +137,9 @@
         <option value="html">HTML page</option>
         <option value="json">JSON</option>
       </select>
-      {#if preparingExport || !exportHref}
-        <button type="button" disabled>{preparingExport ? 'Exporting…' : 'Export'}</button>
-      {:else}
-        <a class="button-link" href={exportHref} download onclick={() => pause((value) => (preparingExport = value))}>
-          Export
-        </a>
-      {/if}
+      <button type="button" class="primary" disabled={preparingExport || !exportHref} onclick={downloadExport}>
+        {preparingExport ? 'Exporting…' : 'Export'}
+      </button>
     </div>
   </div>
 </section>

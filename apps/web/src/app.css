@@ -1802,14 +1802,28 @@ button.mention:hover {
 /*
  * The + button and its menu are the phone affordance: a wide screen shows the
  * four picker buttons directly, so these stay out of the layout there. The send
- * label likewise swaps for an icon only on small screens (see the max-width
- * block at the end of this file).
+ * button is an icon at every width. See the max-width block at the end of this
+ * file for the phone composer.
  */
 .attach-more,
 .composer-actions,
-.composer-actions-backdrop,
-.send-icon {
+.composer-actions-backdrop {
   display: none;
+}
+
+/* An icon-only send button: the word took width the message field can use. */
+.composer .send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.send-icon {
+  display: inline-flex;
 }
 
 /* ---- Pending attachments ---- */
@@ -3678,24 +3692,6 @@ button.roster-member:hover {
   }
 
   .attach-more {
-    display: inline-flex;
-  }
-
-  .composer .send {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
-    height: 38px;
-    padding: 0;
-    border-radius: 50%;
-  }
-
-  .send-label {
-    display: none;
-  }
-
-  .send-icon {
     display: inline-flex;
   }
 

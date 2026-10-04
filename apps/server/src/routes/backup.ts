@@ -40,6 +40,12 @@ export function registerBackupRoutes(app: FastifyInstance, deps: BackupRouteDeps
     }
 
     const download = await backups.open(deps.settings.get().serverName);
+    // The stream releases the snapshot and the slot as it ends, but if this
+    // response is torn down before that stream is ever piped (a throw below, a
+    // client already gone), nothing would touch it and the slot would wedge
+    // until a restart. Tying the release to the response covers every path, and
+    // it is idempotent so the normal end is unaffected.
+    reply.raw.once('close', download.release);
     deps.audit.backupDownloaded(auth.user.id, download.filename);
 
     reply

@@ -18,6 +18,12 @@ export interface BackupDownload {
   filename: string;
   /** The gzipped tar, produced as it is read. */
   stream: Readable;
+  /**
+   * Deletes the snapshot and frees the one-at-a-time slot. Idempotent, and it
+   * also runs automatically as the stream ends or is torn down; a caller uses it
+   * as a backstop for the case where the stream is never consumed at all.
+   */
+  release(): void;
 }
 
 /**
@@ -143,7 +149,7 @@ export function createBackupService(sqlite: DatabaseSync, config: Config): Backu
       // reading) before the callback runs and the snapshot is deleted.
       pipeline(source, gzip, () => finish());
 
-      return { filename: `harmony-backup-${fileSlug(serverName, 'server')}-${fileDate(now)}.tar.gz`, stream: gzip };
+      return { filename: `harmony-backup-${fileSlug(serverName, 'server')}-${fileDate(now)}.tar.gz`, stream: gzip, release: finish };
     },
   };
 }

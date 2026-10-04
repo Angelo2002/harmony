@@ -110,6 +110,10 @@ export type MessageBlock =
 const INLINE_SOURCE = [
   '\\\\(?<esc>[!-\\/:-@\\[-`{-~])',
   '`(?<code>[^`\\n]*?)`',
+  // Longest emphasis first: `***x***` is bold and italic, not a bold run with a
+  // stranded star beside it.
+  '\\*\\*\\*(?<boldItalicStar>[\\s\\S]+?)\\*\\*\\*',
+  '___(?<boldItalicUnder>[\\s\\S]+?)___',
   '\\*\\*(?<bold>[\\s\\S]+?)\\*\\*',
   '__(?<underline>[\\s\\S]+?)__',
   '~~(?<strike>[\\s\\S]+?)~~',
@@ -117,7 +121,8 @@ const INLINE_SOURCE = [
   // Discord's rule: no space just inside the stars, so `2 * 3 * 4` is arithmetic.
   '\\*(?<italicStar>[^\\s*](?:[^*\\n]*?[^\\s*])?)\\*',
   '(?<![a-zA-Z0-9_])_(?<italicUnderscore>[^_\\n]+?)_(?![a-zA-Z0-9_])',
-  '\\[(?<linkText>[^\\]\\n]+?)\\]\\((?<linkUrl>https?:\\/\\/[^\\s)]+)\\)',
+  // A masked link's address may hold balanced parentheses, as wiki paths do.
+  '\\[(?<linkText>[^\\]\\n]+?)\\]\\((?<linkUrl>https?:\\/\\/[^\\s()]*(?:\\([^\\s()]*\\)[^\\s()]*)*)\\)',
   '<t:(?<timestamp>-?\\d{1,13})(?::(?<timestampStyle>[a-zA-Z]))?>',
   '<(?<autolink>https?:\\/\\/[^\\s>]+)>',
   ':(?<emojiName>[a-zA-Z0-9_]{2,32}):',
@@ -125,8 +130,21 @@ const INLINE_SOURCE = [
   '(?<bareUrl>https?:\\/\\/[^\\s<>]+)',
 ].join('|');
 
+/**
+ * The compiled inline grammar, built once. Each call of `parseInline` saves and
+ * restores `lastIndex`, so the shared pattern survives the recursion intact.
+ */
+const INLINE_PATTERN = new RegExp(INLINE_SOURCE, 'g');
+
 /** How deep emphasis may nest before the parser stops unwrapping it. */
 const MAX_NESTING = 4;
+
+/**
+ * Markdown emphasis markers a bare URL can run into when a link touches styled
+ * text. They belong to the message, not the address, so the parser trims them
+ * back off and emits them as the text that follows.
+ */
+const TRAILING_MARKDOWN = /[*_~|]+$/;
 
 function normalizeStyles(styles: TextStyles): TextStyles | undefined {
   return styles.bold || styles.italic || styles.underline || styles.strike || styles.spoiler
@@ -143,6 +161,17 @@ function sameStyles(a: TextStyles | undefined, b: TextStyles | undefined): boole
     !!a.strike === !!b.strike &&
     !!a.spoiler === !!b.spoiler
   );
+}
+
+/**
+ * The text a segment shows, used when flattening a link label: an emoji, mention
+ * or channel carries a bare name, so its marker is put back.
+ */
+function segmentText(segment: InlineSegment): string {
+  if (segment.type === 'emoji') return `:${segment.value}:`;
+  if (segment.type === 'mention') return `@${segment.value}`;
+  if (segment.type === 'channel') return `#${segment.value}`;
+  return segment.value;
 }
 
 /** Appends text, merging it into the previous run when the styling matches. */
@@ -189,7 +218,10 @@ function emitText(
     }
     const name = matchChannelName(value.slice(hash + 1), names);
     const channel = name === null ? undefined : channels.find((entry) => entry.name === name);
-    if (!channel) {
+    // The name must end at a word boundary as well, so `#chanx` never becomes a
+    // channel `chan` with a stray `x` left over.
+    const after = name === null ? undefined : value[hash + 1 + name.length];
+    if (!channel || (after !== undefined && CHANNEL_NAME_CHAR.test(after))) {
       index = hash + 1;
       continue;
     }
@@ -212,7 +244,9 @@ function parseInline(
 ): InlineSegment[] {
   if (depth > MAX_NESTING) return [{ type: 'text', value: text, styles: normalizeStyles(styles) }];
 
-  const pattern = new RegExp(INLINE_SOURCE, 'g');
+  const pattern = INLINE_PATTERN;
+  const resume = pattern.lastIndex;
+  pattern.lastIndex = 0;
   const out: InlineSegment[] = [];
   let cursor = 0;
   let match = pattern.exec(text);
@@ -229,6 +263,8 @@ function parseInline(
       emitText(out, group.esc, styles, channels);
     } else if (group.code !== undefined) {
       out.push({ type: 'code', value: group.code, styles: normalizeStyles(styles) });
+    } else if (group.boldItalicStar !== undefined || group.boldItalicUnder !== undefined) {
+      nested(group.boldItalicStar ?? group.boldItalicUnder ?? '', { bold: true, italic: true });
     } else if (group.bold !== undefined) {
       nested(group.bold, { bold: true });
     } else if (group.underline !== undefined) {
@@ -240,11 +276,25 @@ function parseInline(
     } else if (group.italicStar !== undefined || group.italicUnderscore !== undefined) {
       nested(group.italicStar ?? group.italicUnderscore ?? '', { italic: true });
     } else if (group.linkText !== undefined) {
+      // Parse the label so emphasis and code inside it still apply; flatten the
+      // runs into one link, carrying the styles they contributed.
+      const label = parseInline(group.linkText, emojiLookup, mentionLookup, channels, styles, depth + 1);
+      const link: TextStyles = { ...styles };
+      let value = '';
+      for (const segment of label) {
+        value += segmentText(segment);
+        if (!segment.styles) continue;
+        if (segment.styles.bold) link.bold = true;
+        if (segment.styles.italic) link.italic = true;
+        if (segment.styles.underline) link.underline = true;
+        if (segment.styles.strike) link.strike = true;
+        if (segment.styles.spoiler) link.spoiler = true;
+      }
       out.push({
         type: 'link',
-        value: group.linkText,
+        value,
         href: group.linkUrl ?? '',
-        styles: normalizeStyles(styles),
+        styles: normalizeStyles(link),
         noEmbed: true,
       });
     } else if (group.timestamp !== undefined) {
@@ -276,7 +326,7 @@ function parseInline(
       if (user) out.push({ type: 'mention', value: group.mentionName, user, styles: normalizeStyles(styles) });
       else emitText(out, match[0], styles, channels);
     } else if (group.bareUrl !== undefined) {
-      const href = cleanUrl(group.bareUrl);
+      const href = cleanUrl(group.bareUrl).replace(TRAILING_MARKDOWN, '');
       out.push({ type: 'link', value: href, href, styles: normalizeStyles(styles) });
       // Anything the cleanup trimmed belongs to the surrounding text.
       emitText(out, group.bareUrl.slice(href.length), styles, channels);
@@ -287,16 +337,19 @@ function parseInline(
   }
 
   if (cursor < text.length) emitText(out, text.slice(cursor), styles, channels);
+  pattern.lastIndex = resume;
   return out;
 }
 
 /** A fence opening a code block on a line of its own, with an optional language. */
-const FENCE = /^```(\S*)\s*$/;
+const FENCE = /^(`{3,})(\S*)\s*$/;
 /**
- * The end of a code block: three backticks finishing a line, whether alone or
- * straight after the last line of code, which is how most people type it.
+ * The end of a code block: at least as many backticks as opened it, finishing
+ * the line, whether alone or straight after the last line of code.
  */
-const CLOSING_FENCE = /^(.*?)```\s*$/;
+function closingFenceFor(backticks: number): RegExp {
+  return new RegExp('^(.*?)`{' + backticks + ',}\\s*$');
+}
 /** A whole code block on one line, ```like this```. */
 const SINGLE_LINE_FENCE = /^```(.+?)```\s*$/;
 /** Discord's headers stop at three levels and need a space: `####` is just text. */
@@ -458,8 +511,9 @@ function parseBlocks(
       flushParagraph();
       index++;
       const body: string[] = [];
+      const closingFence = closingFenceFor((fence[1] ?? '```').length);
       while (index < lines.length) {
-        const closing = CLOSING_FENCE.exec(lines[index] ?? '');
+        const closing = closingFence.exec(lines[index] ?? '');
         index++;
         if (closing) {
           if (closing[1]) body.push(closing[1]);
@@ -467,7 +521,7 @@ function parseBlocks(
         }
         body.push(lines[index - 1] ?? '');
       }
-      blocks.push({ type: 'code', text: body.join('\n'), language: fence[1] || null });
+      blocks.push({ type: 'code', text: body.join('\n'), language: fence[2] || null });
       continue;
     }
 

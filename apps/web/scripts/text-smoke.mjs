@@ -85,6 +85,12 @@ check(
 );
 check('text around a fence stays in paragraphs', parse('before\n```\nx\n```\nafter').length === 3);
 
+const longFence = parse('````\ncode\n```\nmore\n````');
+check(
+  'a longer fence is not closed by fewer backticks',
+  longFence.length === 1 && longFence[0].type === 'code' && longFence[0].text === 'code\n```\nmore',
+);
+
 check('a level 1 header is detected', parse('# Title')[0].type === 'header' && parse('# Title')[0].level === 1);
 check('a level 2 header is detected', parse('## Title')[0].level === 2);
 
@@ -100,6 +106,9 @@ check('underscore italics ignore words', plain('snake_case_name') === 'snake_cas
 check('underline is applied', styled('__x__', 'underline', 'x'));
 check('strikethrough is applied', styled('~~x~~', 'strike', 'x'));
 check('spoilers are applied', styled('||x||', 'spoiler', 'x'));
+check('triple stars are bold and italic', styled('***x***', 'bold', 'x') && styled('***x***', 'italic', 'x'));
+check('triple stars leave no stray star', plain('***x***') === 'x');
+check('triple underscores are bold and italic', styled('___x___', 'bold', 'x') && styled('___x___', 'italic', 'x'));
 
 const nested = inline('**a *b* c**');
 check(
@@ -139,6 +148,24 @@ check(
   inline('https://example.com').every((segment) => segment.type !== 'link' || segment.noEmbed !== true),
 );
 check('javascript urls are never linked', inline('javascript:alert(1)').every((segment) => segment.type !== 'link'));
+check(
+  'a bare url leaves trailing stars to the text',
+  inline('https://x.com**').some((segment) => segment.type === 'link' && segment.href === 'https://x.com') &&
+    plain('https://x.com**') === 'https://x.com**',
+);
+check(
+  'a masked link keeps balanced parentheses in its url',
+  plain('[x](https://example.com/Foo_(bar))') === 'x' &&
+    inline('[x](https://example.com/Foo_(bar))').some(
+      (segment) => segment.type === 'link' && segment.href === 'https://example.com/Foo_(bar)',
+    ),
+);
+check('emphasis inside a link label is parsed', styled('[**b**](https://example.com)', 'bold', 'b'));
+check('italics inside a link label are parsed', styled('[*i*](https://example.com)', 'italic', 'i'));
+check(
+  'code inside a link label loses its backticks',
+  inline('[`x`](https://example.com)').some((segment) => segment.type === 'link' && segment.value === 'x'),
+);
 
 // --- Emoji and mentions ---
 const emoji = new Map([['YES', { id: 'e1', name: 'YES', hash: 'h', animated: false }]]);
@@ -179,6 +206,10 @@ check('a short name still works on its own', channelIn('#Off')?.channel.id === '
 check('a name running into a word is not a reference', channelIn('#generalissimo') === undefined);
 check('an unknown channel stays literal', plain('see #nope', noEmoji, noMention, channels) === 'see #nope');
 check('a mid-word hash is not a reference', channelIn('issue#42') === undefined);
+check(
+  'a channel name ends at a word boundary',
+  inline('#chanx', noEmoji, noMention, [{ id: 'c9', name: 'chan' }]).every((segment) => segment.type !== 'channel'),
+);
 // The `#` (like a mention's `@`) is added at render, so rebuild it to compare.
 const rendered = (text) =>
   inline(text, noEmoji, noMention, channels)

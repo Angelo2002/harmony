@@ -1014,6 +1014,14 @@ no separate pin event. A channel holds at most 50 pins, Discord's own limit. Loc
 [the same rule as history](#channel-locking): a member who cannot see the channel cannot list its
 pins either, and a deleted message drops out of the list (and stops counting towards the limit).
 
+On a bridged channel pins sync with Discord both ways (see the bridge section of the technical notes).
+Pinning a message that was mirrored to Discord pins its copy there, which needs the bot to hold *Pin
+Messages* in the channel; if it does not, the pin still succeeds here and the failure is only written
+to the server log. A message pinned or unpinned on Discord arrives as the same `MESSAGE_UPDATE`, with
+`pinnedAt` set to the time Discord pinned it. A Discord pin that would exceed this channel's 50 is
+skipped. Bridged pins are audited as `message_pin` / `message_unpin` with a null `actor` and
+`detail.actorName` of `"Discord"`.
+
 #### `GET /api/v1/channels/:id/pins` — `ViewChannels`
 
 ```json

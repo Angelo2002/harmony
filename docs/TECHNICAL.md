@@ -150,7 +150,8 @@ The bridge mirrors messages both ways. On the Discord side you need to:
    Message History**, **Add Reactions** and **Manage Webhooks**. Add **Manage
    Messages** too if a message written on Discord should also disappear there when
    it is deleted in Harmony; a webhook can only delete its own messages, so the bot
-   does that itself.
+   does that itself. Add **Pin Messages** if pins should sync from Harmony to
+   Discord (pins made on Discord reach Harmony without it).
 
 Intents are read when the bot connects, so restart Harmony after changing them. If
 an intent is requested that has not been enabled, Discord refuses the connection
@@ -401,12 +402,52 @@ Reading pins follows channel locking exactly as history does. A change is broadc
 `MESSAGE_UPDATE`, which every client already applies; the pins panel listens for the same event (and
 `MESSAGE_DELETE`) to stay current while it is open. Pins and unpins are written to the audit log.
 
-The logic lives in `pins/service.ts`, deliberately shaped like the message service because
-**Discord pin sync is planned but not built yet**. A local pin or unpin notifies `onPinned` /
-`onUnpinned`, which the bridge can subscribe to and repeat on Discord; a pin observed on Discord is
-applied through `pinBridged` / `unpinBridged`, which skip permission checks and notify no listener,
-so a pin can never echo back and forth. Its update is broadcast straight from the pin service, not
-through the message service's edit path, so a pin is never mistaken for an edit and mirrored as one.
+The logic lives in `pins/service.ts`, deliberately shaped like the message service because the
+bridge syncs pins with Discord. A local pin or unpin notifies `onPinned` / `onUnpinned`, which the
+bridge subscribes to and repeats on Discord; a pin observed on Discord is applied through
+`pinBridged` / `unpinBridged`, which skip permission checks and notify no listener, so a pin can
+never echo back and forth. Its update is broadcast straight from the pin service, not through the
+message service's edit path, so a pin is never mistaken for an edit and mirrored as one. A bridged
+pin is audited too, with no actor; the log shows it as made by *Discord*.
+
+### Pin sync with Discord
+
+Only messages the bridge has mapped can be pinned across: Harmony messages it mirrored, and Discord
+messages it imported. A pin on anything else is ignored on the Discord side and kept in Harmony.
+
+**Harmony to Discord.** Pinning or unpinning a mapped message calls the bot's pin route on its
+Discord copy. This needs the **Pin Messages** permission (Discord's `PinMessages`, split out of
+Manage Messages) for the bot in that channel. If Discord refuses, the pin stays in Harmony, nothing
+is surfaced to the member, and the failure is written once per channel to the server log as
+`bridge_pin_failed`; the next success re-arms the warning. A Discord channel that already holds 50
+pins is reported the same way.
+
+**Discord to Harmony.** Discord's `channelPinsUpdate` carries only a timestamp, never which message
+changed, and the "pinned a message to this channel" notice is a separate system message. So the bridge
+ignores the notice (`DiscordIncomingMessage.system`, set from discord.js's `message.system`; it is
+never a person's words) and instead reads the channel's pin list (`GET /channels/:id/messages/pins`)
+whenever the event fires. It keeps, in memory, the set of Discord pin ids it has accounted for per
+channel, and applies only the difference since the last read: new ids are pinned in Harmony with
+`pinBridged` (keeping Discord's pin time), ids that disappeared are unpinned with `unpinBridged`.
+Acting on the difference, not on the whole list, is what stops a pin Discord refused from being undone,
+or an unpin Discord refused from being re-applied, by some unrelated change later. Reads of one
+channel are queued one at a time together with the pin calls we make, and a burst of events folds into
+a single read, so the rate limit is not stressed and a read never races our own pin.
+
+**Loops.** `pinBridged` / `unpinBridged` never notify, so a Discord pin cannot go back out. Our own
+pin comes back as a `channelPinsUpdate`; the read finds the id already in the record and changes
+nothing.
+
+**Cap.** Harmony and Discord both allow 50. A Discord pin that Harmony has no room for is left unpinned
+and kept out of the record, so it is tried again on a later pin update once a slot is free.
+
+**Backfill.** When the bridge connects, and again after Discord forces a fresh session (events in the
+gap are lost), every bridged channel is read once with no record yet. That first read only adds, in both
+directions, up to Discord's 50: Discord pins that Harmony lacks are pinned here, and Harmony pins that
+Discord lacks are sent over, oldest first. Without a stored record there is no telling a pin made while
+the bridge was away from one that was removed, so an unpin made on one side while the bridge was
+offline is undone by the other side's pin. It costs one request per bridged channel plus at most 50
+pin calls.
 
 ## Saved messages
 

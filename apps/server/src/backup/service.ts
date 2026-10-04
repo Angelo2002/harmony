@@ -6,6 +6,7 @@ import { createGzip } from 'node:zlib';
 import { backup, type DatabaseSync } from 'node:sqlite';
 import type { Config } from '../config.ts';
 import { HttpError } from '../http/errors.ts';
+import type { ServerLogService } from '../log/service.ts';
 import { tarStream, type TarEntry } from './tar.ts';
 
 /** The name the database has inside the archive, and in the data directory. */
@@ -55,7 +56,7 @@ export function fileDate(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
-export function createBackupService(sqlite: DatabaseSync, config: Config): BackupService {
+export function createBackupService(sqlite: DatabaseSync, config: Config, serverLog?: ServerLogService): BackupService {
   // One at a time. Each backup is a full copy of the database on disk, and two
   // clicks on the button should not mean two of those.
   let running = false;
@@ -134,6 +135,7 @@ export function createBackupService(sqlite: DatabaseSync, config: Config): Backu
         await backup(sqlite, snapshot);
       } catch (error) {
         finish();
+        serverLog?.error('backup_failed', String(error));
         throw error;
       }
 

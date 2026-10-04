@@ -120,6 +120,7 @@ const KEY_IMAGE_DAYS = 'retention_image_days';
 const KEY_VIDEO_DAYS = 'retention_video_days';
 const KEY_MESSAGE_DAYS = 'retention_message_days';
 const KEY_AUDIT_DAYS = 'retention_audit_days';
+const KEY_SERVER_LOG_DAYS = 'retention_server_log_days';
 const KEY_FAVORITE_DAYS = 'retention_favorite_days';
 const KEY_EXTERNAL_EMOJI_DAYS = 'retention_external_emoji_days';
 const KEY_STICKER_DAYS = 'retention_sticker_days';
@@ -253,6 +254,7 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: SettingsDe
       videoRetentionDays: parseNumberOrNull(stored.get(KEY_VIDEO_DAYS)),
       messageRetentionDays: parseNumberOrNull(stored.get(KEY_MESSAGE_DAYS)),
       auditRetentionDays: parseNumberOrNull(stored.get(KEY_AUDIT_DAYS)),
+      serverLogRetentionDays: parseNumberOrNull(stored.get(KEY_SERVER_LOG_DAYS)),
       favoriteRetentionDays: parseNumberOrNull(stored.get(KEY_FAVORITE_DAYS)),
       externalEmojiRetentionDays: parseNumberOrNull(stored.get(KEY_EXTERNAL_EMOJI_DAYS)),
       stickerRetentionDays: parseNumberOrNull(stored.get(KEY_STICKER_DAYS)),
@@ -371,6 +373,9 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: SettingsDe
       }
       if (patch.auditRetentionDays !== undefined) {
         writeSetting(sqlite, KEY_AUDIT_DAYS, JSON.stringify(patch.auditRetentionDays));
+      }
+      if (patch.serverLogRetentionDays !== undefined) {
+        writeSetting(sqlite, KEY_SERVER_LOG_DAYS, JSON.stringify(patch.serverLogRetentionDays));
       }
       if (patch.favoriteRetentionDays !== undefined) {
         writeSetting(sqlite, KEY_FAVORITE_DAYS, JSON.stringify(patch.favoriteRetentionDays));

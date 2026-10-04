@@ -54,6 +54,7 @@ import { findRole } from '../db/roles.ts';
 import { HttpError } from '../http/errors.ts';
 import { createRateLimiter } from '../http/rate-limit.ts';
 import { parseBody } from '../http/validation.ts';
+import type { ServerLogService } from '../log/service.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
 
@@ -63,6 +64,7 @@ export interface ChannelRouteDeps {
   bridge: BridgeService;
   settings: SettingsService;
   importer: ChannelImportService;
+  serverLog: ServerLogService;
 }
 
 export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDeps): void {
@@ -195,7 +197,13 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
 
     const channel = toChannel(requireChannelRow(id));
     hub.dispatch(GatewayEvent.ChannelCreate, channel, { channelId: channel.id });
-    if (channel.discordChannelId) backfill(channel.id);
+    if (channel.discordChannelId) {
+      deps.serverLog.info('bridge_channel_linked', channel.name, {
+        channelName: channel.name,
+        discordChannelId: channel.discordChannelId,
+      });
+      backfill(channel.id);
+    }
     return channel;
   });
 
@@ -233,7 +241,13 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     const channel = toChannel(requireChannelRow(id));
     hub.dispatch(GatewayEvent.ChannelUpdate, channel, { channelId: channel.id });
     hub.dispatchLostAccess(GatewayEvent.ChannelDelete, { id }, before, { channelId: id });
-    if (input.discordChannelId) backfill(channel.id);
+    if (input.discordChannelId) {
+      deps.serverLog.info('bridge_channel_linked', channel.name, {
+        channelName: channel.name,
+        discordChannelId: input.discordChannelId,
+      });
+      backfill(channel.id);
+    }
     return channel;
   });
 

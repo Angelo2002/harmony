@@ -14,10 +14,12 @@
   import MembersSection from './MembersSection.svelte';
   import RetentionSection from './RetentionSection.svelte';
   import RolesSection from './RolesSection.svelte';
+  import ServerLogSection from './ServerLogSection.svelte';
   import SettingsSection from './SettingsSection.svelte';
 
   const permissions = $derived(permissionsFromString(session.permissions || '0'));
-  const visibleTabs = $derived(visibleAdminTabs(permissions));
+  const isOwner = $derived(session.user?.isOwner === true);
+  const visibleTabs = $derived(visibleAdminTabs(permissions, isOwner));
 
   let selected = $state<AdminTabId>('settings');
   // Fall back to the first available tab if the selected one is not permitted.
@@ -59,6 +61,8 @@
         <BansSection />
       {:else if active === 'audit'}
         <AuditSection />
+      {:else if active === 'server-log'}
+        <ServerLogSection />
       {:else if active === 'backup'}
         <BackupSection />
       {:else}

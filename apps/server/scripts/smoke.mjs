@@ -34,6 +34,7 @@ import { listLinkedAttachments } from '../src/db/attachments.ts';
 import { createAttachmentService } from '../src/attachments/service.ts';
 import { createSettingsService } from '../src/settings/service.ts';
 import { createUserService } from '../src/users/service.ts';
+import { sanitizeDetail, sanitizeLogText } from '../src/log/sanitize.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8791;
@@ -4779,6 +4780,107 @@ try {
     'the log is empty after audit retention',
     (await req('/audit', { token: ownerToken })).json?.entries?.length === 0,
   );
+
+  // --- Server log ---
+  // The sanitizer is a pure function, so its rules can be exercised directly.
+  check(
+    'the server-log sanitizer redacts a token value',
+    !sanitizeLogText('token: abc123def456').includes('abc123def456') &&
+      sanitizeLogText('token: abc123def456').includes('[redacted]'),
+  );
+  check(
+    'the server-log sanitizer redacts a password',
+    !sanitizeLogText('password=hunter2').includes('hunter2') &&
+      sanitizeLogText('password=hunter2').includes('[redacted]'),
+  );
+  check(
+    'the server-log sanitizer redacts a bearer value',
+    !sanitizeLogText('Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc').includes('eyJhbGciOiJIUzI1NiJ9.abc'),
+  );
+  check(
+    'the server-log sanitizer redacts a Discord bot token',
+    !sanitizeLogText('MTAwMDAwMDAwMDAwMDAwMDAwMDA.Abcde.abcdefghijklmnopqrstuvwx').includes('Abcde'),
+  );
+  check('the server-log sanitizer caps a long message', sanitizeLogText('x'.repeat(800)).length <= 500);
+  const nestedRedaction = sanitizeDetail({ inner: { note: 'token: supersecret' }, list: ['api_key=xyz'] });
+  check(
+    'the server-log sanitizer redacts secrets nested in detail',
+    nestedRedaction.inner.note === 'token: [redacted]' && nestedRedaction.list[0] === 'api_key=[redacted]',
+    JSON.stringify(nestedRedaction),
+  );
+  check(
+    'the server-log sanitizer keeps ordinary detail',
+    sanitizeDetail({ channelName: 'general' }).channelName === 'general',
+  );
+  const keyedSecrets = sanitizeDetail({ token: 'abc123', password: 'hunter2', botToken: 'x', ok: 'kept' });
+  check(
+    'the server-log sanitizer redacts a secret held as a detail value',
+    keyedSecrets.token === '[redacted]' &&
+      keyedSecrets.password === '[redacted]' &&
+      keyedSecrets.botToken === '[redacted]' &&
+      keyedSecrets.ok === 'kept',
+    JSON.stringify(keyedSecrets),
+  );
+
+  check('a member cannot read the server log (403)', (await req('/server-log', { token: bobToken })).status === 403);
+  check(
+    'a member cannot clear the server log (403)',
+    (await req('/server-log', { method: 'DELETE', token: bobToken })).status === 403,
+  );
+
+  const serverLog = await req('/server-log?limit=100', { token: ownerToken });
+  check(
+    'the owner reads the server log and it holds the instance start',
+    serverLog.status === 200 &&
+      serverLog.json?.entries?.some((entry) => entry.event === 'instance_started'),
+    JSON.stringify(serverLog.json?.entries?.map((entry) => entry.event)),
+  );
+
+  // Taking a backup records itself in the server log, as it does in the audit log.
+  await (await fetch(`${BASE}/backup`, { headers: { authorization: `Bearer ${ownerToken}` } })).arrayBuffer();
+  check(
+    'a backup is recorded in the server log',
+    (await req('/server-log?limit=100', { token: ownerToken })).json?.entries?.some(
+      (entry) => entry.event === 'backup_created',
+    ),
+  );
+
+  check(
+    'the owner can clear the server log',
+    (await req('/server-log', { method: 'DELETE', token: ownerToken })).status === 204,
+  );
+  check(
+    'the server log is empty after clearing',
+    (await req('/server-log', { token: ownerToken })).json?.entries?.length === 0,
+  );
+
+  const logDays = await req('/retention', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { serverLogRetentionDays: 30 },
+  });
+  check(
+    'server-log retention is saved',
+    logDays.json?.settings?.serverLogRetentionDays === 30,
+    JSON.stringify(logDays.json?.settings),
+  );
+
+  // Make a fresh entry, then let retention age it out.
+  await (await fetch(`${BASE}/backup`, { headers: { authorization: `Bearer ${ownerToken}` } })).arrayBuffer();
+  check(
+    'a fresh entry is in the server log',
+    (await req('/server-log', { token: ownerToken })).json?.entries?.length > 0,
+  );
+
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { serverLogRetentionDays: 0 } });
+  await req('/retention/run', { method: 'POST', token: ownerToken });
+  check(
+    'server-log retention prunes old entries',
+    (await req('/server-log?limit=100', { token: ownerToken })).json?.entries?.some(
+      (entry) => entry.event === 'backup_created',
+    ) !== true,
+  );
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { serverLogRetentionDays: null } });
 
   // --- Installable web app ---
   const manifestRes = await fetch(`${ORIGIN}/manifest.webmanifest`);

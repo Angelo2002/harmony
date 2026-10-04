@@ -56,6 +56,7 @@ import {
   type UserRow,
 } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
+import type { ServerLogService } from '../log/service.ts';
 import type { MessageService, ReactionEvent } from '../messages/service.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
@@ -145,6 +146,8 @@ export interface BridgeDeps {
    * preview would mirror itself back to Discord.
    */
   resolvePreview?: (messageId: string, content: string) => void;
+  /** Optional so the bridge can be driven standalone; records connects, stops and sync failures. */
+  serverLog?: ServerLogService;
 }
 
 export function createBridgeService(deps: BridgeDeps): BridgeService {
@@ -1196,9 +1199,11 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   // ever bounces back to Discord.
   function watch(action: () => Promise<void>, channelId: string | undefined): void {
     void action().catch((error: unknown) => {
-      logger.info('bridge could not sync a change to Discord', {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.info('bridge could not sync a change to Discord', { channelId, error: message });
+      deps.serverLog?.warn('bridge_sync_failed', 'bridge could not sync a change to Discord', {
         channelId,
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       });
     });
   }
@@ -1225,6 +1230,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
         activeToken = null;
         guildEmojiByName = null;
         forgetDiscordPresence();
+        deps.serverLog?.info('bridge_stopped', 'Discord bridge stopped');
       }
       if (!desired) return;
 
@@ -1261,6 +1267,11 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       transport.onPresence((presence) => applyDiscordPresence(presence));
       activeToken = desired;
       await transport.start();
+      const connected = transport.status();
+      deps.serverLog?.info('bridge_connected', 'Discord bridge connected', {
+        botTag: connected.botTag,
+        guildName: connected.guildName,
+      });
       // Backfill any history we have not seen yet, without blocking startup.
       void importAllBridged();
     },
@@ -1306,6 +1317,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
         await transport.stop();
         transport = null;
         activeToken = null;
+        deps.serverLog?.info('bridge_stopped', 'Discord bridge stopped');
       }
       forgetDiscordPresence();
     },

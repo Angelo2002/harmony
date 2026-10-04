@@ -10,6 +10,7 @@ import type { Config } from '../config.ts';
 import type { Database } from '../db/index.ts';
 import { findChannel } from '../db/channels.ts';
 import { HttpError } from '../http/errors.ts';
+import type { ServerLogService } from '../log/service.ts';
 import type { SettingsService } from '../settings/service.ts';
 
 export interface BackupRouteDeps {
@@ -17,10 +18,11 @@ export interface BackupRouteDeps {
   config: Config;
   settings: SettingsService;
   audit: AuditService;
+  serverLog: ServerLogService;
 }
 
 export function registerBackupRoutes(app: FastifyInstance, deps: BackupRouteDeps): void {
-  const backups = createBackupService(deps.db.sqlite, deps.config);
+  const backups = createBackupService(deps.db.sqlite, deps.config, deps.serverLog);
 
   /**
    * The whole instance as a `.tar.gz`, streamed as it is built.
@@ -47,6 +49,7 @@ export function registerBackupRoutes(app: FastifyInstance, deps: BackupRouteDeps
     // it is idempotent so the normal end is unaffected.
     reply.raw.once('close', download.release);
     deps.audit.backupDownloaded(auth.user.id, download.filename);
+    deps.serverLog.info('backup_created', download.filename);
 
     reply
       .header('Content-Type', 'application/gzip')

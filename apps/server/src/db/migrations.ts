@@ -593,4 +593,32 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 26,
+    name: 'server_log',
+    up(db) {
+      /*
+       * The instance's own log: what the server did, and where it failed. It is
+       * distinct from the audit log, which records what *people* did. A repeated
+       * error is coalesced onto one row rather than written per occurrence:
+       * count and first_at/last_at bracket the run, so a crash loop cannot fill
+       * the table. The indexes serve the newest-first listing and the level
+       * filter the owner may narrow it to.
+       */
+      db.exec(`
+        CREATE TABLE server_log (
+          id       TEXT PRIMARY KEY,
+          level    TEXT NOT NULL,
+          event    TEXT NOT NULL,
+          message  TEXT NOT NULL,
+          detail   TEXT,
+          count    INTEGER NOT NULL DEFAULT 1,
+          first_at TEXT NOT NULL,
+          last_at  TEXT NOT NULL
+        );
+        CREATE INDEX idx_server_log_last_at ON server_log(last_at DESC);
+        CREATE INDEX idx_server_log_level ON server_log(level);
+      `);
+    },
+  },
 ];

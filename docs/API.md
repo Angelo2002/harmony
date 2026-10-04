@@ -40,6 +40,7 @@ code wins — please open an issue.
   - [Members](#members)
   - [Audit log](#audit-log)
   - [Backup and export](#backup-and-export)
+  - [Server log](#server-log)
   - [Invites](#invites)
   - [Server settings](#server-settings)
   - [Instance icon](#instance-icon)
@@ -1790,6 +1791,58 @@ forbids scripts and remote loads when it is opened from disk. Attachments are li
 which still need a signed-in session to open. Each export is recorded in the audit log as
 `channel_export`.
 
+### Server log
+
+The server log records what the **instance** did, and where it failed, as distinct from the
+[audit log](#audit-log), which records what people did. It is what lets the owner see an
+unhandled request error, a retention run that failed, a backup that could not be prepared, a
+bridge that connected or stopped, or a channel that was linked to Discord, without reading the
+process log.
+
+Everything written to it is sanitized first: a token, password, bearer value or Discord bot
+token in a message or its detail is redacted before the row is stored, and a message is capped
+at 500 characters. A repeated warning or error is coalesced onto one row rather than piling up:
+`count` is how many times the same event and message were seen, and `firstAt`/`lastAt` bracket
+the run. An informational event is never coalesced; each is a distinct thing that happened.
+
+```ts
+type ServerLogLevel = 'info' | 'warn' | 'error';
+
+type ServerLogEntry = {
+  id: string;
+  level: ServerLogLevel;
+  event: string;                     // a stable code, e.g. 'instance_started', 'unhandled_error'
+  message: string;                   // sanitized, human-readable
+  detail: Record<string, unknown>;   // sanitized structured context; never secrets
+  count: number;
+  firstAt: string;
+  lastAt: string;
+};
+```
+
+#### `GET /api/v1/server-log` — owner only
+
+```json
+{ "entries": [ /* ServerLogEntry */ ] }
+```
+
+Newest `lastAt` first. Reading it is restricted to the owner, not just `Administrator`: entries
+can carry internals — a filesystem path, a failed SQL statement, the address a request was made
+to — that a moderated administrator should not necessarily see. Anyone else gets `403 owner_only`.
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `limit` | integer 1–100 | 50 | |
+| `before` | ISO 8601 string | — | Return entries last written before this timestamp |
+| `beforeId` | string | — | Id of the entry `before` came from, to break ties |
+| `level` | `info`, `warn` or `error` | — | Narrow to one severity |
+
+#### `DELETE /api/v1/server-log` — owner only
+
+Returns `204` and empties the log. The clear itself is not recorded, so afterwards the log
+really is empty. [Retention](#retention) ages entries out automatically instead, when
+`serverLogRetentionDays` is configured.
+
 ### Invites
 
 #### `GET /api/v1/invites` — `ManageServer`
@@ -1928,8 +1981,9 @@ from this package or simply read the tokens a Harmony client already publishes.
 ### Retention
 
 Retention automatically prunes old content and can cap total storage. Any rule set to `null` is
-switched off. Image, video, message and audit-log age limits are independent: each is deleted once
-it is older than its own limit, and the log can be cleared outright with `DELETE /api/v1/audit`.
+switched off. Image, video, message, audit-log and server-log age limits are independent: each is
+deleted once it is older than its own limit, and the logs can be cleared outright with
+`DELETE /api/v1/audit` and `DELETE /api/v1/server-log`.
 
 Messages somebody chose to keep are outside the age rules: a pinned message and a message saved by a
 member are never removed by the image, video or message limits, and their attachments are spared by
@@ -1959,6 +2013,7 @@ type RetentionSettings = {
   videoRetentionDays: number | null;
   messageRetentionDays: number | null;
   auditRetentionDays: number | null;
+  serverLogRetentionDays: number | null;
   favoriteRetentionDays: number | null;
   externalEmojiRetentionDays: number | null;
   stickerRetentionDays: number | null;
@@ -1988,7 +2043,7 @@ Returns `{ settings, usage, lastRun }`, where `lastRun` is a `PruneSummary` or `
 #### `PATCH /api/v1/retention` — `ManageServer`
 
 Any subset of `imageRetentionDays`, `videoRetentionDays`, `messageRetentionDays`,
-`auditRetentionDays`, `favoriteRetentionDays`, `externalEmojiRetentionDays`,
+`auditRetentionDays`, `serverLogRetentionDays`, `favoriteRetentionDays`, `externalEmojiRetentionDays`,
 `stickerRetentionDays`, `storageLimitBytes`, `storageTargetBytes`; `null` disables a rule. Returns
 the same shape as `GET`.
 

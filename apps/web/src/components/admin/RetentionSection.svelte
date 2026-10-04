@@ -10,6 +10,7 @@
   let videoDays = $state('');
   let messageDays = $state('');
   let auditDays = $state('');
+  let serverLogDays = $state('');
   let favoriteDays = $state('');
   let emojiDays = $state('');
   let stickerDays = $state('');
@@ -30,6 +31,8 @@
     videoDays = data.settings.videoRetentionDays == null ? '' : String(data.settings.videoRetentionDays);
     messageDays = data.settings.messageRetentionDays == null ? '' : String(data.settings.messageRetentionDays);
     auditDays = data.settings.auditRetentionDays == null ? '' : String(data.settings.auditRetentionDays);
+    serverLogDays =
+      data.settings.serverLogRetentionDays == null ? '' : String(data.settings.serverLogRetentionDays);
     favoriteDays = data.settings.favoriteRetentionDays == null ? '' : String(data.settings.favoriteRetentionDays);
     emojiDays =
       data.settings.externalEmojiRetentionDays == null ? '' : String(data.settings.externalEmojiRetentionDays);
@@ -74,6 +77,7 @@
             videoRetentionDays: toDays(videoDays),
             messageRetentionDays: toDays(messageDays),
             auditRetentionDays: toDays(auditDays),
+            serverLogRetentionDays: toDays(serverLogDays),
             favoriteRetentionDays: toDays(favoriteDays),
             externalEmojiRetentionDays: toDays(emojiDays),
             stickerRetentionDays: toDays(stickerDays),
@@ -129,6 +133,11 @@
     <label>
       Delete log entries after (days)
       <input bind:value={auditDays} placeholder="off" inputmode="numeric" />
+    </label>
+
+    <label>
+      Delete server log entries after (days)
+      <input bind:value={serverLogDays} placeholder="off" inputmode="numeric" />
     </label>
 
     <label>

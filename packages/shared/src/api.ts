@@ -323,6 +323,12 @@ export interface RetentionSettings {
   /** Delete audit log entries older than this many days. */
   auditRetentionDays: number | null;
   /**
+   * Delete server-log entries older than this many days. The log is small and
+   * lives in the database, so unlike the media rules this only bounds its size;
+   * null keeps entries forever.
+   */
+  serverLogRetentionDays: number | null;
+  /**
    * Delete a saved gif this many days after it was last favorited or sent.
    * Favorites are exempt from the image and message rules, so this is the only
    * thing that ever ages them out; null keeps them forever.

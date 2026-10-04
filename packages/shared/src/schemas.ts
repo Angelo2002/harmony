@@ -151,6 +151,16 @@ export const savedQuerySchema = cursorQuerySchema.extend({
 export type SavedQuery = z.infer<typeof savedQuerySchema>;
 
 /**
+ * The server log pages the same way, newest last. `before`/`beforeId` are the
+ * `lastAt` and id of the oldest entry already held. `level` narrows to one
+ * severity.
+ */
+export const serverLogQuerySchema = cursorQuerySchema.extend({
+  level: z.enum(['info', 'warn', 'error']).optional(),
+});
+export type ServerLogQuery = z.infer<typeof serverLogQuerySchema>;
+
+/**
  * Saving a message. The body is optional: without `remindAt` a save keeps any
  * reminder it already had, and an explicit null clears it.
  */
@@ -255,6 +265,7 @@ export const updateRetentionSchema = z.object({
   videoRetentionDays: retentionNumber,
   messageRetentionDays: retentionNumber,
   auditRetentionDays: retentionNumber,
+  serverLogRetentionDays: retentionNumber,
   favoriteRetentionDays: retentionNumber,
   externalEmojiRetentionDays: retentionNumber,
   stickerRetentionDays: retentionNumber,

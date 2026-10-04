@@ -15,6 +15,7 @@ import { createAuthService } from './auth/service.ts';
 import { createDiscordOAuthService } from './auth/discord-oauth.ts';
 import { registerAuth } from './auth/plugin.ts';
 import { createAuditService } from './audit/service.ts';
+import { createServerLogService } from './log/service.ts';
 import { createSettingsService } from './settings/service.ts';
 import { createIconService } from './settings/icon.ts';
 import { createAttachmentService } from './attachments/service.ts';
@@ -64,11 +65,13 @@ import { registerChannelSettingsRoutes } from './routes/channel-settings.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
 import { registerBridgeRoutes } from './routes/bridge.ts';
 import { registerAuditRoutes } from './routes/audit.ts';
+import { registerServerLogRoutes } from './routes/server-log.ts';
 import { registerBackupRoutes } from './routes/backup.ts';
 import { registerGateway } from './gateway/index.ts';
 
 const config = loadConfig();
 const db = new Database(config);
+const serverLog = createServerLogService(db.sqlite);
 const hub = new GatewayHub();
 // Locked channels stay out of the gateway traffic of members who cannot see them.
 hub.setVisibilityResolver((userId, visibility) =>
@@ -113,6 +116,7 @@ const pruner = createPruner({
   settings: settingsService,
   hub,
   log: (message, detail) => app.log.info(detail ?? {}, message),
+  serverLog,
 });
 
 // Set once the bridge exists, so a pasted Discord attachment link can be renewed
@@ -148,6 +152,7 @@ const bridge = createBridgeService({
   hub,
   logger: bridgeLogger,
   transportFactory: (token, logger) => createDiscordTransport(token, logger),
+  serverLog,
   // A link posted on Discord should preview here too. Previews are pushed
   // straight to the gateway, so this never mirrors itself back out.
   resolvePreview: (messageId, content) => embedService.resolve(messageId, content),
@@ -190,7 +195,7 @@ warnAboutExposure(app.log, {
   userCount: countUsers(db.sqlite),
 });
 
-registerErrorHandler(app, { spaIndex: webClientIndex(config.webDir) });
+registerErrorHandler(app, { spaIndex: webClientIndex(config.webDir), serverLog });
 registerSecurityHeaders(app, { csp: config.csp });
 registerAuth(app, { cookieName: config.cookieName, resolveToken: authService.resolveToken });
 
@@ -211,7 +216,8 @@ registerSettingsRoutes(app, { settings: settingsService, db });
 registerIconRoutes(app, { icon: iconService });
 registerRetentionRoutes(app, { settings: settingsService, pruner });
 registerAuditRoutes(app, { audit: auditService });
-registerBackupRoutes(app, { db, config, settings: settingsService, audit: auditService });
+registerServerLogRoutes(app, { serverLog });
+registerBackupRoutes(app, { db, config, settings: settingsService, audit: auditService, serverLog });
 registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
 registerMemberRoutes(app, {
@@ -223,7 +229,7 @@ registerMemberRoutes(app, {
   bridge,
 });
 registerInviteRoutes(app, db);
-registerChannelRoutes(app, { db, hub, bridge, settings: settingsService, importer: channelImport });
+registerChannelRoutes(app, { db, hub, bridge, settings: settingsService, importer: channelImport, serverLog });
 registerMessageRoutes(app, { service: messageService });
 registerSearchRoutes(app, { service: messageService });
 registerMentionRoutes(app, { service: messageService });
@@ -262,6 +268,7 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 try {
   const address = await app.listen({ host: config.host, port: config.port });
   app.log.info(`Harmony is listening on ${address}`);
+  serverLog.info('instance_started', 'Instance started');
   if (servingClient) {
     app.log.info(`Serving the web client from ${config.webDir}`);
   } else {

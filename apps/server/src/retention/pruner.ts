@@ -15,6 +15,7 @@ import { deleteStickersUnusedBefore } from '../db/stickers.ts';
 import { deleteAuditOlderThan } from '../db/audit.ts';
 import { deleteGifFavoritesUnusedBefore } from '../db/gif_favorites.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
+import type { ServerLogService } from '../log/service.ts';
 import type { SettingsService } from '../settings/service.ts';
 import { createBlobStore } from '../storage/blobs.ts';
 
@@ -38,6 +39,11 @@ export interface PrunerDeps {
   settings: SettingsService;
   hub: GatewayHub;
   log: (message: string, detail?: unknown) => void;
+  /**
+   * Optional so the pruner can be driven standalone; when present, a run that
+   * removed anything and a failed run are recorded for the owner.
+   */
+  serverLog?: ServerLogService;
 }
 
 export function createPruner(deps: PrunerDeps): Pruner {
@@ -214,7 +220,26 @@ export function createPruner(deps: PrunerDeps): Pruner {
     ) {
       deps.hub.dispatch(GatewayEvent.RetentionApplied, summary);
       deps.log('retention removed content', summary);
+      const removed =
+        deletedAttachments +
+        deletedMessages +
+        deletedAuditEntries +
+        deletedFavorites +
+        deletedExternalEmojis +
+        deletedStickers +
+        deletedBlobs;
+      deps.serverLog?.info('retention_applied', `Retention removed ${removed} item${removed === 1 ? '' : 's'}`, {
+        ...summary,
+      });
     }
+
+    // The server log ages on its own rule. It runs last, after the summary
+    // above, so this run's own entry is not swept by it; pruning the log is not
+    // itself news, so nothing is recorded for it.
+    if (settings.serverLogRetentionDays !== null) {
+      deps.serverLog?.pruneOlderThan(isoDaysAgo(settings.serverLogRetentionDays));
+    }
+
     return summary;
   }
 
@@ -230,6 +255,7 @@ export function createPruner(deps: PrunerDeps): Pruner {
         runNow();
       } catch (error) {
         deps.log('initial retention run failed', error);
+        deps.serverLog?.error('retention_run_failed', String(error));
       }
 
       timer = setInterval(
@@ -238,6 +264,7 @@ export function createPruner(deps: PrunerDeps): Pruner {
             runNow();
           } catch (error) {
             deps.log('retention run failed', error);
+            deps.serverLog?.error('retention_run_failed', String(error));
           }
         },
         Math.max(1, deps.config.pruneIntervalMinutes) * 60_000,

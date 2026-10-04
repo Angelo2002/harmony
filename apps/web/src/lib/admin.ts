@@ -12,6 +12,7 @@ export type AdminTabId =
   | 'invites'
   | 'bans'
   | 'audit'
+  | 'server-log'
   | 'backup';
 
 /**
@@ -20,11 +21,15 @@ export type AdminTabId =
  * and a plain moderator. This list is the single source of truth: the sidebar
  * button and the panel both read from it, so they cannot disagree about who
  * should see what.
+ *
+ * A tab flagged `ownerOnly` additionally requires `User.isOwner`, because its
+ * contents are for the instance owner alone, not every administrator.
  */
 export const ADMIN_TABS: ReadonlyArray<{
   id: AdminTabId;
   label: string;
   permissions: readonly PermissionValue[];
+  ownerOnly?: boolean;
 }> = [
   { id: 'settings', label: 'Settings', permissions: [Permission.ManageServer] },
   { id: 'roles', label: 'Roles', permissions: [Permission.ManageRoles] },
@@ -37,13 +42,20 @@ export const ADMIN_TABS: ReadonlyArray<{
   { id: 'invites', label: 'Invites', permissions: [Permission.ManageServer] },
   { id: 'bans', label: 'Bans', permissions: [Permission.BanMembers] },
   { id: 'audit', label: 'Log', permissions: [Permission.ManageServer] },
+  // The server log can carry internals a non-owner administrator should not see.
+  { id: 'server-log', label: 'Server log', permissions: [Permission.ManageServer], ownerOnly: true },
   // The full backup inside is owner-only; the tab also holds channel exports.
   { id: 'backup', label: 'Backup', permissions: [Permission.ManageServer] },
 ];
 
 /** The tabs a member may open, in the order they are shown. */
-export function visibleAdminTabs(granted: PermissionValue): ReadonlyArray<(typeof ADMIN_TABS)[number]> {
-  return ADMIN_TABS.filter((tab) => hasAnyPermission(granted, tab.permissions));
+export function visibleAdminTabs(
+  granted: PermissionValue,
+  isOwner = false,
+): ReadonlyArray<(typeof ADMIN_TABS)[number]> {
+  return ADMIN_TABS.filter(
+    (tab) => hasAnyPermission(granted, tab.permissions) && (!tab.ownerOnly || isOwner),
+  );
 }
 
 /** Whether the member can open the admin panel at all, for any reason. */

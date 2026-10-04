@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { ServerLogService } from '../log/service.ts';
 
 /** Any error that should be surfaced to the client with a specific status. */
 export class HttpError extends Error {
@@ -20,6 +21,13 @@ export interface ErrorHandlerOptions {
    * client-side route is answered with the app shell instead of a JSON 404.
    */
   spaIndex?: string | null;
+  /**
+   * Recorded on a 500, so an unhandled failure the owner never saw in the
+   * process log is still readable in the admin panel. Client errors — an
+   * `HttpError`, or a 4xx Fastify raises itself — are not recorded: they are the
+   * caller's mistake, not the instance's.
+   */
+  serverLog?: ServerLogService | null;
 }
 
 /**
@@ -57,6 +65,7 @@ const CLIENT_ERROR_CODES: Record<number, string> = {
 /** Installs a JSON error handler and 404 handler with a consistent body shape. */
 export function registerErrorHandler(app: FastifyInstance, options: ErrorHandlerOptions = {}): void {
   const spaIndex = options.spaIndex ?? null;
+  const serverLog = options.serverLog ?? null;
 
   app.setNotFoundHandler((request, reply) => {
     if (spaIndex !== null && isClientRoute(request)) {
@@ -90,6 +99,11 @@ export function registerErrorHandler(app: FastifyInstance, options: ErrorHandler
     }
 
     request.log.error({ err: error }, 'unhandled error');
+    serverLog?.error('unhandled_error', (error as Error).message, {
+      method: request.method,
+      path: request.url,
+      status: 500,
+    });
     reply.status(500).send({
       error: { code: 'internal_error', message: 'Something went wrong.' },
     });

@@ -3403,6 +3403,102 @@ button.roster-member:hover {
 }
 
 /* ============================================================
+   SERVER LOG
+   ============================================================ */
+
+.server-log-filters {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.85rem;
+}
+
+.server-log-filter {
+  padding: 0.3rem 0.7rem;
+  border: none;
+  border-radius: var(--h-radius-sm);
+  background: none;
+  color: var(--h-text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
+}
+
+.server-log-filter:hover:not(:disabled) {
+  background: var(--h-hover);
+  color: var(--h-text);
+  box-shadow: none;
+}
+
+.server-log-filter.active {
+  background: var(--h-active);
+  color: var(--h-text);
+}
+
+/* Level chips share the audit badge's shape and the semantic status colors. */
+.server-log-level {
+  flex-shrink: 0;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--h-radius-full);
+  background: var(--h-bg-raised);
+  color: var(--h-text-muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.server-log-level.level-info {
+  background: var(--h-accent-subtle);
+  color: var(--h-accent);
+}
+
+.server-log-level.level-warn {
+  background: color-mix(in srgb, var(--h-warn) 12%, var(--h-bg-raised));
+  color: var(--h-warn);
+}
+
+.server-log-level.level-error {
+  background: var(--h-error-subtle);
+  color: var(--h-error);
+}
+
+.server-log-event {
+  margin-right: 0.4rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: var(--h-radius-xs);
+  background: var(--h-bg-raised);
+  color: var(--h-text-faint);
+  font-size: 0.7rem;
+}
+
+.server-log-message {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.server-log-detail {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 0.6rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+}
+
+.server-log-detail dt {
+  color: var(--h-text-faint);
+  font-weight: 600;
+}
+
+.server-log-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ============================================================
    SEARCH & INBOX
    ============================================================ */
 

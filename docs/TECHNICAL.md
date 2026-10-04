@@ -551,6 +551,27 @@ Klipy every member's address. One consequence is worth knowing: the tile and the
 not the same file, because a grid of full-size gifs would be megabytes through the instance's own
 connection for every search.
 
+## Server log
+
+The server log (`server_log`, written through `log/service.ts`) is the instance's own record of
+what it did and where it failed, kept apart from the audit log, which records what people did. It
+surfaces an unhandled request error, a retention run that failed, a backup that could not be
+prepared, a bridge connect or stop, a failed sync to Discord and a channel link, so the owner can
+see them in the admin panel without reading the process log.
+
+Reading it is **owner-only**, not `ManageServer`: an entry can carry a filesystem path, a failed
+SQL statement or the address a request was made to, which a moderated administrator should not
+necessarily see.
+
+Everything is sanitized before it is stored. `log/sanitize.ts` redacts the value after a secret
+key (`bearer`, `token`, `password`, `secret`, `authorization`, `api_key` and the like, in
+`key: value` or `key=value` form) and the three-segment Discord bot-token shape, caps a message at
+500 characters and a sanitized detail at about 2 KB, and recurses into nested detail with a depth
+cap. A repeated warning or error is coalesced onto one row within five minutes, tracked by `count`
+and bracketed by `first_at`/`last_at`; informational events are never coalesced. The
+`serverLogRetentionDays` rule ages entries out through the same pruner as the audit log, and the
+owner can clear the log outright.
+
 ## Versioning
 
 The release number lives in one place, `HARMONY_VERSION` in

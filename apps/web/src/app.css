@@ -3383,3 +3383,57 @@ button.roster-member:hover {
     width: min(320px, 92vw);
   }
 }
+
+/* ---- Pinned messages ---- */
+
+.chat-header .pins-open {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.55rem;
+  background: none;
+  color: var(--h-text-muted);
+  line-height: 1;
+  border-radius: var(--h-radius-sm);
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
+}
+
+.chat-header .pins-open:hover {
+  background: var(--h-hover);
+  color: var(--h-text);
+  box-shadow: none;
+}
+
+/* The marker beside a pinned message's time: small and quiet, like "(edited)". */
+.pin-marker {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.3rem;
+  color: var(--h-text-faint);
+  vertical-align: middle;
+}
+
+/* A grouped message has no header line to sit in, so the marker goes to the right. */
+.pin-marker.grouped {
+  float: right;
+  margin: 0.2rem 0 0 0.5rem;
+}
+
+/* Each pin is the jump button with an Unpin beside it for those who may. */
+.pins-panel .search-results li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.pins-panel .search-results .search-result {
+  flex: 1;
+  min-width: 0;
+}
+
+.pins-panel .pin-remove {
+  flex: none;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}

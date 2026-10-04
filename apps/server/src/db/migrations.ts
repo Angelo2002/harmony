@@ -507,4 +507,24 @@ export const migrations: Migration[] = [
       db.exec(`ALTER TABLE roles ADD COLUMN badge TEXT NOT NULL DEFAULT 'none'`);
     },
   },
+  {
+    version: 23,
+    name: 'message_pins',
+    up(db) {
+      /*
+       * Pinned messages. A message is pinned at most once, to the channel it
+       * already belongs to, so the pin is two columns on the message rather than
+       * a table of its own: every query that reads a message (history, search,
+       * the inbox) carries the pin state for free, and a retention delete takes
+       * the pin with the row. A soft-deleted message keeps its columns but is
+       * filtered out of the pin list, as it is everywhere else. Whoever pinned it
+       * is kept for the record and cleared if their account goes. The partial
+       * index serves the per-channel pin list and its count, and stays as small
+       * as the pins themselves.
+       */
+      db.exec(`ALTER TABLE messages ADD COLUMN pinned_at TEXT`);
+      db.exec(`ALTER TABLE messages ADD COLUMN pinned_by TEXT REFERENCES users(id) ON DELETE SET NULL`);
+      db.exec(`CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at) WHERE pinned_at IS NOT NULL`);
+    },
+  },
 ];

@@ -89,8 +89,11 @@ export interface MessageService {
   edit(auth: AuthContext, messageId: string, content: string): Message;
   /** Applies a bridged edit, without notifying the outbound listeners. */
   editBridged(messageId: string, content: string): Message | null;
-  /** Renders one message for a broadcast, or null when it is gone or deleted. */
-  byId(messageId: string): Message | null;
+  /**
+   * Renders one message, or null when it is gone or deleted. Without a viewer it
+   * is fit for a broadcast; with one, their own reactions are marked as theirs.
+   */
+  byId(messageId: string, viewerId?: string): Message | null;
   remove(auth: AuthContext, messageId: string): void;
   /** Applies a bridged deletion, without notifying the outbound listeners. */
   deleteBridged(messageId: string): void;
@@ -145,6 +148,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       replyTo: buildReply(row),
       reactions,
       embed: parseMessageEmbed(row.embed),
+      pinnedAt: row.pinned_at,
     };
   }
 
@@ -493,12 +497,12 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       return message;
     },
 
-    byId(messageId) {
+    byId(messageId, viewerId = '') {
       const row = findMessage(sqlite, messageId);
       if (!row || row.deleted_at) return null;
       // The viewer is only used for the `me` reaction badge, which the clients
-      // keep themselves for an update, so no particular viewer is needed.
-      return render(row, '');
+      // keep themselves for an update, so a broadcast needs no particular viewer.
+      return render(row, viewerId);
     },
 
     onMessageCreated(listener) {

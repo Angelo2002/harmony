@@ -3422,6 +3422,161 @@ try {
 
   await req(`/roles/${auditRole.json.id}`, { method: 'DELETE', token: ownerToken });
 
+  // --- Pinned messages ---
+  const pinChannel = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'pinboard' } })).json;
+  const postInPins = (content) =>
+    req(`/channels/${pinChannel.id}/messages`, { method: 'POST', token: ownerToken, body: { content } });
+  const pinsIn = (channelId, token = ownerToken) => req(`/channels/${channelId}/pins`, { token });
+  const pinFirst = (await postInPins('pin me first')).json;
+  const pinSecond = (await postInPins('pin me second')).json;
+
+  check('a new message is not pinned', pinFirst.pinnedAt === null);
+  check('an empty channel has no pins', (await pinsIn(pinChannel.id)).json?.messages?.length === 0);
+
+  const pinWatcher = await openGateway({ token: bobToken });
+  const pinned = await req(`/channels/${pinChannel.id}/pins/${pinFirst.id}`, { method: 'PUT', token: ownerToken });
+  check(
+    'a message can be pinned',
+    pinned.status === 200 && typeof pinned.json?.pinnedAt === 'string',
+    `status ${pinned.status}`,
+  );
+  await sleep(250);
+  const pinUpdate = pinWatcher.events.find((frame) => frame.t === 'MESSAGE_UPDATE' && frame.d?.id === pinFirst.id);
+  check('pinning broadcasts MESSAGE_UPDATE carrying the pin time', pinUpdate?.d?.pinnedAt === pinned.json?.pinnedAt);
+
+  const repinned = await req(`/channels/${pinChannel.id}/pins/${pinFirst.id}`, { method: 'PUT', token: ownerToken });
+  check('pinning again keeps the original pin time', repinned.json?.pinnedAt === pinned.json?.pinnedAt);
+
+  // Pin times are ISO strings to the millisecond; make sure the second is later.
+  await sleep(5);
+  await req(`/channels/${pinChannel.id}/pins/${pinSecond.id}`, { method: 'PUT', token: ownerToken });
+  const pinList = await pinsIn(pinChannel.id, bobToken);
+  check(
+    'any member who can see the channel lists its pins, newest pin first',
+    pinList.status === 200 &&
+      pinList.json?.messages?.map((message) => message.id).join() === [pinSecond.id, pinFirst.id].join(),
+    JSON.stringify(pinList.json?.messages?.map((message) => message.content)),
+  );
+  check(
+    'history carries the pin state',
+    (await req(`/channels/${pinChannel.id}/messages`, { token: bobToken })).json?.messages?.find(
+      (message) => message.id === pinFirst.id,
+    )?.pinnedAt === pinned.json?.pinnedAt,
+  );
+
+  check(
+    'a plain member cannot pin (403)',
+    (await req(`/channels/${pinChannel.id}/pins/${pinSecond.id}`, { method: 'PUT', token: bobToken })).status === 403,
+  );
+  check(
+    'a plain member cannot unpin (403)',
+    (await req(`/channels/${pinChannel.id}/pins/${pinFirst.id}`, { method: 'DELETE', token: bobToken })).status ===
+      403,
+  );
+  check(
+    'a message cannot be pinned through another channel (404)',
+    (await req(`/channels/${colorChannel.id}/pins/${pinFirst.id}`, { method: 'PUT', token: ownerToken })).status ===
+      404,
+  );
+
+  pinWatcher.events.length = 0;
+  const unpinned = await req(`/channels/${pinChannel.id}/pins/${pinFirst.id}`, { method: 'DELETE', token: ownerToken });
+  await sleep(250);
+  check('a message can be unpinned', unpinned.status === 204, `status ${unpinned.status}`);
+  check(
+    'unpinning broadcasts MESSAGE_UPDATE with no pin time',
+    pinWatcher.events.some(
+      (frame) => frame.t === 'MESSAGE_UPDATE' && frame.d?.id === pinFirst.id && frame.d?.pinnedAt === null,
+    ),
+  );
+  check(
+    'an unpinned message leaves the list',
+    (await pinsIn(pinChannel.id)).json?.messages?.every((message) => message.id !== pinFirst.id),
+  );
+  check(
+    'unpinning one that is not pinned is harmless',
+    (await req(`/channels/${pinChannel.id}/pins/${pinFirst.id}`, { method: 'DELETE', token: ownerToken })).status ===
+      204,
+  );
+  pinWatcher.ws.close();
+
+  // Pinning is a moderation act, so it lands in the log, with the text it pinned.
+  // Checked now, before the cap test below floods the first page with pins.
+  const pinAudit = (await req('/audit', { token: ownerToken })).json?.entries ?? [];
+  check(
+    'pins and unpins are recorded in the audit log',
+    pinAudit.some((entry) => entry.kind === 'message_pin' && entry.detail?.channelName === 'pinboard') &&
+      pinAudit.some((entry) => entry.kind === 'message_unpin' && entry.detail?.before === 'pin me first'),
+  );
+
+  // A deleted message drops out of the pins, and stops counting towards the cap.
+  await req(`/messages/${pinSecond.id}`, { method: 'DELETE', token: ownerToken });
+  check('a deleted message drops out of the pins', (await pinsIn(pinChannel.id)).json?.messages?.length === 0);
+
+  // Discord's cap of 50 per channel, with a clear error past it.
+  const pinCap = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'pin-cap' } })).json;
+  const capIds = [];
+  for (let index = 0; index < 51; index++) {
+    const posted = await req(`/channels/${pinCap.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: `cap ${index}` },
+    });
+    capIds.push(posted.json.id);
+  }
+  let capPinned = 0;
+  for (const id of capIds.slice(0, 50)) {
+    const result = await req(`/channels/${pinCap.id}/pins/${id}`, { method: 'PUT', token: ownerToken });
+    if (result.status === 200) capPinned++;
+  }
+  check('a channel holds 50 pins', capPinned === 50 && (await pinsIn(pinCap.id)).json?.messages?.length === 50);
+  const overCap = await req(`/channels/${pinCap.id}/pins/${capIds[50]}`, { method: 'PUT', token: ownerToken });
+  check(
+    'a 51st pin is refused with a clear error (400)',
+    overCap.status === 400 &&
+      overCap.json?.error?.code === 'too_many_pins' &&
+      /50/.test(overCap.json?.error?.message ?? ''),
+    JSON.stringify(overCap.json),
+  );
+  await req(`/messages/${capIds[0]}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'a deleted pin frees its place under the cap',
+    (await req(`/channels/${pinCap.id}/pins/${capIds[50]}`, { method: 'PUT', token: ownerToken })).status === 200,
+  );
+
+  // A locked channel's pins are as hidden as its history.
+  const pinLockRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Pin keepers' } });
+  const lockedPins = (
+    await req('/channels', {
+      method: 'POST',
+      token: ownerToken,
+      body: { name: 'locked-pins', requiredRoleId: pinLockRole.json.id },
+    })
+  ).json;
+  const lockedPost = (
+    await req(`/channels/${lockedPins.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'secret pin' },
+    })
+  ).json;
+  const lockedWatcher = await openGateway({ token: bobToken });
+  await req(`/channels/${lockedPins.id}/pins/${lockedPost.id}`, { method: 'PUT', token: ownerToken });
+  await sleep(250);
+  check(
+    'a locked channel lists its pins for an administrator',
+    (await pinsIn(lockedPins.id)).json?.messages?.length === 1,
+  );
+  check(
+    'a locked channel refuses its pins to a member without the role (403)',
+    (await pinsIn(lockedPins.id, bobToken)).status === 403,
+  );
+  check(
+    'a pin in a locked channel is not broadcast to a member without the role',
+    lockedWatcher.events.every((frame) => frame.d?.channelId !== lockedPins.id),
+  );
+  lockedWatcher.ws.close();
+
   // --- Admin media gallery ---
   const galleryPng = await sharp({
     create: { width: 20, height: 14, channels: 3, background: { r: 12, g: 34, b: 56 } },

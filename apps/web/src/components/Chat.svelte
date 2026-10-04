@@ -11,6 +11,7 @@
   import KeyboardShortcuts from './KeyboardShortcuts.svelte';
   import MemberList from './MemberList.svelte';
   import MessageView from './MessageView.svelte';
+  import PinsPanel from './PinsPanel.svelte';
   import UnreadBadge from './UnreadBadge.svelte';
 
   onMount(() => {
@@ -113,6 +114,15 @@
         </button>
         <button
           type="button"
+          class="pins-open"
+          aria-label="Pinned messages"
+          title="Pinned messages"
+          onclick={() => ui.openPins()}
+        >
+          <Icon name="pin" size={20} />
+        </button>
+        <button
+          type="button"
           class="search-open"
           aria-label="Search messages"
           title="Search messages"
@@ -158,6 +168,10 @@
   <MemberList />
   <KeyboardShortcuts />
   <UnreadBadge />
+
+  {#if ui.pinsOpen}
+    <PinsPanel onclose={() => ui.closePins()} />
+  {/if}
 
   {#if ui.sidebarOpen || ui.rosterOpen}
     <button class="drawer-backdrop" type="button" aria-label="Close menu" onclick={() => ui.closeDrawers()}></button>

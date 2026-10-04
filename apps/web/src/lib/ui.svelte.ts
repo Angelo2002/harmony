@@ -4,6 +4,7 @@ class UiState {
   profileOpen = $state(false);
   searchOpen = $state(false);
   inboxOpen = $state(false);
+  pinsOpen = $state(false);
   /** Off-canvas navigation, used on narrow screens. */
   sidebarOpen = $state(false);
   rosterOpen = $state(false);
@@ -33,6 +34,15 @@ class UiState {
 
   closeInbox(): void {
     this.inboxOpen = false;
+  }
+
+  openPins(): void {
+    this.closeDrawers();
+    this.pinsOpen = true;
+  }
+
+  closePins(): void {
+    this.pinsOpen = false;
   }
 
   openAdmin(): void {

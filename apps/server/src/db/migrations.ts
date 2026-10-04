@@ -670,6 +670,63 @@ export const migrations: Migration[] = [
     },
   },
   {
+    version: 28,
+    name: 'polls',
+    up(db) {
+      /*
+       * Polls hang off a message, one at most, and go with it: a retention delete
+       * of the message takes the poll, its options and every vote through the
+       * foreign keys (a soft delete keeps them, and reads filter the message out
+       * like any other). `source` records where the poll was made, because a poll
+       * that came from Discord is closed by Discord, not from here.
+       *
+       * A vote is one row per member per option. `poll_id` is repeated on the vote
+       * so "has this member voted in this poll" and the distinct-voter count need
+       * no join. A stand-in account for a Discord voter is an ordinary user row,
+       * so a linked member's Discord vote and their own are one person's, and the
+       * primary key keeps them from being counted twice.
+       *
+       * `discord_answer_id` pairs an option with the answer it became on Discord
+       * (their ids are small integers, unique within one poll); null when the poll
+       * was never bridged. The partial index serves the expiry sweep and stays as
+       * small as the set of polls still open.
+       */
+      db.exec(`
+        CREATE TABLE polls (
+          id             TEXT PRIMARY KEY,
+          message_id     TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,
+          question       TEXT NOT NULL,
+          allow_multiple INTEGER NOT NULL DEFAULT 0,
+          closes_at      TEXT,
+          closed_at      TEXT,
+          source         TEXT NOT NULL DEFAULT 'harmony',
+          created_at     TEXT NOT NULL
+        );
+        CREATE INDEX idx_polls_open_expiry ON polls(closes_at)
+          WHERE closed_at IS NULL AND closes_at IS NOT NULL;
+
+        CREATE TABLE poll_options (
+          id                TEXT PRIMARY KEY,
+          poll_id           TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+          position          INTEGER NOT NULL,
+          text              TEXT NOT NULL,
+          emoji             TEXT,
+          discord_answer_id INTEGER,
+          UNIQUE (poll_id, position)
+        );
+
+        CREATE TABLE poll_votes (
+          poll_id   TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+          option_id TEXT NOT NULL REFERENCES poll_options(id) ON DELETE CASCADE,
+          user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          voted_at  TEXT NOT NULL,
+          PRIMARY KEY (option_id, user_id)
+        );
+        CREATE INDEX idx_poll_votes_poll_user ON poll_votes(poll_id, user_id);
+      `);
+    },
+  },
+  {
     version: 30,
     name: 'message_embeds_hidden',
     up(db) {

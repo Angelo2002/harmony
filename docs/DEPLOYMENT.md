@@ -191,6 +191,11 @@ whatever it imports. Discord users show up as stand-in accounts; they take an
 online or offline marker from Discord itself, which is why the Presence intent
 matters for the member list of a bridged channel.
 
+The bridge also requests the **Guild Message Polls** intent, which is not privileged and
+has no toggle, so there is nothing to enable: it is how votes on a Discord poll reach
+Harmony. Give the bot **Send Messages** in a bridged channel to let it post a Harmony
+poll there as a native poll.
+
 Do not re-invite the bot to change an intent. Intents are a property of the bot's
 gateway connection rather than a permission, so the toggles apply to the bot you
 already have.

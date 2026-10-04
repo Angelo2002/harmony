@@ -18,6 +18,16 @@ import {
   resolveChannelSettings,
   rewriteChannelMentions,
 } from '@harmony/shared';
+import {
+  POLL_LIMITS,
+  applyPollUpdate,
+  createPollSchema,
+  isPollClosed,
+  nextPollChoice,
+  pollLeaders,
+  pollPercent,
+  pollTimeLeft,
+} from '@harmony/shared';
 import { HIGHLIGHT_LANGUAGES, highlight } from '../src/lib/highlighter.ts';
 import { isJumbo, unicodeEmojiIn } from '../src/lib/jumbo-emoji.ts';
 import {
@@ -32,6 +42,7 @@ import {
 } from '../src/lib/emoji-usage.ts';
 import { inlineSegmentsOf, parseMessage } from '../src/lib/message-text.ts';
 import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
+import { draftProblem, newPollDraft, toCreatePollBody, withAddedOption, withoutOption } from '../src/lib/poll-draft.ts';
 import {
   matchScore,
   rankSwitcher,
@@ -1079,6 +1090,91 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('slash: the query is read only at the start', slashQuery('/sh') === 'sh' && slashQuery('hi /sh') === null);
   check('slash: a path is not a query', slashQuery('/usr/bin') === null && slashQuery('/sh ') === null);
 }
+
+// Polls: the pure pieces behind the poll view and the poll form.
+{
+  const poll = {
+    messageId: 'm1',
+    question: 'q',
+    allowMultiple: false,
+    closesAt: null,
+    closedAt: null,
+    source: 'harmony',
+    totalVoters: 4,
+    myVotes: ['a'],
+    options: [
+      { id: 'a', text: 'A', emoji: null, count: 2 },
+      { id: 'b', text: 'B', emoji: null, count: 2 },
+      { id: 'c', text: 'C', emoji: null, count: 0 },
+    ],
+  };
+  check('a share is a whole percentage', pollPercent(1, 3) === 33 && pollPercent(2, 3) === 67 && pollPercent(4, 4) === 100);
+  check('nobody voting is 0%, not NaN', pollPercent(0, 0) === 0 && pollPercent(3, 0) === 0);
+  check('ties all lead; no votes means no leader', pollLeaders(poll).join() === 'a,b' && pollLeaders({ options: [{ count: 0 }] }).length === 0);
+  const now = Date.parse('2026-01-01T12:00:00Z');
+  const at = (ms) => new Date(now + ms).toISOString();
+  check('a poll with no expiry never closes by the clock', isPollClosed({ closedAt: null, closesAt: null }, now) === false);
+  check('a poll closes when its time passes', isPollClosed({ closedAt: null, closesAt: at(-1) }, now) && !isPollClosed({ closedAt: null, closesAt: at(1000) }, now));
+  check('a poll closed by hand stays closed', isPollClosed({ closedAt: at(-5000), closesAt: at(60_000) }, now));
+  check(
+    'time left reads in minutes, hours and days',
+    pollTimeLeft(at(90_000), now) === '2 minutes left' &&
+      pollTimeLeft(at(3_600_000), now) === '1 hour left' &&
+      pollTimeLeft(at(5 * 3_600_000), now) === '5 hours left' &&
+      pollTimeLeft(at(3 * 86_400_000), now) === '3 days left',
+  );
+  check('a minute is singular, and a lapsed time says closing soon', pollTimeLeft(at(30_000), now) === '1 minute left' && pollTimeLeft(at(-1), now) === 'Closing soon');
+  check('no expiry reads as nothing', pollTimeLeft(null, now) === '');
+  check('a single-answer poll swaps the choice', nextPollChoice(poll, ['a'], 'b').join() === 'b');
+  check('clicking the chosen option withdraws it', nextPollChoice(poll, ['a'], 'a').length === 0);
+  const multi = { allowMultiple: true };
+  check('a multiple-answer poll toggles', nextPollChoice(multi, ['a'], 'b').join() === 'a,b' && nextPollChoice(multi, ['a', 'b'], 'a').join() === 'b');
+  const update = {
+    messageId: 'm1',
+    channelId: 'c',
+    closedAt: null,
+    totalVoters: 5,
+    options: [{ id: 'a', count: 2 }, { id: 'b', count: 3 }, { id: 'c', count: 0 }],
+    actorId: 'me',
+    actorVotes: ['b'],
+  };
+  const mine = applyPollUpdate(poll, update, 'me');
+  check('an update sets the counts, and the choice when it is the viewer\'s own', mine.options[1].count === 3 && mine.totalVoters === 5 && mine.myVotes.join() === 'b');
+  const theirs = applyPollUpdate(poll, update, 'someone-else');
+  check('someone else\'s vote leaves the viewer\'s choice alone', theirs.options[1].count === 3 && theirs.myVotes.join() === 'a');
+  const closing = applyPollUpdate(poll, { ...update, actorId: null, actorVotes: null, closedAt: at(0) }, 'me');
+  check('a close update keeps the choice and marks it closed', closing.myVotes.join() === 'a' && closing.closedAt === at(0));
+  check('an update does not mutate the poll it was applied to', poll.options[1].count === 2 && poll.totalVoters === 4);
+
+  let draft = newPollDraft();
+  check('a new form has two empty options, one answer, a day', draft.options.length === 2 && draft.allowMultiple === false && draft.durationHours === 24);
+  check('an empty form says what it lacks', draftProblem(draft) === 'Ask a question first.');
+  draft.question = '  Lunch?  ';
+  check('a question alone still needs options', draftProblem(draft) === 'Give at least 2 options.');
+  draft.options[0].text = 'Soup';
+  draft.options[1].text = '   ';
+  check('blank options do not count', draftProblem(draft) === 'Give at least 2 options.');
+  draft.options[1].text = 'Salad';
+  draft.options[1].emoji = ' 🥗 ';
+  check('a complete form can be sent', draftProblem(draft) === null);
+  draft = withAddedOption(draft);
+  check('a spare row is dropped from the request, text and emoji are trimmed', (() => {
+    const body = toCreatePollBody(draft);
+    return body.question === 'Lunch?' && body.options.length === 2 && body.options[0].emoji === null && body.options[1].emoji === '🥗' && body.durationHours === 24;
+  })());
+  check('the request the form builds passes the server schema', createPollSchema.safeParse(toCreatePollBody(draft)).success);
+  while (draft.options.length < POLL_LIMITS.optionsMax) draft = withAddedOption(draft);
+  check('options stop at ten', withAddedOption(draft).options.length === 10);
+  check('rows keep distinct keys', new Set(draft.options.map((o) => o.key)).size === 10);
+  let shrunk = draft;
+  for (const option of [...draft.options]) shrunk = withoutOption(shrunk, option.key);
+  check('options stop at two', shrunk.options.length === 2);
+  const noExpiry = { ...newPollDraft(), question: 'q', durationHours: null };
+  noExpiry.options[0].text = 'a';
+  noExpiry.options[1].text = 'b';
+  check('no expiry is sent as null and accepted', toCreatePollBody(noExpiry).durationHours === null && createPollSchema.safeParse(toCreatePollBody(noExpiry)).success);
+}
+
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

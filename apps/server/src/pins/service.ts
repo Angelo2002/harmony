@@ -18,6 +18,7 @@ import { listAttachmentsForMessages } from '../db/attachments.ts';
 import { findChannel } from '../db/channels.ts';
 import { findMessage, parseMessageEmbed, type MessageRow } from '../db/messages.ts';
 import { clearPinned, listPinnedMessages, setPinnedWithinCap } from '../db/pins.ts';
+import { loadPollsForMessages } from '../db/polls.ts';
 import { listReactionsForMessages } from '../db/reactions.ts';
 import { listSavedAmong } from '../db/saved_messages.ts';
 import { listStickersForMessages } from '../db/stickers.ts';
@@ -159,6 +160,7 @@ export function createPinService(
       embed: parseMessageEmbed(row.embed),
       pinnedAt: row.pinned_at,
       saved,
+      poll: null,
     };
   }
 
@@ -175,15 +177,17 @@ export function createPinService(
     const reactions = listReactionsForMessages(sqlite, ids, viewerId);
     const stickers = listStickersForMessages(sqlite, ids);
     const saved = listSavedAmong(sqlite, viewerId, ids);
-    return rows.map((row) =>
-      toMessage(
+    const polls = loadPollsForMessages(sqlite, ids, viewerId);
+    return rows.map((row) => ({
+      ...toMessage(
         row,
         attachments.get(row.id) ?? [],
         reactions.get(row.id) ?? [],
         stickers.get(row.id) ?? [],
         saved.has(row.id),
       ),
-    );
+      poll: polls.get(row.id) ?? null,
+    }));
   }
 
   return {

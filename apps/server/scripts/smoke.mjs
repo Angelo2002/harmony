@@ -86,6 +86,8 @@ const server = spawn('node', ['src/index.ts'], {
     // send can be watched in seconds.
     HARMONY_SCHEDULED_TICK_MS: '250',
     HARMONY_SCHEDULED_MIN_LEAD_MS: '1500',
+    // Lets the poll sweep notice an expired poll within a moment.
+    HARMONY_POLL_SWEEP_MS: '300',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -5280,6 +5282,327 @@ try {
   schedMergeStore.close();
   rmSync(schedMergeDir, { recursive: true, force: true });
   }
+
+  // --- Polls ---
+  const pollRoom = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'polls-room' } })).json;
+  const pollBody = (overrides = {}) => ({
+    question: 'Pizza or tacos?',
+    options: [{ text: 'Pizza', emoji: '🍕' }, { text: 'Tacos' }, { text: 'Neither' }],
+    allowMultiple: false,
+    durationHours: 24,
+    ...overrides,
+  });
+  const makePoll = (overrides = {}, token = ownerToken, channelId = pollRoom.id) =>
+    req(`/channels/${channelId}/polls`, { method: 'POST', token, body: pollBody(overrides) });
+  const voteOn = (messageId, optionIds, token = bobToken) =>
+    req(`/messages/${messageId}/poll/votes`, { method: 'PUT', token, body: { optionIds } });
+  const pollOf = async (messageId, token = bobToken, channelId = pollRoom.id) =>
+    (await req(`/channels/${channelId}/messages?limit=100`, { token })).json?.messages?.find((m) => m.id === messageId)?.poll;
+
+  const pollWatcher = await openGateway({ token: bobToken });
+  const created = await makePoll();
+  const pollMessage = created.json;
+  check(
+    'a poll is created as a message whose text is the question',
+    created.status === 200 &&
+      pollMessage?.content === 'Pizza or tacos?' &&
+      pollMessage?.poll?.options?.length === 3 &&
+      pollMessage.poll.options[0].emoji === '🍕' &&
+      pollMessage.poll.options[1].emoji === null &&
+      pollMessage.poll.options.every((o) => o.count === 0) &&
+      pollMessage.poll.totalVoters === 0 &&
+      pollMessage.poll.allowMultiple === false &&
+      pollMessage.poll.closedAt === null &&
+      typeof pollMessage.poll.closesAt === 'string' &&
+      pollMessage.poll.source === 'harmony' &&
+      pollMessage.poll.myVotes.length === 0,
+    JSON.stringify(created.json),
+  );
+  const [pizza, tacos, neither] = pollMessage.poll.options;
+  await sleep(200);
+  check(
+    'a new poll reaches the gateway as an ordinary message',
+    pollWatcher.events.some((f) => f.t === 'MESSAGE_CREATE' && f.d?.id === pollMessage.id && f.d?.poll?.options?.length === 3),
+  );
+  check(
+    'a poll appears in channel history with the viewer\'s own votes',
+    (await pollOf(pollMessage.id))?.options?.length === 3,
+  );
+
+  // Validation.
+  const invalid = async (overrides) => (await makePoll(overrides)).status;
+  check('a poll needs a question (400)', (await invalid({ question: '   ' })) === 400);
+  check('a poll needs two options (400)', (await invalid({ options: [{ text: 'Only one' }] })) === 400);
+  check(
+    'a poll takes at most ten options (400)',
+    (await invalid({ options: Array.from({ length: 11 }, (_, i) => ({ text: `o${i}` })) })) === 400,
+  );
+  check('an option cannot be blank (400)', (await invalid({ options: [{ text: 'a' }, { text: '  ' }] })) === 400);
+  check('an option is limited to 55 characters (400)', (await invalid({ options: [{ text: 'a' }, { text: 'x'.repeat(56) }] })) === 400);
+  check('a question is limited to 300 characters (400)', (await invalid({ question: 'q'.repeat(301) })) === 400);
+  check('an option emoji must be an emoji (400)', (await invalid({ options: [{ text: 'a', emoji: 'abc' }, { text: 'b' }] })) === 400);
+  check('a poll lasts at least an hour (400)', (await invalid({ durationHours: 0 })) === 400);
+  check('a poll lasts at most 32 days (400)', (await invalid({ durationHours: 769 })) === 400);
+  check('a duration must be a whole number of hours (400)', (await invalid({ durationHours: 1.5 })) === 400);
+  check('a poll can have no expiry', (await makePoll({ durationHours: null })).json?.poll?.closesAt === null);
+
+  // Voting.
+  const first = await voteOn(pollMessage.id, [pizza.id]);
+  check(
+    'a member can vote and gets the poll back with their choice',
+    first.status === 200 && first.json?.myVotes?.join() === pizza.id && first.json?.options?.[0]?.count === 1 && first.json?.totalVoters === 1,
+    JSON.stringify(first.json),
+  );
+  await sleep(200);
+  const update = pollWatcher.events.filter((f) => f.t === 'POLL_UPDATE' && f.d?.messageId === pollMessage.id).at(-1);
+  check(
+    'a vote is broadcast as counts plus who voted, not a per-viewer view',
+    update?.d?.channelId === pollRoom.id &&
+      update.d.actorId === bobId &&
+      update.d.actorVotes?.join() === pizza.id &&
+      update.d.totalVoters === 1 &&
+      update.d.options.find((o) => o.id === pizza.id)?.count === 1 &&
+      !('myVotes' in update.d),
+    JSON.stringify(update),
+  );
+  check(
+    'the owner sees the live counts without having voted',
+    (await pollOf(pollMessage.id, ownerToken))?.options?.[0]?.count === 1 &&
+      (await pollOf(pollMessage.id, ownerToken))?.myVotes?.length === 0,
+  );
+  const changed = await voteOn(pollMessage.id, [tacos.id]);
+  check(
+    'changing a vote moves it rather than adding a second',
+    changed.json?.myVotes?.join() === tacos.id &&
+      changed.json?.options?.map((o) => o.count).join() === '0,1,0' &&
+      changed.json?.totalVoters === 1,
+    JSON.stringify(changed.json),
+  );
+  check(
+    'voting the same option again changes nothing',
+    (await voteOn(pollMessage.id, [tacos.id])).json?.options?.map((o) => o.count).join() === '0,1,0',
+  );
+  check(
+    'a single-answer poll refuses two choices (400)',
+    (await voteOn(pollMessage.id, [pizza.id, tacos.id])).status === 400,
+  );
+  check(
+    'an option from another poll is refused (400)',
+    (await voteOn(pollMessage.id, [(await makePoll()).json.poll.options[0].id])).status === 400,
+  );
+  check('an unknown option is refused (400)', (await voteOn(pollMessage.id, ['nope'])).status === 400);
+  await voteOn(pollMessage.id, [neither.id], ownerToken);
+  check(
+    'two voters are counted separately',
+    (await pollOf(pollMessage.id, ownerToken))?.totalVoters === 2 &&
+      (await pollOf(pollMessage.id, ownerToken))?.options?.map((o) => o.count).join() === '0,1,1',
+  );
+  const withdrawn = await voteOn(pollMessage.id, []);
+  check(
+    'an empty choice withdraws the vote',
+    withdrawn.json?.myVotes?.length === 0 && withdrawn.json?.totalVoters === 1,
+    JSON.stringify(withdrawn.json),
+  );
+
+  // Who voted.
+  const votersOf = (messageId, optionId, token = bobToken) =>
+    req(`/messages/${messageId}/poll/voters?optionId=${optionId}`, { token });
+  const voterList = await votersOf(pollMessage.id, neither.id);
+  check(
+    'the voter list names who chose an option (polls are not anonymous)',
+    voterList.status === 200 &&
+      voterList.json?.total === 1 &&
+      voterList.json?.voters?.length === 1 &&
+      voterList.json.voters[0].user.id === ownerId,
+    JSON.stringify(voterList.json),
+  );
+  check('the voter list refuses an unknown option (404)', (await votersOf(pollMessage.id, 'nope')).status === 404);
+  check('the voter list needs a sign-in (401)', (await req(`/messages/${pollMessage.id}/poll/voters?optionId=${neither.id}`)).status === 401);
+
+  // Multiple answers.
+  const multi = (await makePoll({ question: 'Toppings?', allowMultiple: true })).json;
+  const [m1, m2, m3] = multi.poll.options;
+  const multiVote = await voteOn(multi.id, [m1.id, m3.id]);
+  check(
+    'a multiple-answer poll takes several choices',
+    multiVote.json?.myVotes?.length === 2 && multiVote.json?.totalVoters === 1 && multiVote.json?.options?.map((o) => o.count).join() === '1,0,1',
+    JSON.stringify(multiVote.json),
+  );
+  await voteOn(multi.id, [m2.id], ownerToken);
+  const multiAfter = await pollOf(multi.id, ownerToken);
+  check(
+    'with several answers the voter total is below the sum of the counts',
+    multiAfter?.totalVoters === 2 && multiAfter.options.reduce((sum, o) => sum + o.count, 0) === 3,
+  );
+  check(
+    'a repeated option in one vote counts once',
+    (await voteOn(multi.id, [m1.id, m1.id])).json?.options?.map((o) => o.count).join() === '1,1,0',
+  );
+
+  // Ending early.
+  const endable = (await makePoll({ question: 'End me?' })).json;
+  await voteOn(endable.id, [endable.poll.options[0].id]);
+  check('a member cannot end another member\'s poll (403)', (await req(`/messages/${endable.id}/poll/end`, { method: 'POST', token: bobToken })).status === 403);
+  const ended = await req(`/messages/${endable.id}/poll/end`, { method: 'POST', token: ownerToken });
+  check(
+    'the author can end a poll, and the final counts stay',
+    ended.status === 200 && typeof ended.json?.closedAt === 'string' && ended.json?.options?.[0]?.count === 1,
+    JSON.stringify(ended.json),
+  );
+  await sleep(200);
+  check(
+    'ending a poll is broadcast',
+    pollWatcher.events.some((f) => f.t === 'POLL_UPDATE' && f.d?.messageId === endable.id && f.d?.closedAt && f.d?.actorId === null),
+  );
+  check('a closed poll refuses votes (409)', (await voteOn(endable.id, [endable.poll.options[1].id])).status === 409);
+  check('a closed poll refuses withdrawals (409)', (await voteOn(endable.id, [])).status === 409);
+  check('a poll cannot be ended twice (409)', (await req(`/messages/${endable.id}/poll/end`, { method: 'POST', token: ownerToken })).status === 409);
+  check('a closed poll still lists its voters', (await votersOf(endable.id, endable.poll.options[0].id)).json?.voters?.length === 1);
+  check('a closed poll reads as closed in history', typeof (await pollOf(endable.id))?.closedAt === 'string');
+
+  // A moderator with Manage Messages may end someone else's poll.
+  const modPoll = (await makePoll({ question: 'Moderated?' }, bobToken)).json;
+  check('a member can start a poll', modPoll?.poll?.options?.length === 3 && modPoll.author.id === bobId);
+  check('the owner (Manage Messages) can end a member\'s poll', (await req(`/messages/${modPoll.id}/poll/end`, { method: 'POST', token: ownerToken })).status === 200);
+
+  // Expiry: the clock closes a poll by itself. Rewind one through the database.
+  const pollDb = new DatabaseSync(join(dataDir, 'harmony.db'));
+  const expiring = (await makePoll({ question: 'Hurry?', durationHours: 1 })).json;
+  await voteOn(expiring.id, [expiring.poll.options[0].id]);
+  pollDb.prepare('UPDATE polls SET closes_at = ? WHERE message_id = ?').run(new Date(Date.now() - 1000).toISOString(), expiring.id);
+  pollWatcher.events.length = 0;
+  let swept = false;
+  for (let attempt = 0; attempt < 30 && !swept; attempt++) {
+    await sleep(200);
+    swept = pollWatcher.events.some((f) => f.t === 'POLL_UPDATE' && f.d?.messageId === expiring.id && f.d?.closedAt);
+  }
+  check('the timer closes an expired poll and broadcasts it', swept);
+  check('an expired poll keeps its votes', (await pollOf(expiring.id))?.options?.[0]?.count === 1);
+  const lazy = (await makePoll({ question: 'Late?', durationHours: 1 })).json;
+  pollDb.prepare('UPDATE polls SET closes_at = ? WHERE message_id = ?').run(new Date(Date.now() - 1000).toISOString(), lazy.id);
+  check(
+    'a vote cast after the time is up is refused even before the timer ran (409)',
+    (await voteOn(lazy.id, [lazy.poll.options[0].id])).status === 409,
+  );
+
+  // Editing and deleting.
+  check('a poll cannot be edited (400)', (await req(`/messages/${pollMessage.id}`, { method: 'PATCH', token: ownerToken, body: { content: 'changed' } })).status === 400);
+  const searched = await req(`/search?q=${encodeURIComponent('Pizza or tacos')}`, { token: bobToken });
+  check(
+    'a poll is found by searching its question, poll attached',
+    searched.json?.messages?.some((m) => m.id === pollMessage.id && m.poll?.options?.length === 3),
+  );
+  const replied = await req(`/channels/${pollRoom.id}/messages`, {
+    method: 'POST',
+    token: bobToken,
+    body: { content: 'good question', replyToId: pollMessage.id },
+  });
+  check('a reply quotes the question', replied.json?.replyTo?.content === 'Pizza or tacos?');
+
+  // Permissions.
+  const carol = await req('/auth/register', { method: 'POST', body: { username: 'pollwatcher', password: 'pollwatcher-pass', inviteCode: (await req('/invites', { method: 'POST', token: ownerToken, body: {} })).json?.code } });
+  const carolToken = carol.json?.token;
+  const carolId = carol.json?.user?.id;
+  check('a fresh member can vote', carolToken && (await voteOn(multi.id, [m1.id], carolToken)).status === 200);
+  check('creating a poll needs a sign-in (401)', (await req(`/channels/${pollRoom.id}/polls`, { method: 'POST', body: pollBody() })).status === 401);
+  check('creating a poll in a missing channel is refused (404)', (await makePoll({}, ownerToken, 'no-such-channel')).status === 404);
+  check('voting on a message that is not a poll is refused (404)', (await voteOn(replied.json.id, ['x'])).status === 404);
+  check('ending a message that is not a poll is refused (404)', (await req(`/messages/${replied.json.id}/poll/end`, { method: 'POST', token: ownerToken })).status === 404);
+
+  // A timed-out member can read a poll but not vote on it.
+  const timeoutPoll = (await makePoll({ question: 'Timeout?' })).json;
+  await req(`/members/${carolId}/timeout`, { method: 'PUT', token: ownerToken, body: { durationMinutes: 5 } });
+  check('a timed-out member cannot vote (403)', (await voteOn(timeoutPoll.id, [timeoutPoll.poll.options[0].id], carolToken)).status === 403);
+  check('a timed-out member can still read the poll', (await pollOf(timeoutPoll.id, carolToken))?.options?.length === 3);
+  await req(`/members/${carolId}/timeout`, { method: 'DELETE', token: ownerToken });
+  check('and votes again once the timeout lifts', (await voteOn(timeoutPoll.id, [timeoutPoll.poll.options[0].id], carolToken)).status === 200);
+
+  // Rate limit: a script flipping its vote is stopped.
+  const spam = [];
+  for (let i = 0; i < 36; i++) spam.push((await voteOn(timeoutPoll.id, [timeoutPoll.poll.options[i % 2].id], carolToken)).status);
+  check('vote flooding is rate limited (429)', spam.includes(429), spam.join());
+
+  // Hidden channels: a locked channel's polls are invisible, unvotable and silent.
+  const pollRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Poll insiders' } });
+  const hiddenRoom = (
+    await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'hidden-polls', requiredRoleId: pollRole.json.id } })
+  ).json;
+  const hiddenPoll = (await makePoll({ question: 'Secret ballot?' }, ownerToken, hiddenRoom.id)).json;
+  await voteOn(hiddenPoll.id, [hiddenPoll.poll.options[0].id], ownerToken);
+  await sleep(250);
+  check(
+    'a poll in a locked channel is not broadcast to a member without the role',
+    !pollWatcher.events.some((f) => f.d?.channelId === hiddenRoom.id || f.d?.id === hiddenPoll.id),
+  );
+  check('voting in a locked channel is refused (403)', (await voteOn(hiddenPoll.id, [hiddenPoll.poll.options[0].id])).status === 403);
+  check('a locked channel\'s voters are refused (403)', (await votersOf(hiddenPoll.id, hiddenPoll.poll.options[0].id)).status === 403);
+  check('ending in a locked channel is refused (403)', (await req(`/messages/${hiddenPoll.id}/poll/end`, { method: 'POST', token: bobToken })).status === 403);
+  check('a locked channel refuses its poll history (403)', (await req(`/channels/${hiddenRoom.id}/messages`, { token: bobToken })).status === 403);
+  check('creating a poll in a locked channel is refused (403)', (await makePoll({}, bobToken, hiddenRoom.id)).status === 403);
+  const hiddenSearch = await req(`/search?q=${encodeURIComponent('Secret ballot')}`, { token: bobToken });
+  check('a locked channel\'s poll is not searchable', (hiddenSearch.json?.messages ?? []).length === 0);
+  await req(`/members/${bobId}/roles/${pollRole.json.id}`, { method: 'PUT', token: ownerToken });
+  check('with the role the same poll is votable', (await voteOn(hiddenPoll.id, [hiddenPoll.poll.options[1].id])).status === 200);
+  await req(`/members/${bobId}/roles/${pollRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
+  // Deleting the message removes the poll, and its voters.
+  check('a poll message can be deleted', (await req(`/messages/${pollMessage.id}`, { method: 'DELETE', token: ownerToken })).status === 204);
+  check('a deleted poll cannot be voted on (404)', (await voteOn(pollMessage.id, [pizza.id])).status === 404);
+  check('a deleted poll lists no voters (404)', (await votersOf(pollMessage.id, pizza.id)).status === 404);
+  check('a deleted poll drops out of history', (await pollOf(pollMessage.id)) === undefined);
+  // Hard deletion (retention, or the channel going) cascades to every child row.
+  const childRows = (table) => pollDb.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
+  const pollRowsBefore = childRows('polls');
+  const votesBefore = childRows('poll_votes');
+  await req(`/channels/${pollRoom.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'deleting the channel cascades to its polls, options and votes',
+    childRows('polls') < pollRowsBefore &&
+      childRows('poll_votes') < votesBefore &&
+      pollDb.prepare("SELECT COUNT(*) AS n FROM poll_options WHERE poll_id NOT IN (SELECT id FROM polls)").get().n === 0 &&
+      pollDb.prepare("SELECT COUNT(*) AS n FROM poll_votes WHERE poll_id NOT IN (SELECT id FROM polls)").get().n === 0,
+  );
+  pollDb.close();
+  pollWatcher.ws.close();
+
+  // Merging accounts (the Discord link) keeps one vote per person per poll.
+  const pollMergeDir = mkdtempSync(join(tmpdir(), 'harmony-poll-merge-'));
+  const pollMergeStore = new Database({
+    dataDir: pollMergeDir,
+    dbFile: join(pollMergeDir, 'harmony.db'),
+    uploadDir: join(pollMergeDir, 'uploads'),
+  });
+  const ms = pollMergeStore.sqlite;
+  insertUser(ms, { id: 'p-keeper', username: 'pkeeper', passwordHash: 'x', isOwner: false });
+  insertUser(ms, { id: 'p-leaver', username: 'pleaver', passwordHash: 'x', isOwner: false });
+  ms.prepare("INSERT INTO channels (id, name, type, position, created_at) VALUES ('p-chan', 'general', 'text', 0, ?)").run(new Date().toISOString());
+  for (const id of ['p-single', 'p-multi']) {
+    insertMessage(ms, { id, channelId: 'p-chan', authorId: 'p-keeper', content: id, createdAt: new Date().toISOString() });
+    ms.prepare("INSERT INTO polls (id, message_id, question, allow_multiple, created_at) VALUES (?, ?, 'q', ?, ?)").run(`${id}-poll`, id, id === 'p-multi' ? 1 : 0, new Date().toISOString());
+    for (const o of ['a', 'b', 'c']) ms.prepare('INSERT INTO poll_options (id, poll_id, position, text) VALUES (?, ?, ?, ?)').run(`${id}-${o}`, `${id}-poll`, o.charCodeAt(0), o);
+  }
+  const castVote = (user, poll, option) =>
+    ms.prepare('INSERT INTO poll_votes (poll_id, option_id, user_id, voted_at) VALUES (?, ?, ?, ?)').run(`${poll}-poll`, `${poll}-${option}`, user, new Date().toISOString());
+  castVote('p-keeper', 'p-single', 'a'); // survivor chose a
+  castVote('p-leaver', 'p-single', 'b'); // outgoing chose b: the survivor's choice stands
+  castVote('p-keeper', 'p-multi', 'a');
+  castVote('p-leaver', 'p-multi', 'a'); // the same option twice collapses
+  castVote('p-leaver', 'p-multi', 'c'); // a different one moves across
+  let pollMergeError = null;
+  try {
+    mergeUsers(ms, 'p-leaver', 'p-keeper');
+  } catch (error) {
+    pollMergeError = error;
+  }
+  const mergedVotes = ms.prepare('SELECT poll_id, option_id, user_id FROM poll_votes ORDER BY option_id').all();
+  check(
+    'merging accounts keeps one vote per person: the survivor wins a single-answer poll, a multi poll unions',
+    pollMergeError === null &&
+      mergedVotes.every((row) => row.user_id === 'p-keeper') &&
+      mergedVotes.map((row) => row.option_id).join() === 'p-multi-a,p-multi-c,p-single-a',
+    String(pollMergeError ?? JSON.stringify(mergedVotes)),
+  );
+  pollMergeStore.close();
 
   // --- Admin media gallery ---
   const galleryPng = await sharp({

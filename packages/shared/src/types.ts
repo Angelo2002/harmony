@@ -1,4 +1,5 @@
 import type { LinkedGif } from './gif-hosts.ts';
+import type { Poll } from './polls.ts';
 
 export type SnowflakeId = string;
 export type IsoTimestamp = string;
@@ -266,6 +267,8 @@ export interface Message {
    * clients keep the value they already hold.
    */
   saved: boolean;
+  /** The poll this message carries, or null for an ordinary message. */
+  poll: Poll | null;
 }
 
 /**

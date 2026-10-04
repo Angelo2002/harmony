@@ -8,6 +8,9 @@ import {
   type Message as DiscordMessage,
   type MessageReaction,
   type PartialMessageReaction,
+  type PartialPollAnswer,
+  type Poll,
+  type PollAnswer,
   type Presence,
   type TextChannel,
 } from 'discord.js';
@@ -20,6 +23,9 @@ import {
   type DiscordIncomingDelete,
   type DiscordIncomingEdit,
   type DiscordIncomingMessage,
+  type DiscordIncomingPoll,
+  type DiscordIncomingPollEnd,
+  type DiscordIncomingPollVote,
   type DiscordIncomingPresence,
   type DiscordIncomingReaction,
   type DiscordIncomingReactionsRemoved,
@@ -29,6 +35,8 @@ import {
   type EditInput,
   type DeleteInput,
   type MirrorInput,
+  type MirrorPollInput,
+  type MirrorPollResult,
   type MirrorResult,
   type ReactionInput,
   type WebhookRef,
@@ -51,6 +59,9 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       // Privileged. Without it Discord sends no presences and the member list has
       // no way to tell who is around on the Discord side of a bridge.
       GatewayIntentBits.GuildPresences,
+      // Not privileged. Without it Discord never says who voted on a poll, so
+      // votes made on the Discord side could not be counted here.
+      GatewayIntentBits.GuildMessagePolls,
     ],
     // Partials let us see edits, deletes and reactions of messages sent before startup.
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
@@ -67,6 +78,9 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
   const pinsUpdatedHandlers: Array<(channelId: string) => void> = [];
   const reconnectedHandlers: Array<() => void> = [];
   let readyOnce = false;
+  const pollVoteAddedHandlers: Array<(vote: DiscordIncomingPollVote) => void> = [];
+  const pollVoteRemovedHandlers: Array<(vote: DiscordIncomingPollVote) => void> = [];
+  const pollEndedHandlers: Array<(ended: DiscordIncomingPollEnd) => void> = [];
   let status: BridgeStatus = { ready: false, botTag: null, guildName: null, error: null };
 
   function reportPresence(presence: Presence): void {
@@ -139,7 +153,55 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
       forwarded: forward !== null,
       // The "pinned a message" notice and the like: Discord's own, not a person's.
       system: message.system,
+      poll: message.poll ? toIncomingPoll(message.poll) : null,
     };
+  }
+
+  /** Maps a discord.js poll onto the shape the bridge works with. */
+  function toIncomingPoll(poll: Poll): DiscordIncomingPoll {
+    return {
+      question: poll.question.text ?? '',
+      answers: [...poll.answers.values()].map((answer) => ({
+        id: answer.id,
+        text: answer.text ?? '',
+        // A unicode emoji has a name and no id; a custom one is not carried over.
+        emoji: answer.emoji && !answer.emoji.id ? (answer.emoji.name ?? null) : null,
+      })),
+      allowMultiple: poll.allowMultiselect,
+      expiresAt: poll.expiresAt?.toISOString() ?? null,
+      finalized: poll.resultsFinalized,
+    };
+  }
+
+  /**
+   * Poll votes are handled one at a time, in the order Discord sent them. Each
+   * needs the voter's name looked up first, and a vote followed at once by its
+   * withdrawal must not be applied the other way round.
+   */
+  let pollQueue: Promise<void> = Promise.resolve();
+
+  function reportPollVote(
+    answer: PollAnswer | PartialPollAnswer,
+    userId: string,
+    handlers: Array<(vote: DiscordIncomingPollVote) => void>,
+  ): void {
+    pollQueue = pollQueue.then(async () => {
+      try {
+        const user = await client.users.fetch(userId).catch(() => null);
+        // A bot cannot vote, so this is a webhook or an app; never a person.
+        if (user?.bot) return;
+        const vote: DiscordIncomingPollVote = {
+          messageId: answer.poll.messageId,
+          channelId: answer.poll.channelId,
+          answerId: answer.id,
+          userId,
+          userName: user ? (user.globalName ?? user.username) : 'Discord user',
+        };
+        for (const handler of handlers) handler(vote);
+      } catch {
+        // The vote could not be read; the next sync of the poll will catch up.
+      }
+    });
   }
 
   /** Bots and webhooks, our own mirrors among them, are never bridged in. */
@@ -168,7 +230,16 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
     for (const handler of createdHandlers) handler(incoming);
   });
 
+  client.on(Events.MessagePollVoteAdd, (answer, userId) => reportPollVote(answer, userId, pollVoteAddedHandlers));
+  client.on(Events.MessagePollVoteRemove, (answer, userId) => reportPollVote(answer, userId, pollVoteRemovedHandlers));
+
   client.on(Events.MessageUpdate, (previous, next) => {
+    // A poll closing is an update to its message with the text unchanged, so it
+    // is looked for before the unchanged-text rule below drops the event.
+    if (next.poll?.resultsFinalized && !previous.poll?.resultsFinalized) {
+      const ended: DiscordIncomingPollEnd = { messageId: next.id, channelId: next.channelId };
+      for (const handler of pollEndedHandlers) handler(ended);
+    }
     // Discord also sends an update when it finishes unfurling a link, often more
     // than once for a gif. The text is unchanged, so it is not an edit, and
     // passing it on would mark the message edited and resolve its link again.
@@ -396,6 +467,59 @@ export function createDiscordTransport(token: string, logger: BridgeLogger): Dis
 
     onReconnected(handler) {
       reconnectedHandlers.push(handler);
+    },
+
+    onPollVoteAdded(handler) {
+      pollVoteAddedHandlers.push(handler);
+    },
+
+    onPollVoteRemoved(handler) {
+      pollVoteRemovedHandlers.push(handler);
+    },
+
+    onPollEnded(handler) {
+      pollEndedHandlers.push(handler);
+    },
+
+    async mirrorPoll(input: MirrorPollInput): Promise<MirrorPollResult> {
+      const channel = await client.channels.fetch(input.discordChannelId).catch(() => null);
+      if (!channel || channel.type !== ChannelType.GuildText) {
+        throw new Error(`Discord channel ${input.discordChannelId} is not a text channel the bot can see.`);
+      }
+      // A webhook cannot post a poll, so the bot does. Nobody is pinged by the text.
+      const sent = await (channel as TextChannel).send({
+        content: input.content.slice(0, DISCORD_MAX_CONTENT),
+        allowedMentions: { parse: [] },
+        poll: {
+          question: { text: input.question },
+          answers: input.answers.map((answer) => ({
+            text: answer.text,
+            ...(answer.emoji ? { emoji: answer.emoji } : {}),
+          })),
+          allowMultiselect: input.allowMultiple,
+          duration: input.durationHours,
+        },
+      });
+      // Discord numbers the answers itself, in the order given.
+      const answerIds = sent.poll
+        ? [...sent.poll.answers.values()].map((answer) => answer.id)
+        : input.answers.map((_, index) => index + 1);
+      return { messageId: sent.id, answerIds };
+    },
+
+    async endPoll(input: BotDeleteInput) {
+      // Only the poll's author can end it, which is the bot for one we posted.
+      await client.rest.post(`/channels/${input.channelId}/polls/${input.discordMessageId}/expire`);
+    },
+
+    async fetchPollVoters(input) {
+      const response = (await client.rest.get(
+        `/channels/${input.channelId}/polls/${input.discordMessageId}/answers/${input.answerId}`,
+        { query: new URLSearchParams({ limit: '100' }) },
+      )) as { users?: Array<{ id: string; username: string; global_name?: string | null; bot?: boolean }> };
+      return (response.users ?? [])
+        .filter((user) => !user.bot)
+        .map((user) => ({ id: user.id, name: user.global_name ?? user.username }));
     },
 
     async guildEmojis(): Promise<DiscordEmoji[]> {

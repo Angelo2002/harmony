@@ -30,6 +30,7 @@
   import GifPicker from './GifPicker.svelte';
   import SchedulePicker from './SchedulePicker.svelte';
   import Icon from './Icon.svelte';
+  import PollComposer from './PollComposer.svelte';
   import TimestampPicker from './TimestampPicker.svelte';
 
   const acceptAttribute = ALLOWED_ATTACHMENT_TYPES.join(',');
@@ -73,6 +74,7 @@
   let showGifs = $state(false);
   let showTimes = $state(false);
   let showSchedule = $state(false);
+  let showPoll = $state(false);
   /** The phone-only + menu that gathers the four picker buttons. */
   let showActions = $state(false);
 
@@ -277,6 +279,7 @@
    * something rather than leaving a menu sitting over the picker.
    */
   function toggleEmoji(): void {
+    showPoll = false;
     showPicker = !showPicker;
     showGifs = false;
     showTimes = false;
@@ -285,6 +288,7 @@
   }
 
   function toggleGifs(): void {
+    showPoll = false;
     showGifs = !showGifs;
     showPicker = false;
     showTimes = false;
@@ -293,6 +297,7 @@
   }
 
   function toggleTimes(): void {
+    showPoll = false;
     showTimes = !showTimes;
     showPicker = false;
     showGifs = false;
@@ -318,6 +323,19 @@
     showSchedule = false;
     activeTrigger = null;
     void tick().then(() => textInput?.focus());
+  }
+
+  function togglePoll(): void {
+    showPoll = !showPoll;
+    showPicker = false;
+    showGifs = false;
+    showTimes = false;
+    showActions = false;
+  }
+
+  function closePoll(refocus: boolean): void {
+    showPoll = false;
+    if (refocus) textInput?.focus();
   }
 
   function pickFiles(): void {
@@ -867,6 +885,10 @@
       }} />
   {/if}
 
+  {#if showPoll}
+    <PollComposer onclose={closePoll} />
+  {/if}
+
   {#if showTimes}
     <TimestampPicker onpick={(token) => insertAtCaret(token)} onclose={closeTimes} />
   {/if}
@@ -979,6 +1001,9 @@
         <button type="button" role="menuitem" disabled={uploading || timeoutUntil !== null} onclick={pickFiles}>
           <span class="composer-actions-icon"><Icon name="paperclip" size={18} /></span> Attach image
         </button>
+        <button type="button" role="menuitem" disabled={timeoutUntil !== null} onclick={togglePoll}>
+          <span class="composer-actions-icon"><Icon name="poll" size={18} /></span> Poll
+        </button>
       </div>
     {/if}
     <button
@@ -1009,6 +1034,16 @@
     >
       {#if uploading}…{:else}<Icon name="paperclip" size={20} />{/if}
     </button>
+    <button
+      type="button"
+      class="attach poll-trigger"
+      title="Create poll"
+      aria-label="Create poll"
+      aria-expanded={showPoll}
+      aria-haspopup="dialog"
+      disabled={timeoutUntil !== null}
+      onclick={togglePoll}><Icon name="poll" size={20} /></button
+    >
     <input class="file-input" type="file" accept={acceptAttribute} multiple bind:this={fileInput} onchange={onFiles} />
     <!--
       Slowmode only holds back sending (see `send`): the field stays enabled so

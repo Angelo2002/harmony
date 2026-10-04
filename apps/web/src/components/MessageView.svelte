@@ -20,6 +20,7 @@
   import MessageContent from './MessageContent.svelte';
   import PinAction from './PinAction.svelte';
   import RemoveEmbedsAction from './RemoveEmbedsAction.svelte';
+  import PollView from './PollView.svelte';
   import SaveAction from './SaveAction.svelte';
 
   /** Opens the profile card for an author, when there is one to show. */
@@ -229,7 +230,7 @@
 
   // Only the author may edit; the author or any message manager may delete.
   function canEdit(message: Message): boolean {
-    return message.author?.id === myId;
+    return message.author?.id === myId && !message.poll;
   }
   function canDelete(message: Message): boolean {
     return message.author?.id === myId || hasPermission(permissions, Permission.ManageMessages);
@@ -562,7 +563,7 @@
               </div>
             </form>
           {:else}
-            {#if message.content && !isOnlyTheLink(message)}
+            {#if message.content && !isOnlyTheLink(message) && !message.poll}
               <div class="content"><MessageContent {blocks} allowJumbo={message.attachments.length === 0} /></div>
             {/if}
 
@@ -672,6 +673,10 @@
                   </button>
                 {/each}
               </div>
+            {/if}
+
+            {#if message.poll}
+              <PollView {message} poll={message.poll} />
             {/if}
 
             {#if message.embed}

@@ -211,6 +211,22 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
       .run(fromId, intoId);
     sqlite.prepare('UPDATE bans SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
 
+    // Poll votes: one person who voted under both accounts keeps a single vote.
+    // Where the survivor already chose the same option the outgoing row goes, and
+    // in a poll that takes one answer the survivor's own choice stands over any
+    // other the outgoing account made, so the merge never leaves two.
+    sqlite
+      .prepare(
+        `DELETE FROM poll_votes
+          WHERE user_id = ?
+            AND (EXISTS (SELECT 1 FROM poll_votes v
+                          WHERE v.option_id = poll_votes.option_id AND v.user_id = ?)
+                 OR EXISTS (SELECT 1 FROM poll_votes v JOIN polls p ON p.id = v.poll_id
+                             WHERE v.poll_id = poll_votes.poll_id AND v.user_id = ? AND p.allow_multiple = 0))`,
+      )
+      .run(fromId, intoId, intoId);
+    sqlite.prepare('UPDATE poll_votes SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
     sqlite.prepare('DELETE FROM users WHERE id = ?').run(fromId);
     sqlite.exec('COMMIT');
   } catch (error) {

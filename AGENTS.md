@@ -9,8 +9,8 @@ Discord bridge. For the pitch see `README.md`; for depth see
 `docs/TECHNICAL.md` (internals and the bridge), `docs/API.md` (HTTP and
 WebSocket contract) and `docs/DEPLOYMENT.md` (putting it on a server).
 
-`CLAUDE.md` covers the same ground for Claude Code. If you change one, change
-the other, or make one of them a pointer to this file.
+`CLAUDE.md` is only a short pointer to this file; keep it that way rather than
+growing a second copy that drifts.
 
 ## Commands
 
@@ -68,6 +68,23 @@ Do not wait to be asked, and do not leave finished work uncommitted.
   they are a quoting hazard in a one-liner. Use plain words.
 - Commit one coherent idea at a time. Do not bundle unrelated work just because
   it is convenient.
+
+## Keep the docs current
+
+The documentation is part of the work, not an afterthought. As the project
+evolves, keep it true, in the same commit as the change it describes:
+
+- `AGENTS.md` (this file) — update it whenever a command, convention, gotcha or
+  working agreement changes. If you learn something the hard way, write it down
+  here so the next agent does not repeat it.
+- `README.md` — the pitch and quick start aimed at a non-technical owner. Keep
+  it accurate when a feature changes what the product does or how it is set up.
+- `docs/` — `TECHNICAL.md` (internals and the bridge), `API.md` (the HTTP and
+  WebSocket contract) and `DEPLOYMENT.md` (running it on a server). Update the
+  relevant one when behaviour or a contract changes.
+
+If a change makes an existing statement false, fixing the docs is part of
+finishing the change, not a follow-up.
 
 ## Layout
 

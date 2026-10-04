@@ -3785,6 +3785,14 @@ button.roster-member:hover {
     cursor: default;
   }
 
+  /* A button backdrop, so the shared hover/active styles are pinned off it. */
+  .drawer-backdrop:hover,
+  .drawer-backdrop:active {
+    background: rgb(0 0 0 / 60%);
+    box-shadow: none;
+    transform: none;
+  }
+
   .drawer-toggle {
     display: inline-flex;
     align-items: center;
@@ -3829,6 +3837,14 @@ button.roster-member:hover {
     cursor: default;
     -webkit-backdrop-filter: blur(2px);
     backdrop-filter: blur(2px);
+  }
+
+  /* A button backdrop, so the shared hover/active styles are pinned off it. */
+  .composer-actions-backdrop:hover,
+  .composer-actions-backdrop:active {
+    background: rgb(0 0 0 / 35%);
+    box-shadow: none;
+    transform: none;
   }
 
   .composer-actions {

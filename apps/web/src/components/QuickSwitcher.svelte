@@ -175,10 +175,28 @@
   .qs-backdrop {
     position: absolute;
     inset: 0;
+    margin: 0;
+    padding: 0;
     border: none;
+    border-radius: 0;
     background: rgb(0 0 0 / 70%);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    box-shadow: none;
     cursor: default;
     animation: qs-fade var(--h-duration) var(--h-ease);
+  }
+
+  /*
+   * The backdrop is a button so a click anywhere closes the switcher, but the
+   * shared button styles would tint it accent on hover and shrink it on press, so
+   * its own dark, blurred fill is pinned rather than left to the pointer.
+   */
+  .qs-backdrop:hover,
+  .qs-backdrop:active {
+    background: rgb(0 0 0 / 70%);
+    box-shadow: none;
+    transform: none;
   }
 
   .qs-dialog {

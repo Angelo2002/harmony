@@ -815,6 +815,7 @@
             class="autocomplete-item"
             class:active={index === highlight}
             onpointerdown={(event) => event.preventDefault()}
+            onmousedown={(event) => event.preventDefault()}
             onclick={() => acceptSuggestion(suggestion)}
             onmouseenter={() => (highlight = index)}
           >
@@ -927,6 +928,8 @@
       type="submit"
       class="send"
       aria-label="Send"
+      onpointerdown={(event) => event.preventDefault()}
+      onmousedown={(event) => event.preventDefault()}
       disabled={busy || uploading || timeoutUntil !== null || slowmodeRemaining > 0}
     >
       <span class="send-icon"><Icon name="send" size={20} /></span>

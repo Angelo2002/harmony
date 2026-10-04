@@ -182,7 +182,9 @@ export type AuditKind =
   | 'role_remove'
   | 'member_update'
   | 'member_delete'
-  | 'password_reset';
+  | 'password_reset'
+  | 'message_pin'
+  | 'message_unpin';
 
 /**
  * The kind-specific fields of an audit entry. Every field is optional because
@@ -194,6 +196,9 @@ export type AuditKind =
  * - `timeout_add`: `durationMinutes`. `ban`: `reason`.
  * - `role_add` / `role_remove`: `roleName`.
  * - `member_update`: `fields`, the account fields an administrator changed.
+ * - `message_pin` / `message_unpin`: `channelName`, and `before` holding the
+ *   message text as it read when it was pinned or unpinned. The target is the
+ *   message's author.
  *
  * `actorName` and `targetName` are snapshots taken when the entry was written,
  * so it stays readable after a rename or a deletion.
@@ -242,6 +247,8 @@ export interface Message {
   reactions: Reaction[];
   /** A preview of the first embeddable link in `content`, or null. */
   embed: LinkEmbed | null;
+  /** When the message was pinned to its channel, or null when it is not pinned. */
+  pinnedAt: IsoTimestamp | null;
 }
 
 /**

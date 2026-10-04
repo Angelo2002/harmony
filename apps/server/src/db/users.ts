@@ -96,6 +96,7 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
   try {
     // Plain references first, so the delete below has nothing left to null out.
     sqlite.prepare('UPDATE messages SET author_id = ? WHERE author_id = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE messages SET pinned_by = ? WHERE pinned_by = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE attachments SET uploader_id = ? WHERE uploader_id = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE audit_log SET actor_id = ? WHERE actor_id = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE audit_log SET target_id = ? WHERE target_id = ?').run(intoId, fromId);

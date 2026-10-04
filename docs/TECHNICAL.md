@@ -354,6 +354,29 @@ red channel mark, and what the server records, so they cannot disagree. A `#chan
 deliberately not one of these: it is a pointer rather than a summons, so it never reaches an inbox,
 and the row the inbox is built from is only ever written for a person.
 
+## Pins
+
+A message is pinned by stamping two columns on its own row, `pinned_at` and `pinned_by`, rather
+than through a table of pins. A message can only be pinned once, and only to the channel it is
+already in, so a separate table would add a join to every read for nothing: as it is, history,
+search and the inbox all carry `Message.pinnedAt` without knowing pins exist. The per-channel list is
+a partial index over the pinned rows. Deletion needs no extra handling either — a soft-deleted
+message is filtered out of the list and the count like everywhere else, and a retention delete takes
+the pin with the row.
+
+Pinning needs `ManageMessages`, the same flag that clears other people's reactions, and a channel
+holds at most 50 pins, Discord's limit, so a bridged channel's pins can always fit on both sides.
+Reading pins follows channel locking exactly as history does. A change is broadcast as a plain
+`MESSAGE_UPDATE`, which every client already applies; the pins panel listens for the same event (and
+`MESSAGE_DELETE`) to stay current while it is open. Pins and unpins are written to the audit log.
+
+The logic lives in `pins/service.ts`, deliberately shaped like the message service because
+**Discord pin sync is planned but not built yet**. A local pin or unpin notifies `onPinned` /
+`onUnpinned`, which the bridge can subscribe to and repeat on Discord; a pin observed on Discord is
+applied through `pinBridged` / `unpinBridged`, which skip permission checks and notify no listener,
+so a pin can never echo back and forth. Its update is broadcast straight from the pin service, not
+through the message service's edit path, so a pin is never mistaken for an edit and mirrored as one.
+
 ## Notification sounds
 
 Two sounds ship with the client, in `apps/web/public/sounds`: a louder one for a

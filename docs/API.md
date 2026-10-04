@@ -26,6 +26,7 @@ code wins — please open an issue.
   - [Messages](#messages)
   - [Search](#search)
   - [Mentions and replies](#mentions-and-replies)
+  - [Pinned messages](#pinned-messages)
   - [Reactions](#reactions)
   - [Attachments](#attachments)
   - [Media gallery](#media-gallery)
@@ -116,7 +117,7 @@ implicit `@everyone` role grants every member `ViewChannels`, `SendMessages`, `A
 | --- | --- | --- |
 | `ViewChannels` | `1 << 0` | Reading channels, messages, roles, emoji and attachments |
 | `SendMessages` | `1 << 1` | Posting messages |
-| `ManageMessages` | `1 << 2` | Deleting others' messages, clearing reactions |
+| `ManageMessages` | `1 << 2` | Deleting others' messages, clearing reactions, pinning and unpinning |
 | `AttachFiles` | `1 << 3` | Uploading attachments |
 | `EmbedLinks` | `1 << 4` | *Reserved* — not enforced yet |
 | `AddReactions` | `1 << 5` | Adding and removing your own reactions |
@@ -230,6 +231,7 @@ type Message = {
   replyTo: MessageReference | null;
   reactions: Reaction[];
   embed: LinkEmbed | null;      // link preview, see "Link previews"
+  pinnedAt: string | null;      // when it was pinned, see "Pinned messages"
 };
 
 type LinkEmbed = {
@@ -363,11 +365,12 @@ type AuditKind =
   | 'timeout_add' | 'timeout_clear'
   | 'kick' | 'ban' | 'unban'
   | 'role_add' | 'role_remove'
-  | 'member_update' | 'password_reset';
+  | 'member_update' | 'password_reset'
+  | 'message_pin' | 'message_unpin';
 
 type AuditDetail = {
   channelName?: string;   // message and media kinds
-  before?: string;        // deleted text, or an edit's old text
+  before?: string;        // deleted text, an edit's old text, or the text pinned or unpinned
   after?: string;         // an edit's new text
   filename?: string;      // media_delete: the file that was removed
   attachments?: Array<{ id: string; filename: string }>;  // images a deleted message carried
@@ -942,6 +945,33 @@ locked away disappears from the list. Deleted messages are never returned. Pagin
 [message search](#get-apiv1search--viewchannels): the cursor is the oldest entry you already have,
 its message's `createdAt` plus its `id`.
 
+### Pinned messages
+
+A member with `ManageMessages` can pin a message to its channel, and anyone who can read the channel
+can list its pins. The pin state travels on the message itself as `pinnedAt`, so pinning or
+unpinning fires an ordinary `MESSAGE_UPDATE` that a client applies like any other update; there is
+no separate pin event. A channel holds at most 50 pins, Discord's own limit. Locked channels follow
+[the same rule as history](#channel-locking): a member who cannot see the channel cannot list its
+pins either, and a deleted message drops out of the list (and stops counting towards the limit).
+
+#### `GET /api/v1/channels/:id/pins` — `ViewChannels`
+
+```json
+{ "messages": [ /* Message, with pinnedAt set */ ] }
+```
+
+Returns every pin in the channel, newest pin first. There is no paging: the list is capped at 50.
+
+#### `PUT /api/v1/channels/:id/pins/:messageId` — `ManageMessages`
+
+Pins the message and returns it with `pinnedAt` set. Pinning a message that is already pinned
+changes nothing and keeps its original pin time. A message that is not in that channel is
+`404 message_not_found`; a channel already holding 50 pins is `400 too_many_pins`.
+
+#### `DELETE /api/v1/channels/:id/pins/:messageId` — `ManageMessages`
+
+Unpins the message. Returns `204`, also when it was not pinned.
+
 ### Reactions
 
 An emoji is either a unicode character (send it verbatim, e.g. `"👍"`) or a custom emoji shortcode
@@ -1501,8 +1531,9 @@ The audit log records what was done, by whom and to whom. An entry is logged whe
 **deleted**, capturing the text and any images it carried; a message is **edited**, with the text
 either side of it; an image is **deleted from the media gallery**, naming the file; a member is
 **timed out** or the timeout is lifted; a member is **kicked**; a member is **banned** or unbanned;
-a member's **roles change**; a member's **account is edited**, naming the fields that changed; and a
-member's **password is reset**.
+a member's **roles change**; a member's **account is edited**, naming the fields that changed; a
+member's **password is reset**; and a message is **pinned** or **unpinned**, with its text and its
+author as the target.
 
 Entries are append-only and are never edited. Names and the channel are captured when the action
 happens, so an entry stays readable once a role is renamed, a channel is deleted or an account is
@@ -1829,7 +1860,7 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | --- | --- |
 | `READY` | `{ user, gateway_version }` |
 | `MESSAGE_CREATE` | `Message` |
-| `MESSAGE_UPDATE` | `Message` (edits, link previews, and bridged edits) |
+| `MESSAGE_UPDATE` | `Message` (edits, link previews, pins and unpins, and bridged edits) |
 | `MESSAGE_DELETE` | `{ id, channelId }` |
 | `MESSAGE_REACTION_ADD` | `ReactionUpdatePayload` |
 | `MESSAGE_REACTION_REMOVE` | `ReactionUpdatePayload` |

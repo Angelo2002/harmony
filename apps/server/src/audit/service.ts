@@ -29,6 +29,11 @@ export interface AuditService {
   messageDeleted(actorId: string, channelId: string, content: string, attachments: AuditImage[]): void;
   /** Records an edit, with the text either side of it. */
   messageEdited(actorId: string, channelId: string, before: string, after: string): void;
+  /**
+   * Records a message being pinned or unpinned, with its text as it read then.
+   * The target is the message's author, or nobody once that account is gone.
+   */
+  messagePinned(actorId: string, channelId: string, authorId: string | null, content: string, pinned: boolean): void;
   /** Records an image being deleted from the media gallery. */
   mediaDeleted(actorId: string, filename: string, channelName: string | null): void;
   moderation(kind: ModerationAuditKind, actorId: string, targetId: string, detail?: AuditDetail): void;
@@ -102,6 +107,15 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
         actorName: userName(actorId),
         before,
         after,
+      });
+    },
+
+    messagePinned(actorId, channelId, authorId, content, pinned) {
+      write(pinned ? 'message_pin' : 'message_unpin', actorId, authorId, channelId, {
+        channelName: findChannel(sqlite, channelId)?.name,
+        actorName: userName(actorId),
+        targetName: userName(authorId),
+        before: content,
       });
     },
 

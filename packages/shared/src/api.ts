@@ -67,6 +67,11 @@ export interface MessageListResponse {
   messages: Message[];
 }
 
+/** Response for `GET /api/v1/channels/:id/pins`: the channel's pins, newest pin first. */
+export interface PinListResponse {
+  messages: Message[];
+}
+
 /** Public instance metadata, used by clients before they sign in. */
 export interface InstanceMeta {
   name: string;

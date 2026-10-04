@@ -184,7 +184,9 @@ export type AuditKind =
   | 'member_delete'
   | 'password_reset'
   | 'message_pin'
-  | 'message_unpin';
+  | 'message_unpin'
+  | 'backup_download'
+  | 'channel_export';
 
 /**
  * The kind-specific fields of an audit entry. Every field is optional because
@@ -199,6 +201,7 @@ export type AuditKind =
  * - `message_pin` / `message_unpin`: `channelName`, and `before` holding the
  *   message text as it read when it was pinned or unpinned. The target is the
  *   message's author.
+ * - `backup_download`: `filename`. `channel_export`: `channelName` and `filename`.
  *
  * `actorName` and `targetName` are snapshots taken when the entry was written,
  * so it stays readable after a rename or a deletion.

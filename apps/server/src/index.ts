@@ -62,6 +62,7 @@ import { registerUserRoutes } from './routes/users.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
 import { registerBridgeRoutes } from './routes/bridge.ts';
 import { registerAuditRoutes } from './routes/audit.ts';
+import { registerBackupRoutes } from './routes/backup.ts';
 import { registerGateway } from './gateway/index.ts';
 
 const config = loadConfig();
@@ -207,6 +208,7 @@ registerSettingsRoutes(app, { settings: settingsService, db });
 registerIconRoutes(app, { icon: iconService });
 registerRetentionRoutes(app, { settings: settingsService, pruner });
 registerAuditRoutes(app, { audit: auditService });
+registerBackupRoutes(app, { db, config, settings: settingsService, audit: auditService });
 registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
 registerMemberRoutes(app, {

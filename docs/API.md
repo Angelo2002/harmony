@@ -37,6 +37,7 @@ code wins — please open an issue.
   - [Roles](#roles)
   - [Members](#members)
   - [Audit log](#audit-log)
+  - [Backup and export](#backup-and-export)
   - [Invites](#invites)
   - [Server settings](#server-settings)
   - [Instance icon](#instance-icon)
@@ -366,13 +367,14 @@ type AuditKind =
   | 'kick' | 'ban' | 'unban'
   | 'role_add' | 'role_remove'
   | 'member_update' | 'password_reset'
-  | 'message_pin' | 'message_unpin';
+  | 'message_pin' | 'message_unpin'
+  | 'backup_download' | 'channel_export';
 
 type AuditDetail = {
   channelName?: string;   // message and media kinds
   before?: string;        // deleted text, an edit's old text, or the text pinned or unpinned
   after?: string;         // an edit's new text
-  filename?: string;      // media_delete: the file that was removed
+  filename?: string;      // media_delete: the file that was removed; backup_download / channel_export: the file produced
   attachments?: Array<{ id: string; filename: string }>;  // images a deleted message carried
   durationMinutes?: number;
   reason?: string | null;
@@ -1532,8 +1534,8 @@ The audit log records what was done, by whom and to whom. An entry is logged whe
 either side of it; an image is **deleted from the media gallery**, naming the file; a member is
 **timed out** or the timeout is lifted; a member is **kicked**; a member is **banned** or unbanned;
 a member's **roles change**; a member's **account is edited**, naming the fields that changed; a
-member's **password is reset**; and a message is **pinned** or **unpinned**, with its text and its
-author as the target.
+member's **password is reset**; a message is **pinned** or **unpinned**, with its text and its
+author as the target; the owner **downloads a backup**; and a channel is **exported**.
 
 Entries are append-only and are never edited. Names and the channel are captured when the action
 happens, so an entry stays readable once a role is renamed, a channel is deleted or an account is
@@ -1563,6 +1565,64 @@ text can be read back from here.
 Returns `204` and empties the log. The clear itself is deliberately not recorded, so afterwards the
 log really is empty. [Audit retention](#retention) ages entries out automatically instead, when it is
 configured.
+
+### Backup and export
+
+#### `GET /api/v1/backup` — owner only
+
+Streams the whole instance as `application/gzip`, with
+`Content-Disposition: attachment; filename="harmony-backup-<server>-<YYYY-MM-DD>.tar.gz"`. The
+archive is a POSIX (ustar) tar laid out like the data directory: `harmony.db`, a consistent snapshot
+taken with SQLite's online backup while the server keeps running, then `uploads/<xx>/<sha-256>` for
+every stored blob. It is built as it is sent, so it never sits in memory or on disk whole; the
+temporary database snapshot is deleted when the response ends, including when the client disconnects
+partway. Restoring is described in [DEPLOYMENT.md](DEPLOYMENT.md#backups).
+
+Restricted to the owner, not just `Administrator`: the archive holds every password and session hash,
+the bridge bot token and the Discord sign-in secret. Anyone else gets `403 owner_only`. Only one backup
+is prepared at a time; a second request meanwhile gets `409 backup_in_progress`. Each download is
+recorded in the audit log as `backup_download`.
+
+#### `GET /api/v1/channels/:id/export` — `ManageServer`
+
+Streams one channel's history as a file download. Deleted messages are left out, as they are from the
+channel. A locked channel the caller cannot see is a `404`, the same as a missing one.
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `format` | `json` or `html` | `json` | Anything else is `400 invalid_format` |
+
+The file is named `harmony-<server>-<channel>-<YYYY-MM-DD>.<format>`. `json` is a `ChannelExport`:
+
+```ts
+type ChannelExport = {
+  format: 1;
+  exportedAt: string;
+  serverName: string;
+  channel: { id: string; name: string; topic: string | null };
+  messages: Array<{                     // oldest first
+    id: string;
+    author: { id: string; username: string; displayName: string | null; isBot: boolean } | null;
+    content: string;
+    createdAt: string;
+    editedAt: string | null;
+    replyTo: { id: string; authorName: string | null; deleted: boolean } | null;
+    attachments: Array<{
+      id: string; filename: string; contentType: string; size: number;
+      url: string;                      // absolute, on the address the export was requested at
+      sourceUrl: string | null;
+    }>;
+    stickers: Array<{ id: string; name: string }>;
+    reactions: Array<{ emoji: string; emojiId: string | null; count: number }>;
+  }>;
+};
+```
+
+`html` is a standalone page with inline styles and no scripts. Message text is HTML-escaped and shown
+as plain text (no Markdown rendering), and the page carries a `Content-Security-Policy` meta tag that
+forbids scripts and remote loads when it is opened from disk. Attachments are links back to the server,
+which still need a signed-in session to open. Each export is recorded in the audit log as
+`channel_export`.
 
 ### Invites
 

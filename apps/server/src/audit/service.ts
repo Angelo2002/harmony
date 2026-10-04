@@ -45,6 +45,10 @@ export interface AuditService {
   memberDeleted(actorId: string, targetId: string): void;
   /** Records an administrator setting a member's password. */
   passwordReset(actorId: string, targetId: string): void;
+  /** Records the owner downloading a full backup, which holds every account's password hash. */
+  backupDownloaded(actorId: string, filename: string): void;
+  /** Records a channel's history being exported to a file. */
+  channelExported(actorId: string, channelId: string, filename: string): void;
   list(query: AuditQuery): AuditListResponse;
   /** Empties the log, returning how many entries were removed. */
   clear(): number;
@@ -163,6 +167,18 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
       write('password_reset', actorId, targetId, null, {
         actorName: userName(actorId),
         targetName: userName(targetId),
+      });
+    },
+
+    backupDownloaded(actorId, filename) {
+      write('backup_download', actorId, null, null, { filename, actorName: userName(actorId) });
+    },
+
+    channelExported(actorId, channelId, filename) {
+      write('channel_export', actorId, null, channelId, {
+        channelName: findChannel(sqlite, channelId)?.name,
+        filename,
+        actorName: userName(actorId),
       });
     },
 

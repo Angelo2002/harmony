@@ -1,6 +1,7 @@
 // Focused checks for the client's pure logic: parsing message text into markdown,
 // links, emoji and mentions, the merge that catches up after being away, deciding
-// whether a message is aimed at you, and what the emoji picker offers and finds.
+// whether a message is aimed at you, what the emoji picker offers and finds, and
+// the quick switcher's matching, the channel arrows and the unread tab title.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -8,6 +9,14 @@ import { createRequire } from 'node:module';
 import { matchChannelName, rewriteChannelMentions } from '@harmony/shared';
 import { parseMessage } from '../src/lib/message-text.ts';
 import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
+import {
+  matchScore,
+  rankSwitcher,
+  sidebarOrder,
+  stepChannel,
+  unreadBadge,
+  unreadTitle,
+} from '../src/lib/quick-switch.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
 
 const require = createRequire(import.meta.url);
@@ -262,6 +271,112 @@ check(
     'waving hand',
   ).some((emoji) => emoji.emoji === '👋'),
 );
+
+// --- Quick switcher matching ---
+check('an exact name beats a prefix', matchScore('general', 'general') > matchScore('general', 'general-chat'));
+check('a prefix beats a word inside the name', matchScore('gen', 'general') > matchScore('gen', 'off-topic-gen'));
+check(
+  'a word inside the name beats a bare substring',
+  matchScore('chat', 'general-chat') > matchScore('hat', 'general-chat'),
+);
+check('initials find a hyphenated name', matchScore('gc', 'general-chat') !== null);
+check('letters in order still match', matchScore('gnrl', 'general') !== null);
+check('letters out of order do not', matchScore('lrng', 'general') === null);
+check('matching ignores case', matchScore('GEN', 'general') === matchScore('gen', 'general'));
+check('a space can stand in for a hyphen', matchScore('general chat', 'general-chat') !== null);
+check('separators alone match nothing', matchScore('--', 'general') === null);
+check('a shorter name wins a tie', matchScore('dev', 'devops') > matchScore('dev', 'developers'));
+
+// --- Sidebar order and the channel arrows ---
+const switchCategories = [
+  { id: 'cat-b', name: 'Games' },
+  { id: 'cat-a', name: 'Text' },
+];
+const switchChannels = [
+  { id: 'loose', name: 'lobby', categoryId: null },
+  { id: 'gen', name: 'general', categoryId: 'cat-a' },
+  { id: 'mc', name: 'minecraft', categoryId: 'cat-b' },
+  { id: 'off', name: 'off-topic', categoryId: 'cat-a' },
+  { id: 'orphan', name: 'ghost', categoryId: 'cat-gone' },
+];
+const switchOrder = sidebarOrder(switchCategories, switchChannels).map((channel) => channel.id);
+check('sidebar order follows categories, then uncategorised channels', switchOrder.join(',') === 'mc,gen,off,loose');
+check('a channel in an unknown category is left out, as the sidebar does', !switchOrder.includes('orphan'));
+check('down moves to the next channel', stepChannel(switchOrder, 'gen', 1) === 'off');
+check('up moves to the previous channel', stepChannel(switchOrder, 'gen', -1) === 'mc');
+check('down from the last channel wraps to the first', stepChannel(switchOrder, 'loose', 1) === 'mc');
+check('up from the first channel wraps to the last', stepChannel(switchOrder, 'mc', -1) === 'loose');
+check('with nothing open, down starts at the top', stepChannel(switchOrder, null, 1) === 'mc');
+check('with nothing open, up starts at the bottom', stepChannel(switchOrder, null, -1) === 'loose');
+check('a lone channel has nowhere to go', stepChannel(['only'], 'only', 1) === null);
+check('no channels means no step', stepChannel([], null, 1) === null);
+const unreadOnly = (id) => id === 'loose' || id === 'gen';
+check('the unread arrow skips read channels', stepChannel(switchOrder, 'mc', 1, unreadOnly) === 'gen');
+check('the unread arrow goes up too', stepChannel(switchOrder, 'off', -1, unreadOnly) === 'gen');
+check('the unread arrow wraps past the end', stepChannel(switchOrder, 'loose', 1, unreadOnly) === 'gen');
+check(
+  'the unread arrow never lands on the open channel',
+  stepChannel(switchOrder, 'gen', 1, (id) => id === 'gen') === null,
+);
+
+// --- Quick switcher ranking ---
+const switchMembers = [
+  { id: 'u1', username: 'genevieve', displayName: null },
+  { id: 'u2', username: 'bob', displayName: 'Minecraft Bob' },
+];
+const rank = (query, extra = {}) =>
+  rankSwitcher({
+    query,
+    categories: switchCategories,
+    channels: switchChannels,
+    members: switchMembers,
+    recentChannelIds: [],
+    activeChannelId: null,
+    ...extra,
+  });
+const rowIds = (rows) => rows.map((row) => `${row.kind}:${row.id}`).join(',');
+
+check(
+  'an empty query lists channels alone, in sidebar order',
+  rowIds(rank('')) === 'channel:mc,channel:gen,channel:off,channel:loose',
+);
+check(
+  'an empty query puts recent channels first and the open one last',
+  rowIds(rank('', { recentChannelIds: ['gen', 'loose', 'off'], activeChannelId: 'gen' })) ===
+    'channel:loose,channel:off,channel:mc,channel:gen',
+);
+check('a query finds channels and members alike', rowIds(rank('gen')) === 'channel:gen,member:u1');
+check('a channel carries its category name', rank('minec')[0].category === 'Games');
+check('an uncategorised channel has no category', rank('lobby')[0].category === null);
+check('a member is found by username', rowIds(rank('bob')) === 'member:u2');
+check('a member is found by display name', rowIds(rank('minecraft b')) === 'member:u2');
+check('a channel ranks ahead of a member matching as well', rowIds(rank('minecraft')) === 'channel:mc,member:u2');
+check('a leading # keeps to channels', rowIds(rank('#minecraft')) === 'channel:mc');
+check('a leading @ keeps to members', rowIds(rank('@minecraft')) === 'member:u2');
+check('a bare @ lists nobody rather than everyone', rank('@').length === 0);
+check('a bare # lists channels as an empty query does', rowIds(rank('#')) === rowIds(rank('')));
+const twins = [
+  { id: 'red', name: 'team-red', categoryId: null },
+  { id: 'blu', name: 'team-blu', categoryId: null },
+];
+check(
+  'a tie between equal matches keeps sidebar order',
+  rowIds(rank('team', { channels: twins })) === 'channel:red,channel:blu',
+);
+check(
+  'recency breaks a tie between equal matches',
+  rowIds(rank('team', { channels: twins, recentChannelIds: ['blu'] })) === 'channel:blu,channel:red',
+);
+check('the result list is capped', rank('', { limit: 2 }).length === 2);
+check('a query matching nothing lists nothing', rank('zzz').length === 0);
+
+// --- Unread tab title and app badge ---
+check('nothing unread shows the bare name', unreadTitle('Harmony', 0, 0) === 'Harmony');
+check('unread without mentions shows a dot', unreadTitle('Harmony', 0, 3) === '• Harmony');
+check('mentions show how many channels hold one', unreadTitle('Harmony', 2, 5) === '(2) Harmony');
+check('the app badge is a number for mentions', unreadBadge(2, 5) === 2);
+check('the app badge is a dot for plain unread', unreadBadge(0, 1) === 'dot');
+check('the app badge clears when all is read', unreadBadge(0, 0) === null);
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

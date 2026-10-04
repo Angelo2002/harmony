@@ -8,8 +8,10 @@
   import ChannelSidebar from './ChannelSidebar.svelte';
   import Composer from './Composer.svelte';
   import Icon from './Icon.svelte';
+  import KeyboardShortcuts from './KeyboardShortcuts.svelte';
   import MemberList from './MemberList.svelte';
   import MessageView from './MessageView.svelte';
+  import UnreadBadge from './UnreadBadge.svelte';
 
   onMount(() => {
     void chat.start();
@@ -154,6 +156,8 @@
   {/if}
 
   <MemberList />
+  <KeyboardShortcuts />
+  <UnreadBadge />
 
   {#if ui.sidebarOpen || ui.rosterOpen}
     <button class="drawer-backdrop" type="button" aria-label="Close menu" onclick={() => ui.closeDrawers()}></button>

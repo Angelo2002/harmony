@@ -36,6 +36,7 @@ export const GatewayEvent = {
   RetentionApplied: 'RETENTION_APPLIED',
   SavedMessageUpdate: 'SAVED_MESSAGE_UPDATE',
   ChannelSettingsUpdate: 'CHANNEL_SETTINGS_UPDATE',
+  PollUpdate: 'POLL_UPDATE',
 } as const;
 export type GatewayEventName = (typeof GatewayEvent)[keyof typeof GatewayEvent];
 

@@ -15,6 +15,7 @@ import {
   type MessageHistoryQuery,
   type MessageListResponse,
   type MessageReference,
+  type PollSource,
   type Reaction,
   type ReactionsClearPayload,
   type ReactionUpdatePayload,
@@ -49,6 +50,7 @@ import {
   insertReaction,
   listReactionsForMessages,
 } from '../db/reactions.ts';
+import { findPollByMessage, insertPoll, loadPollsForMessages } from '../db/polls.ts';
 import { findUserById, findUserByUsername, presentUser } from '../db/users.ts';
 import { attachStickerToMessage, listStickersForMessages } from '../db/stickers.ts';
 import { HttpError } from '../http/errors.ts';
@@ -61,7 +63,29 @@ export interface ReactionEvent {
   emojiId: string | null;
 }
 
+/** A poll as a message is created with it; the message's text is its question. */
+export interface PollDraft {
+  question: string;
+  options: Array<{ text: string; emoji: string | null; discordAnswerId?: number | null }>;
+  allowMultiple: boolean;
+  closesAt: string | null;
+  source: PollSource;
+}
+
 export interface MessageService {
+  /**
+   * Posts a message that carries a poll, with every check `create` makes. The
+   * question is the message's text, so a poll is found by search and quoted by a
+   * reply like any other message.
+   */
+  createPoll(auth: AuthContext, channelId: string, poll: PollDraft, replyToId: string | null): Message;
+  /** A poll made on Discord, stored without permission checks and not mirrored back. */
+  createPollBridged(
+    channelId: string,
+    authorId: string,
+    poll: PollDraft,
+    options?: { createdAt?: string; silent?: boolean },
+  ): Message;
   history(channelId: string, query: MessageHistoryQuery, viewerId: string): MessageListResponse;
   /** Message search across the channels the caller can see, newest first. */
   search(auth: AuthContext, query: SearchQuery): MessageListResponse;
@@ -155,7 +179,19 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       embed: parseMessageEmbed(row.embed),
       pinnedAt: row.pinned_at,
       saved,
+      poll: null,
     };
+  }
+
+  /** Fills in the poll of every message in a page that carries one, in one batch. */
+  function withPolls<T extends Message[]>(messages: T, viewerId: string): T {
+    const polls = loadPollsForMessages(
+      sqlite,
+      messages.map((message) => message.id),
+      viewerId,
+    );
+    for (const message of messages) message.poll = polls.get(message.id) ?? null;
+    return messages;
   }
 
   function reactionsFor(messageId: string, viewerId: string): Reaction[] {
@@ -167,13 +203,19 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
   }
 
   function render(row: MessageRow, viewerId: string): Message {
-    return toMessage(
-      row,
-      attachmentsFor(row.id),
-      reactionsFor(row.id, viewerId),
-      stickersFor(row.id),
-      listSavedAmong(sqlite, viewerId, [row.id]).has(row.id),
+    const [message] = withPolls(
+      [
+        toMessage(
+          row,
+          attachmentsFor(row.id),
+          reactionsFor(row.id, viewerId),
+          stickersFor(row.id),
+          listSavedAmong(sqlite, viewerId, [row.id]).has(row.id),
+        ),
+      ],
+      viewerId,
     );
+    return message as Message;
   }
 
   /** Validates a reply target: it must exist, be visible and be in the same channel. */
@@ -388,6 +430,40 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     return toMessage(requireMessage(id), attachmentsFor(id), [], stickersFor(id));
   }
 
+  /** The message and its poll go in together or not at all. */
+  function insertPollMessage(
+    channelId: string,
+    authorId: string,
+    poll: PollDraft,
+    replyToId: string | null,
+    createdAt?: string,
+  ): Message {
+    sqlite.exec('BEGIN');
+    try {
+      const created = insertWithAttachments(channelId, authorId, poll.question, [], replyToId, createdAt);
+      insertPoll(sqlite, {
+        id: randomUUID(),
+        messageId: created.id,
+        question: poll.question,
+        allowMultiple: poll.allowMultiple,
+        closesAt: poll.closesAt,
+        source: poll.source,
+        createdAt: created.createdAt,
+        options: poll.options.map((option) => ({
+          id: randomUUID(),
+          text: option.text,
+          emoji: option.emoji,
+          discordAnswerId: option.discordAnswerId ?? null,
+        })),
+      });
+      sqlite.exec('COMMIT');
+      return render(requireMessage(created.id), authorId);
+    } catch (error) {
+      sqlite.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   const createdListeners = new Set<(message: Message) => void>();
   const editedListeners = new Set<(message: Message) => void>();
   const deletedListeners = new Set<(info: MessageDeletePayload) => void>();
@@ -444,14 +520,17 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     const stickers = listStickersForMessages(sqlite, ids);
     const saved = listSavedAmong(sqlite, viewerId, ids);
     return {
-      messages: rows.map((row) =>
-        toMessage(
-          row,
-          byMessage.get(row.id) ?? [],
-          reactions.get(row.id) ?? [],
-          stickers.get(row.id) ?? [],
-          saved.has(row.id),
+      messages: withPolls(
+        rows.map((row) =>
+          toMessage(
+            row,
+            byMessage.get(row.id) ?? [],
+            reactions.get(row.id) ?? [],
+            stickers.get(row.id) ?? [],
+            saved.has(row.id),
+          ),
         ),
+        viewerId,
       ),
     };
   }
@@ -474,6 +553,10 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
         saved.has(row.id),
       ),
     }));
+    withPolls(
+      mentions.map((mention) => mention.message),
+      viewerId,
+    );
     return { mentions };
   }
 
@@ -543,6 +626,24 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       return message;
     },
 
+    createPoll(auth, channelId, poll, replyToId) {
+      assertNotTimedOut(auth);
+      const channel = requireChannel(channelId);
+      assertChannelAccess(auth.user.id, channelId);
+      assertSlowmode(auth, channel);
+      const message = insertPollMessage(channelId, auth.user.id, poll, replyToId);
+      markChannelRead(sqlite, auth.user.id, channelId, message.createdAt);
+      announce(message);
+      return message;
+    },
+
+    createPollBridged(channelId, authorId, poll, options = {}) {
+      requireChannel(channelId);
+      const message = insertPollMessage(channelId, authorId, poll, null, options.createdAt);
+      if (!options.silent) hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
+      return message;
+    },
+
     createBridged(channelId, authorId, content, attachmentIds, replyToId, options = {}) {
       requireChannel(channelId);
       const message = insertWithAttachments(
@@ -600,6 +701,10 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       const row = requireMessage(messageId);
       assertChannelAccess(auth.user.id, row.channel_id);
       assertCanEdit(auth, row);
+      // The question is the text and the options are fixed once people vote.
+      if (findPollByMessage(sqlite, messageId)) {
+        throw new HttpError(400, 'poll_not_editable', 'A poll cannot be edited. Delete it and ask again.');
+      }
 
       const before = row.content;
       updateMessageContent(sqlite, messageId, content, new Date().toISOString());
@@ -615,6 +720,8 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       if (!row || row.deleted_at) return null;
       // Discord reports link unfurls as updates; the same text is not an edit.
       if (row.content === content) return null;
+      // A poll's text is its question; Discord reports a poll message with none.
+      if (findPollByMessage(sqlite, messageId)) return null;
 
       updateMessageContent(sqlite, messageId, content, new Date().toISOString());
       rerecordNameMentions(row, content);

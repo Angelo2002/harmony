@@ -26,6 +26,7 @@ import { createUserService } from './users/service.ts';
 import { createMessageService } from './messages/service.ts';
 import { createPinService } from './pins/service.ts';
 import { createSavedMessageService } from './saved/service.ts';
+import { createPollService } from './polls/service.ts';
 import { GatewayHub } from './realtime/hub.ts';
 import { createPruner } from './retention/pruner.ts';
 import { createBridgeService } from './bridge/service.ts';
@@ -54,6 +55,7 @@ import { registerSearchRoutes } from './routes/search.ts';
 import { registerMentionRoutes } from './routes/mentions.ts';
 import { registerPinRoutes } from './routes/pins.ts';
 import { registerSavedRoutes } from './routes/saved.ts';
+import { registerPollRoutes } from './routes/polls.ts';
 import { registerAttachmentRoutes } from './routes/attachments.ts';
 import { registerEmbedRoutes } from './routes/embeds.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
@@ -101,6 +103,10 @@ const userService = createUserService(db.sqlite, config);
 const messageService = createMessageService(db.sqlite, hub, auditService);
 const pinService = createPinService(db.sqlite, hub, auditService, messageService);
 const savedService = createSavedMessageService(db.sqlite, hub, messageService);
+const pollService = createPollService(db.sqlite, hub, messageService, {
+  // A test hook: the smoke test shortens the wait for the expiry sweep.
+  sweepMs: Number(process.env.HARMONY_POLL_SWEEP_MS) || undefined,
+});
 const moderationService = createModerationService({ sqlite: db.sqlite, hub, audit: auditService });
 const mediaService = createMediaService(db.sqlite, config);
 const gifService = createGifService(db.sqlite, config, {
@@ -235,6 +241,7 @@ registerSearchRoutes(app, { service: messageService });
 registerMentionRoutes(app, { service: messageService });
 registerPinRoutes(app, { service: pinService });
 registerSavedRoutes(app, { service: savedService });
+registerPollRoutes(app, { service: pollService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
 registerEmbedRoutes(app, { settings: settingsService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
@@ -252,6 +259,7 @@ registerGateway(app, {
 
 app.addHook('onClose', async () => {
   pruner.stop();
+  pollService.stop();
   await bridge.shutdown();
   db.close();
 });
@@ -281,6 +289,7 @@ try {
 
 // Pruning runs once at startup, then on the configured interval.
 pruner.start();
+pollService.start();
 
 // Connect the Discord bot if the bridge was left enabled.
 await bridge.applySettings();

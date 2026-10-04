@@ -11,7 +11,8 @@ export type AdminTabId =
   | 'bridge'
   | 'invites'
   | 'bans'
-  | 'audit';
+  | 'audit'
+  | 'backup';
 
 /**
  * Every admin tab, with the permissions that unlock it. A tab shows when the
@@ -36,6 +37,8 @@ export const ADMIN_TABS: ReadonlyArray<{
   { id: 'invites', label: 'Invites', permissions: [Permission.ManageServer] },
   { id: 'bans', label: 'Bans', permissions: [Permission.BanMembers] },
   { id: 'audit', label: 'Log', permissions: [Permission.ManageServer] },
+  // The full backup inside is owner-only; the tab also holds channel exports.
+  { id: 'backup', label: 'Backup', permissions: [Permission.ManageServer] },
 ];
 
 /** The tabs a member may open, in the order they are shown. */

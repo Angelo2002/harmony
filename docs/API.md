@@ -498,6 +498,7 @@ Public instance information a client needs before signing in.
   "allowedImageTypes": ["image/png", "image/jpeg", "image/gif", "image/webp"],
   "allowedVideoTypes": ["video/mp4"],
   "klipyConfigured": false,
+  "gifStorage": "store",
   "discordAuthEnabled": false,
   "limits": {
     "messageLength": 4000,
@@ -917,6 +918,23 @@ The unfurler names itself `Harmony/1.0 link-preview`. Sites protected by a manag
 Cloudflare, and so Klipy, among others — refuse that name and the preview never appears; the server
 logs `link preview refused` when that happens. Setting `previewUserAgent` to a name such sites allow
 is the only way to preview them.
+
+#### Suppressing previews
+
+Wrapping a link in angle brackets, `<https://example.com>`, as on Discord, asks for no preview: the
+text is stored exactly as written, nothing is resolved, and clients draw an ordinary link without the
+brackets. The Discord bridge keeps the brackets in both directions, so a link suppressed on one side
+is suppressed on the other. Editing re-evaluates: adding the brackets drops the existing preview, and
+removing them lets the link resolve again.
+
+#### `DELETE /api/v1/messages/:id/embeds` — auth (author or `ManageMessages`)
+
+Removes every embed of a message for good: the preview card and any picture the server fetched from a
+link in the text (an upload is not an embed and stays). The message is flagged, so editing it later
+does not bring a preview back. Returns the updated message and fires `MESSAGE_UPDATE`. `403` for
+anyone else, `404` for a missing or deleted message or one in a channel the caller cannot see.
+There is no inverse; sending the link again resolves it normally. The removal is not mirrored to
+Discord, where the unfurl stays.
 
 #### `GET /api/v1/embeds/media` — `ViewChannels`
 
@@ -1387,6 +1405,40 @@ be.
 A gif this instance already holds costs nothing to pick: the attachment is a new row pointing at
 bytes that are already there, a few hundred bytes and no bandwidth. A hosted one is fetched and kept
 first. Picking a **saved** gif also counts as using it, moving its `usedAt` forward.
+
+#### Linked gifs
+
+With `gifStorage: "link"` a gif is not copied here. Only gifs on these hosts qualify, matched on the
+parsed address (https, default port, no credentials, exact host or a real subdomain): `*.klipy.com`
+(media subdomains such as `static.klipy.com`, not the bare site), `media.tenor.com`,
+`media1.tenor.com`, `media.giphy.com`, `i.giphy.com` and `media0`–`media4.giphy.com`. The list is
+`GIF_LINK_EXACT_HOSTS` / `GIF_LINK_SUFFIX_HOSTS` in `packages/shared/src/gif-hosts.ts`. Everything
+else, and every Discord attachment (those addresses are signed and expire), is stored as before.
+
+A message carries a linked gif as ordinary text: its content is the gif's address. When the link
+resolver (see [Link previews](#link-previews)) meets such an address in link mode, it checks it and
+sets the message's `embed` to `{ url, title: null, description: null, siteName: <host>, imageUrl:
+null, player: null, gif: { contentType, width, height } }` with the gif's own address in `url`. The
+check: allowlisted host, resolves to a public address, **no redirects followed**, status `200`, a
+`Content-Type` of `image/gif`, `image/webp`, `video/mp4` or `video/webm`, and a size within the
+instance's image or video limit (by `Content-Length`, or by reading up to the limit when none is
+declared). Failing any of that, the gif is stored by the ordinary path instead. A copy this instance
+already holds is reused rather than linked past. A client draws `embed.url` directly (`<img>` or a
+muted looping `<video>`) only while `gifStorage` is `"link"` and the address is on the allowlist;
+`width` and `height` are `null` because gif services do not tell the server.
+
+While the mode is on, the built-in `Content-Security-Policy` opens `img-src` and `media-src` to those
+hosts and nothing else; a policy set with `HARMONY_CSP` is sent exactly as written. The page is served
+with `Referrer-Policy: no-referrer`. **Viewers' IP addresses are visible to the gif host.**
+
+#### `POST /api/v1/gifs/link` — `AttachFiles`
+
+Body `{ "url": string }`. Checks a hosted gif's address as above and returns
+`{ "url": string, "contentType": string }`; the client then sends that address as the message text.
+`409 gif_link_disabled` while the mode is `"store"`, `400 invalid_gif_url` for an address off the
+allowlist, `415 invalid_gif` when the host did not serve a gif of a sensible size. Nothing is stored.
+Saved (favorite) gifs, the This server tab and `POST /api/v1/gifs/pick` are unchanged: they are
+stored bytes. Saving a hosted gif to favorites still keeps a copy.
 
 ### Custom emoji
 
@@ -1982,6 +2034,7 @@ Returns `204`.
 `{ "serverName"?: string, "requireInvite"?: boolean, "defaultChannelId"?: string | null,
 "embedsEnabled"?: boolean, "maxImageBytes"?: number, "maxVideoBytes"?: number,
 "previewUserAgent"?: string | null, "klipyApiKey"?: string | null,
+"gifStorage"?: "store" | "link",
 "theme"?: { "background"?: string | null, "accent"?: string | null },
 "icon"?: { "padding"?: number | null, "background"?: string | null } }`.
 Returns the updated settings. `serverName` and `theme` changing also update `GET /api/v1/meta`.
@@ -1993,7 +2046,10 @@ sets the client name used when unfurling a link; an empty string or `null` means
 picker's hosted tab away. The key is **write-only** — it goes in through here and is never sent back
 out, the response carrying only `klipyConfigured` — and it is used server-side, never in a browser.
 `setupCompleted` records that the owner has been through the first-run setup; setting it `false`
-again makes the wizard greet them once more.
+again makes the wizard greet them once more. `gifStorage` is `"store"` (the default: a gif that is
+sent is downloaded and kept here) or `"link"` (a gif on an allowlisted gif host is not downloaded;
+the message points at it). It is also in `GET /api/v1/meta`; see
+[Linked gifs](#linked-gifs) for what it changes.
 
 `icon.padding` is a percentage of an installed app icon's tile to leave clear around the artwork,
 from 0 to 45. `null` works it out from the image: none for a picture with no transparent pixels,

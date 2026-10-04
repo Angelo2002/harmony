@@ -364,5 +364,10 @@ The server sends a strict `Content-Security-Policy` that allows only its own
 scripts and styles, its own API and gateway, and the YouTube player the link
 previews embed. If you run custom clients or add something the policy blocks, set
 `HARMONY_CSP` to a policy of your own, or to `off` to send none. The other
+When an admin sets Gif storage to "Link to the hosted service", the built-in
+policy additionally allows images and media from a short fixed list of gif hosts
+(Klipy, Tenor's media hosts, Giphy's media hosts); a policy you set yourself is
+never modified, so add those hosts to its `img-src` and `media-src` if you use
+link mode with one. The other
 hardening headers (`X-Content-Type-Options`, `X-Frame-Options`,
 `Referrer-Policy`, and HSTS over HTTPS) stay on either way.

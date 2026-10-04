@@ -73,6 +73,9 @@ import {
   parseSearchInput,
   suggestFor,
 } from '../src/lib/search-query.ts';
+}
+
+import { SLASH_COMMANDS, applySlashCommand, matchSlashCommands, slashQuery } from '../src/lib/slash-commands.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -1005,6 +1008,78 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('removing a stranger changes nothing', removeScheduled(list, 'zzz').length === 2);
   check('the badge counts everything and the failed ones', scheduledBadge(list).count === 2 && scheduledBadge(list).failed === 1);
   check('an empty list has an empty badge', scheduledBadge([]).count === 0 && scheduledBadge([]).failed === 0);
+}
+
+// --- Suppressed links: <url> shows a plain link and asks for no preview ---
+{
+  const angle = inline('see <https://example.com/a?b=1> now');
+  check(
+    'an angle link is drawn without its brackets',
+    plain('see <https://example.com/a?b=1> now') === 'see https://example.com/a?b=1 now',
+  );
+  check(
+    'and links to the bare address',
+    angle.some((s) => s.type === 'link' && s.href === 'https://example.com/a?b=1' && s.noEmbed === true),
+  );
+  check('so nothing in it is offered for a preview', listEmbeddableUrls('see <https://example.com/a?b=1> now').length === 0);
+  check(
+    'a bare link beside an angle link is still the only one offered',
+    listEmbeddableUrls('<https://example.com/a> and https://example.com/b').join() === 'https://example.com/b',
+  );
+  check(
+    'trailing punctuation outside the brackets stays text',
+    plain('<https://example.com/a>.') === 'https://example.com/a.',
+  );
+  check(
+    'inside code the brackets are literal',
+    plain('`<https://example.com/a>`') === '<https://example.com/a>' && listEmbeddableUrls('`<https://example.com/a>`').length === 0,
+  );
+  check(
+    'an edit that removes the brackets makes the link embeddable again',
+    listEmbeddableUrls('<https://example.com/a>').length === 0 && listEmbeddableUrls('https://example.com/a').length === 1,
+  );
+}
+
+// --- Slash helpers ---
+{
+  // The text sent is escaped Markdown that displays as ¯\_(ツ)_/¯.
+  const SHRUG = '¯\\\\\\_(ツ)\\_/¯';
+  const FLIP = '(╯°□°)╯︵ ┻━┻';
+  check('slash: shrug alone is the face', applySlashCommand('/shrug') === SHRUG);
+  check('slash: and the shrug displays intact through the markdown parser', plain(applySlashCommand('/shrug')) === '¯\\_(ツ)_/¯');
+  check('slash: every face survives the markdown parser', plain(applySlashCommand('/unflip')) === '┬─┬ノ( º _ ºノ)' && plain(applySlashCommand('/lenny')) === '( ͡° ͜ʖ ͡°)' && plain(applySlashCommand('/tableflip')) === '(╯°□°)╯︵ ┻━┻');
+  check('slash: shrug appends to text', applySlashCommand('/shrug oh well') === `oh well ${SHRUG}`);
+  check('slash: trailing spaces are dropped', applySlashCommand('/shrug   ') === SHRUG);
+  check('slash: extra spaces before the text are dropped', applySlashCommand('/shrug    hi  ') === `hi ${SHRUG}`);
+  check('slash: tableflip', applySlashCommand('/tableflip') === FLIP && applySlashCommand('/tableflip ugh') === `ugh ${FLIP}`);
+  check('slash: unflip', applySlashCommand('/unflip') === '┬─┬ノ( º _ ºノ)');
+  check('slash: lenny', applySlashCommand('/lenny') === '( ͡° ͜ʖ ͡°)');
+  check('slash: me italicizes', applySlashCommand('/me waves') === '_waves_');
+  check('slash: me with no text is left as typed', applySlashCommand('/me') === '/me' && applySlashCommand('/me   ') === '/me   ');
+  check('slash: me keeps each line italic on its own', applySlashCommand('/me one\ntwo') === '_one_\n_two_');
+  check('slash: me leaves blank lines alone', applySlashCommand('/me one\n\ntwo') === '_one_\n\n_two_');
+  check('slash: me with an underscore uses stars', applySlashCommand('/me snake_case') === '*snake_case*');
+  check('slash: me with text on the next line', applySlashCommand('/me\nhello') === '_hello_');
+  check('slash: spoiler wraps', applySlashCommand('/spoiler the butler did it') === '||the butler did it||');
+  check('slash: spoiler spans lines', applySlashCommand('/spoiler a\nb') === '||a\nb||');
+  check('slash: spoiler with no text is left as typed', applySlashCommand('/spoiler') === '/spoiler');
+  check('slash: an unknown command is plain text', applySlashCommand('/foo bar') === '/foo bar');
+  check('slash: a path is untouched', applySlashCommand('/usr/bin/env') === '/usr/bin/env');
+  check('slash: a path that starts with a command word is untouched', applySlashCommand('/shrugged') === '/shrugged');
+  check('slash: a command with a path after it is untouched', applySlashCommand('/me/profile') === '/me/profile');
+  check('slash: a command later in the text is untouched', applySlashCommand('hi /shrug') === 'hi /shrug');
+  check('slash: commands are lowercase only', applySlashCommand('/Shrug') === '/Shrug');
+  check('slash: a backslash escape sends a literal slash', applySlashCommand('\\/shrug') === '/shrug');
+  check('slash: the escape works on any text', applySlashCommand('\\/me hi') === '/me hi');
+  check('slash: a lone slash is text', applySlashCommand('/') === '/');
+  check('slash: multi-line text after a face', applySlashCommand('/shrug a\nb') === `a\nb ${SHRUG}`);
+  check('slash: a tab separates the command', applySlashCommand('/spoiler\thi') === '||hi||');
+  check('slash: ordinary text is untouched', applySlashCommand('hello world') === 'hello world');
+  check('slash: popup lists every command for a bare slash', matchSlashCommands('').length === SLASH_COMMANDS.length);
+  check('slash: popup filters by prefix', matchSlashCommands('s').map((c) => c.name).join() === 'shrug,spoiler');
+  check('slash: popup is empty for an unknown word', matchSlashCommands('zzz').length === 0);
+  check('slash: the query is read only at the start', slashQuery('/sh') === 'sh' && slashQuery('hi /sh') === null);
+  check('slash: a path is not a query', slashQuery('/usr/bin') === null && slashQuery('/sh ') === null);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

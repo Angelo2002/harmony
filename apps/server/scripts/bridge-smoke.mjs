@@ -17,7 +17,7 @@ import { findBridgeMessageByDiscordId, findBridgeMessageByHarmonyId, hasSeenBrid
 import { listLinkedAttachments } from '../src/db/attachments.ts';
 import { createEmbedService } from '../src/embeds/service.ts';
 import { deleteEmoji, findEmojiByName, insertEmoji, toEmoji } from '../src/db/emojis.ts';
-import { Permission } from '@harmony/shared';
+import { Permission, listEmbeddableUrls } from '@harmony/shared';
 import { createAttachmentService } from '../src/attachments/service.ts';
 import { createEmojiService } from '../src/emojis/service.ts';
 import { createEmojiImportService } from '../src/emojis/import.ts';
@@ -379,7 +379,9 @@ try {
   );
   check('discord avatar is fetched by URL', transport.state.downloads.includes('https://cdn.example/avatar.png'));
 
-  // 4a. A suppressed link from Discord is unwrapped so it previews here.
+  // 4a. A suppressed link from Discord keeps its angle brackets, so it stays
+  // suppressed here too: the client draws it as a plain link and the resolver
+  // finds nothing to unfurl.
   transport.emit({
     id: 'd1u',
     channelId: '111',
@@ -396,12 +398,14 @@ try {
     message.content.includes('youtube.com/watch'),
   );
   check(
-    'a suppressed discord link is unwrapped before it is stored',
-    unwrapped?.content === 'watch https://www.youtube.com/watch?v=dQw4w9WgXcQ ok',
+    'a suppressed discord link keeps its brackets when stored',
+    unwrapped?.content === 'watch <https://www.youtube.com/watch?v=dQw4w9WgXcQ> ok',
+    String(unwrapped?.content),
   );
   check(
-    'the unwrapped link is offered to the unfurler',
-    previews.some((entry) => entry.messageId === unwrapped?.id && entry.content === 'watch https://www.youtube.com/watch?v=dQw4w9WgXcQ ok'),
+    'and the unfurler is given the bracketed text, which it skips',
+    previews.some((entry) => entry.messageId === unwrapped?.id && entry.content === 'watch <https://www.youtube.com/watch?v=dQw4w9WgXcQ> ok') &&
+      listEmbeddableUrls('watch <https://www.youtube.com/watch?v=dQw4w9WgXcQ> ok').length === 0,
   );
 
   // 4b. A Discord reply becomes a real Harmony reply.
@@ -1314,6 +1318,33 @@ try {
   check(
     'a discord edit rewrites its mentions',
     recent().some((m) => m.content === 'after @discord_555'),
+  );
+
+  // Suppressed links round-trip: an edit that wraps a link keeps the brackets and
+  // one that unwraps it lets it unfurl again; a Harmony message with one is sent
+  // to Discord as written, so Discord hides the preview as well.
+  transport.emit(fromDiscord({ id: 'e2', content: 'see https://example.com/a' }));
+  await sleep(50);
+  transport.emitEdit({ id: 'e2', channelId: '111', content: 'see <https://example.com/a>' });
+  await sleep(50);
+  const wrappedEdit = recent().find((m) => m.content === 'see <https://example.com/a>');
+  check('a discord edit that suppresses a link keeps its brackets', Boolean(wrappedEdit));
+  check(
+    'and is offered to the unfurler as suppressed',
+    previews.filter((entry) => entry.messageId === wrappedEdit?.id).at(-1)?.content === 'see <https://example.com/a>',
+  );
+  transport.emitEdit({ id: 'e2', channelId: '111', content: 'see https://example.com/a' });
+  await sleep(50);
+  check(
+    'an edit that unwraps it is offered as a plain link again',
+    previews.filter((entry) => entry.messageId === wrappedEdit?.id).at(-1)?.content === 'see https://example.com/a',
+  );
+  messages.create(auth, channelId, 'quiet <https://example.com/q> link', [], null);
+  await sleep(50);
+  check(
+    'a suppressed link is sent to discord with its brackets',
+    transport.state.mirrors.at(-1)?.content === 'quiet <https://example.com/q> link',
+    String(transport.state.mirrors.at(-1)?.content),
   );
 
   // A Discord-authored message deleted here is deleted through the bot, since

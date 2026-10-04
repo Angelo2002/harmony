@@ -207,7 +207,7 @@ warnAboutExposure(app.log, {
 });
 
 registerErrorHandler(app, { spaIndex: webClientIndex(config.webDir), serverLog });
-registerSecurityHeaders(app, { csp: config.csp });
+registerSecurityHeaders(app, { csp: config.csp, linkedGifs: () => settingsService.getGifStorage() === 'link' });
 registerAuth(app, { cookieName: config.cookieName, resolveToken: authService.resolveToken });
 
 registerHealthRoutes(app, db);
@@ -248,7 +248,7 @@ registerPinRoutes(app, { service: pinService });
 registerSavedRoutes(app, { service: savedService });
 registerScheduledRoutes(app, { service: scheduledService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
-registerEmbedRoutes(app, { settings: settingsService });
+registerEmbedRoutes(app, { settings: settingsService, service: embedService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
 registerGifRoutes(app, { service: gifService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });

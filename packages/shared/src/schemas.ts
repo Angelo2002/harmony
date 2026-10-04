@@ -3,6 +3,7 @@ import { LIMITS, MAX_ICON_PADDING, MAX_UPLOAD_CEILING_BYTES } from './constants.
 import { TIMEOUT_MAX_MINUTES } from './moderation.ts';
 import { MAX_SLOWMODE_SECONDS } from './slowmode.ts';
 import { MAX_MUTE_SECONDS, NOTIFICATION_LEVELS } from './channel-settings.ts';
+import { GIF_STORAGE_MODES, type GifStorageMode } from './gif-hosts.ts';
 import { HEX_COLOR_PATTERN } from './theme.ts';
 
 export const usernameSchema = z
@@ -238,6 +239,8 @@ export const updateSettingsSchema = z.object({
   setupCompleted: z.boolean().optional(),
   /** An empty string clears it, and the picker loses its hosted tab. */
   klipyApiKey: z.string().trim().max(200).nullable().optional(),
+  /** "store" keeps a copy of each gif here; "link" points at allowlisted gif hosts. */
+  gifStorage: z.enum(GIF_STORAGE_MODES as [GifStorageMode, ...GifStorageMode[]]).optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
@@ -294,6 +297,10 @@ export const pickGifSchema = z.union([
   z.object({ url: z.string().min(1).max(2048) }),
 ]);
 export type PickGifInput = z.infer<typeof pickGifSchema>;
+
+/** A gif address to be checked and linked rather than stored. */
+export const linkGifSchema = z.object({ url: z.string().min(1).max(2048) });
+export type LinkGifInput = z.infer<typeof linkGifSchema>;
 
 /** The picker's hosted tab: a search term and a page size. */
 export const gifSearchQuerySchema = z.object({

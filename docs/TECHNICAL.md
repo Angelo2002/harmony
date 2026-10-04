@@ -540,6 +540,20 @@ what the sound actually is, and when it plays, is the client's business.
 Which messages count as a mention is decided by the same parser that renders them,
 so a name inside a backtick block is a quotation rather than a summons.
 
+## Slash helpers
+
+Typing `/` as the first character of the message box opens the same suggestion popup that `:`, `@` and
+`#` use, listing `/shrug`, `/tableflip`, `/unflip`, `/lenny`, `/me <text>` and `/spoiler <text>`. They
+are client-side text transforms in `apps/web/src/lib/slash-commands.ts`, applied when the message is
+sent; the server never sees the command, only the finished text. (The shrug is sent as escaped
+Markdown, `¯\\\_(ツ)\_/¯`, exactly as Discord's own client does, because its backslash and underscores
+would otherwise be eaten and the face italicized.) The first four append an emoticon to
+whatever follows the command word, `/me` sends the text in italics (one emphasis run per line, since
+italics do not cross a line break) and `/spoiler` wraps it in `||`. A command only counts when the first
+word is exactly a known lowercase name followed by whitespace or the end of the text, so `/foo`,
+`/usr/bin` and `/shrugged` go out untouched, and a leading `\/` sends a literal slash. `/me` and
+`/spoiler` with nothing after them are left as typed.
+
 ## Links and media
 
 A message's first link is resolved, and a small card is stored on the message. A link that points
@@ -575,6 +589,15 @@ preview metadata, and that address is fetched by the same guarded path and kept 
 differ only in access — Tenor serves its pages to anyone, while Klipy puts them behind a Cloudflare
 challenge and hands them over to a recognized crawler name alone. That is precisely what the opt-in
 `previewUserAgent` setting is for, and why Klipy page links preview only once it is set.
+
+A link in angle brackets (`<https://example.com>`) is suppressed, as on Discord. The shared
+`listEmbeddableUrls` skips it, so the resolver finds nothing, and the client's parser draws it as a
+plain link without the brackets. The bridge used to strip the brackets from incoming Discord text so
+the link would unfurl here; it now keeps them, which is also what makes a suppressed link round-trip
+(Harmony sends the text to Discord as written, and Discord's own edits come back the same way). The
+manual counterpart, Remove embeds, sets `messages.embeds_hidden` (migration 30), which the resolver
+checks before doing anything, so the flag outlives edits. It drops the card and any fetched picture,
+and is not mirrored to Discord.
 
 A Discord attachment link needs a different trick again, because the address itself is the problem:
 Discord signs it and the signature expires, so a link copied out of the client usually arrives already
@@ -651,6 +674,61 @@ is what the policy allows, and it has the happy side effect that browsing the pi
 Klipy every member's address. One consequence is worth knowing: the tile and the copy that is kept are
 not the same file, because a grid of full-size gifs would be megabytes through the instance's own
 connection for every search.
+
+## Gif storage: store or link
+
+By default every gif is brought home: a picked Klipy result or a pasted gif address is downloaded and
+kept as a content-addressed blob. That is the right default for a community instance: members' IP
+addresses never reach a third party, a gif survives its source disappearing, and retention, the media
+gallery and the bridge all keep working on files that are really here. The cost is disk and the
+download.
+
+The admin setting `gifStorage` (Settings, Gifs) lets an owner trade that away: in `link` mode a gif on
+an allowlisted gif host is not downloaded; the message just points at it. The trade-offs, which the
+admin help text also states:
+
+- **Privacy.** Every viewer's browser contacts the gif host, which sees their IP address and, for the
+  duration of the request, that they opened Harmony. `Referrer-Policy: no-referrer` stops it learning
+  the channel. Store mode leaks nothing.
+- **Durability.** A linked gif disappears when the host removes it or changes its address. Tenor's API
+  is shutting down on 30 June 2026 although `media.tenor.com` keeps serving existing addresses; Klipy
+  is the hosted service the picker uses. Store mode is immune.
+- **Cost.** Link mode saves disk and one download per new gif.
+- **Safety.** Hotlinking is the risky half, so it is narrow. The allowlist is in
+  `packages/shared/src/gif-hosts.ts`, matched on the parsed URL (https, default port, no credentials,
+  exact host or real subdomain), and is used in four places that must agree: the server's check, the
+  parse of stored embeds (a hand-edited row cannot name another host), the client before it draws
+  anything, and the Content-Security-Policy. Nothing outside the list is ever linked, and a Discord
+  CDN link is never on it: those addresses are signed with `ex`/`is`/`hm` parameters and expire in
+  about a day, so the bridge keeps downloading and storing them.
+
+How it works without a new table: a linked gif is an ordinary embed. The message text is the gif's
+address, and when the embed resolver sees an allowlisted address in link mode it calls
+`verifyLinkedGif` (`embeds/linked-gif.ts`) and, if that passes, stores `LinkEmbed.gif`
+(`{ contentType, width, height }`) on the message's `embed` column with the gif's address as the embed
+`url`. The check goes through the same public-address guard as every outbound fetch, follows no
+redirects at all (so the file cannot live anywhere the allowlist did not see), requires a gif-like
+content type (GIF, animated WebP, MP4, WebM) and applies the instance's own image or video size limit.
+A host that fails any of it simply falls back to the stored path. The size comes from the host's
+`Content-Length` and the file is not downloaded, so a host that lies about it is trusted for the
+size only; it still cannot serve anything the allowlist does not name. Order of preference when a
+message arrives: a copy already stored here (free, and private), then a link, then a download.
+
+The picker keeps its tile previews going through the server's media proxy, so browsing the picker
+reveals nothing either way; only a gif that is actually sent is hotlinked. In link mode picking a
+Klipy result calls `POST /api/v1/gifs/link`, which runs the same check and hands back the address,
+and the composer inserts it as text. Favorites, the This server tab and `gifs/pick` are untouched:
+they are stored bytes, and saving a hosted gif to favorites still keeps a copy.
+
+The Content-Security-Policy is built per response (`http/security.ts`): only the built-in policy is
+widened, only `img-src` and `media-src`, only while the mode is on. It is read per page load, so a
+client with the app already open needs a reload after the setting changes. A custom `HARMONY_CSP` is
+never modified. Switching back to `store` leaves existing linked embeds in the database; clients stop
+drawing them (and the browser would refuse them anyway) and the address shows as plain text.
+
+The bridge needs nothing: a message is text plus the embed, and a linked gif's text is just the
+address, so Discord unfurls it itself. Incoming Discord links to an allowlisted host are linked the
+same way in link mode.
 
 ## Server log
 

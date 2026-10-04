@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { EmbedPlayer, LinkEmbed, SearchHas } from '@harmony/shared';
+import { isGifLinkUrl, isLinkedGifType, type EmbedPlayer, type LinkEmbed, type LinkedGif, type SearchHas } from '@harmony/shared';
 
 /** YouTube video ids are 11 URL-safe characters; anything else is not offered. */
 function parsePlayer(value: unknown): EmbedPlayer | null {
@@ -8,6 +8,20 @@ function parsePlayer(value: unknown): EmbedPlayer | null {
   if (player.provider !== 'youtube') return null;
   if (typeof player.id !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(player.id)) return null;
   return { provider: 'youtube', id: player.id };
+}
+
+/**
+ * A linked gif, kept only when the embed's address is itself on the gif host
+ * allowlist and the type is a gif-like one, so nothing stored can make a client
+ * load from anywhere else.
+ */
+function parseGif(value: unknown, url: string): LinkedGif | null {
+  if (!value || typeof value !== 'object' || !isGifLinkUrl(url)) return null;
+  const gif = value as { contentType?: unknown; width?: unknown; height?: unknown };
+  if (typeof gif.contentType !== 'string' || !isLinkedGifType(gif.contentType)) return null;
+  const size = (n: unknown): number | null =>
+    typeof n === 'number' && Number.isInteger(n) && n > 0 && n <= 20000 ? n : null;
+  return { contentType: gif.contentType.toLowerCase(), width: size(gif.width), height: size(gif.height) };
 }
 
 export interface MessageRow {
@@ -25,6 +39,8 @@ export interface MessageRow {
   pinned_at: string | null;
   /** Who pinned it, or NULL when unpinned or once that account is gone. */
   pinned_by: string | null;
+  /** 1 once the embeds were removed by hand; the link resolver then skips the message. */
+  embeds_hidden: number;
 }
 
 /** Reads the stored embed JSON back into a preview, ignoring anything malformed. */
@@ -33,6 +49,7 @@ export function parseMessageEmbed(raw: string | null): LinkEmbed | null {
   try {
     const value = JSON.parse(raw) as Partial<LinkEmbed>;
     if (typeof value.url !== 'string' || value.url.length === 0) return null;
+    const gif = parseGif(value.gif, value.url);
     return {
       url: value.url,
       title: typeof value.title === 'string' ? value.title : null,
@@ -40,6 +57,8 @@ export function parseMessageEmbed(raw: string | null): LinkEmbed | null {
       siteName: typeof value.siteName === 'string' ? value.siteName : null,
       imageUrl: typeof value.imageUrl === 'string' ? value.imageUrl : null,
       player: parsePlayer(value.player),
+      // Left off entirely for an ordinary preview, so the wire shape is unchanged.
+      ...(gif ? { gif } : {}),
     };
   } catch {
     return null;
@@ -237,6 +256,12 @@ export function updateMessageContent(sqlite: DatabaseSync, id: string, content: 
 /** Stores a message's unfurled preview JSON, or clears it when given null. */
 export function setMessageEmbed(sqlite: DatabaseSync, id: string, embed: string | null): boolean {
   const result = sqlite.prepare('UPDATE messages SET embed = ? WHERE id = ?').run(embed, id);
+  return Number(result.changes) > 0;
+}
+
+/** Marks a message's embeds as removed by hand, for good. */
+export function setMessageEmbedsHidden(sqlite: DatabaseSync, id: string): boolean {
+  const result = sqlite.prepare('UPDATE messages SET embeds_hidden = 1 WHERE id = ?').run(id);
   return Number(result.changes) > 0;
 }
 

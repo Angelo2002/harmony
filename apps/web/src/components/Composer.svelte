@@ -21,6 +21,7 @@
   import { meta } from '../lib/meta.svelte';
   import type { IconName } from '../lib/icons';
   import { session } from '../lib/session.svelte';
+  import { applySlashCommand, matchSlashCommands, slashQuery } from '../lib/slash-commands';
   import { parseTimeExpression, timestampChoices, type ParsedMoment } from '../lib/time-input';
   import { loadUnicodeEmoji, type UnicodeEmoji } from '../lib/unicode-emoji';
   import { uploads } from '../lib/upload-queue.svelte';
@@ -108,7 +109,8 @@
   type Trigger =
     | { kind: 'emoji'; start: number; query: string }
     | { kind: 'mention'; start: number; query: string; moment: ParsedMoment | null }
-    | { kind: 'channel'; start: number; query: string };
+    | { kind: 'channel'; start: number; query: string }
+    | { kind: 'slash'; start: number; query: string };
 
   /** One row in the autocomplete popup, whichever kind it is. */
   interface Suggestion {
@@ -409,6 +411,10 @@
   function detectTrigger(text: string, caret: number): Trigger | null {
     const before = text.slice(0, caret);
 
+    // A slash helper only exists as the first word of the message.
+    const slash = slashQuery(before);
+    if (slash !== null && matchSlashCommands(slash).length > 0) return { kind: 'slash', start: 0, query: slash };
+
     const emoji = /(?:^|\s):([a-zA-Z0-9_]{0,32})$/.exec(before);
     if (emoji) {
       const query = emoji[1] ?? '';
@@ -560,6 +566,18 @@
       const seen = new Set(used.map((suggestion) => suggestion.key));
       const merged = [...used, ...[...server, ...unicode].filter((suggestion) => !seen.has(suggestion.key))];
       return (needle ? merged.sort((a, b) => scoreOf(b) - scoreOf(a)) : merged).slice(0, maxSuggestions);
+    }
+
+    if (trigger.kind === 'slash') {
+      return matchSlashCommands(needle).map((command) => ({
+        key: `slash:${command.name}`,
+        label: command.usage,
+        detail: command.description,
+        imageUrl: null,
+        initial: null,
+        icon: null,
+        insert: `/${command.name} `,
+      }));
     }
 
     if (trigger.kind === 'channel') {
@@ -714,7 +732,7 @@
    */
   async function send(): Promise<void> {
     const key = draftKey;
-    const content = value.trim();
+    const content = applySlashCommand(value.trim());
     if (key === null || busy || uploading || timeoutUntil !== null || slowmodeRemaining > 0) return;
     if (!content && pending.length === 0) return;
 
@@ -843,7 +861,10 @@
   {/if}
 
   {#if showGifs}
-    <GifPicker onpick={addGif} />
+    <GifPicker onpick={addGif} onlink={(url) => {
+        showGifs = false;
+        void insertAtCaret(url);
+      }} />
   {/if}
 
   {#if showTimes}

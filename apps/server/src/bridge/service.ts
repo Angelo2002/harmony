@@ -9,7 +9,6 @@ import {
   GatewayEvent,
   rewriteChannelMentions,
   rewriteMentions,
-  unwrapSuppressedLinks,
   type BridgeResponse,
   type DiscordChannelListResponse,
   type ImageContentType,
@@ -1024,13 +1023,14 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     // Anything we cannot mirror is preserved as text rather than dropped: an
     // attachment that will not download as its link, a sticker that cannot be
     // drawn as its name. Discord hides the preview of a suppressed link by
-    // wrapping it in angle brackets; drop them so the link unfurls here exactly
-    // as a typed one does. Emoji are learned above, so one from another server
-    // renders rather than falling back.
+    // wrapping it in angle brackets, and so does Harmony, so the text is kept
+    // as written: the client draws it as a plain link and no preview is made.
+    // Emoji are learned above, so one from another server renders rather than
+    // falling back.
     const translated = await translateInboundEmoji(linked.text);
     const said = [
       rewriteInboundChannelMentions(
-        rewriteInboundMentions(unwrapSuppressedLinks(translated), message.mentions),
+        rewriteInboundMentions(translated, message.mentions),
       ),
       ...skipped,
     ]
@@ -1125,7 +1125,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     // same as one sent with it, and one that adds or newly suppresses a link
     // previews on the Harmony side to match.
     const content = rewriteInboundChannelMentions(
-      rewriteInboundMentions(unwrapSuppressedLinks(await translateInboundEmoji(edit.content)), edit.mentions),
+      rewriteInboundMentions(await translateInboundEmoji(edit.content), edit.mentions),
     );
     if (!deps.messages.editBridged(mapping.harmony_message_id, content)) return;
     deps.resolvePreview?.(mapping.harmony_message_id, content);

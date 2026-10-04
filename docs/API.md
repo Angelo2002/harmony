@@ -412,6 +412,32 @@ When the referenced channel is bridged, [the bridge](#discord-bridge) rewrites `
 Discord channel mention `<#id>` on the way out, and a Discord `<#id>` for a bridged channel back to
 `#name` on the way in. A reference with no counterpart on the other side is left as plain text.
 
+### Formatting
+
+A message's `content` is stored exactly as typed; formatting is applied by the client when it is
+shown. The syntax is Discord's, so text bridged from Discord renders the same here.
+
+| Syntax | Result |
+| --- | --- |
+| `**bold**`, `*italic*` or `_italic_`, `__underline__`, `~~strike~~`, `\|\|spoiler\|\|` | Inline emphasis, which nests |
+| `` `code` `` | Inline code; nothing inside it is formatted |
+| ```` ```lang ```` … ```` ``` ```` | A code block, highlighted when `lang` is a known language (js/ts, json, python, bash/shell, css, html/xml, sql, diff, yaml, rust, go, java, c/cpp, csharp, markdown, and their usual aliases) |
+| `# `, `## `, `### ` at the start of a line | Headers; the space is required and `####` is plain text |
+| `-# ` at the start of a line | Subtext: a small, muted line |
+| `- ` or `* ` at the start of a line | A bulleted list item |
+| `1. ` at the start of a line | A numbered list item; the list starts at the first item's number |
+| `> ` at the start of a line | Quotes that line; consecutive quoted lines form one quote |
+| `>>> ` at the start of a line | Quotes everything after it to the end of the message |
+| `[label](https://…)` | A masked link, never unfurled |
+| `<https://…>` | A link whose preview is suppressed |
+| `<t:1700000000>`, `<t:1700000000:R>` | A timestamp shown in the reader's locale and time zone; styles `t` `T` `d` `D` `f` (default) `F` `R` (relative) |
+| `\*` (a backslash before any ASCII punctuation) | The character itself, unformatted |
+
+List items nest under the item above when indented at least two spaces further, and an indented line
+without a marker continues the item above it. Headers, subtext, lists and code may sit inside a
+quote; quotes do not nest. Mentions, channel references, emoji and links work everywhere except
+inside code.
+
 ## REST reference
 
 Unless stated otherwise, request bodies are JSON with `Content-Type: application/json`, and

@@ -5,9 +5,11 @@
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { matchChannelName, rewriteChannelMentions } from '@harmony/shared';
-import { parseMessage } from '../src/lib/message-text.ts';
+import { listEmbeddableUrls, matchChannelName, rewriteChannelMentions } from '@harmony/shared';
+import { highlight } from '../src/lib/highlighter.ts';
+import { inlineSegmentsOf, parseMessage } from '../src/lib/message-text.ts';
 import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
+import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
 
 const require = createRequire(import.meta.url);
@@ -24,9 +26,7 @@ const noMention = () => undefined;
 
 /** Every inline segment of a message, skipping code blocks. */
 function inline(text, emoji = noEmoji, mention = noMention, channels = []) {
-  return parseMessage(text, emoji, mention, channels).flatMap((block) =>
-    block.type === 'code' ? [] : block.segments,
-  );
+  return inlineSegmentsOf(parseMessage(text, emoji, mention, channels));
 }
 
 /** The concatenated visible text, ignoring styling. */
@@ -60,7 +60,7 @@ check('a level 2 header is detected', parse('## Title')[0].level === 2);
 
 const quote = parse('> one\n> two');
 check('consecutive quote lines merge', quote.length === 1 && quote[0].type === 'quote');
-check('a quote drops the markers', quote[0].segments.map((segment) => segment.value).join('') === 'one\ntwo');
+check('a quote drops the markers', plain('> one\n> two') === 'one\ntwo');
 
 // --- Inline emphasis ---
 check('bold is applied', styled('a **b** c', 'bold', 'b'));
@@ -166,6 +166,110 @@ check('matchChannelName prefers the longest', matchChannelName('Off Topic', ['Of
 check('rewriting maps a known name', rewriteChannelMentions('go #general now', ['general'], () => '<#123>') === 'go <#123> now');
 check('rewriting leaves an unknown name', rewriteChannelMentions('go #nope now', ['general'], () => '<#123>') === 'go #nope now');
 check('rewriting leaves a mid-word hash', rewriteChannelMentions('a#general', ['general'], () => 'X') === 'a#general');
+
+// --- Lists ---
+const bullets = parse('- one\n- two');
+check('dash lines make a bulleted list', bullets.length === 1 && bullets[0].type === 'list' && !bullets[0].ordered);
+check('each line is an item', bullets[0].items.length === 2);
+check('star bullets work too', parse('* one\n* two')[0]?.type === 'list');
+
+const tree = parse('- a\n  - b\n    - c\n- d')[0];
+check('the top of a nested list keeps its own items', tree.items.map((item) => item.segments[0].value).join() === 'a,d');
+check('two spaces nest an item under the one above', tree.items[0].children[0]?.items[0]?.segments[0]?.value === 'b');
+check('nesting goes deeper with more indent', tree.items[0].children[0].items[0].children[0]?.items[0]?.segments[0]?.value === 'c');
+check('one space is not enough to nest', parse('- a\n - b')[0].items.length === 2);
+
+const numbered = parse('3. three\n4. four');
+check('a numbered list is ordered', numbered[0].type === 'list' && numbered[0].ordered);
+check('a numbered list starts at its first number', numbered[0].start === 3 && numbered[0].items.length === 2);
+const mixed = parse('1. a\n   - b')[0];
+check('a bulleted list can nest under a numbered one', mixed.ordered && mixed.items[0].children[0]?.ordered === false);
+check('switching between bullets and numbers starts a new list', parse('- a\n1. b').length === 2);
+check('a line without a marker ends the list', parse('- a\nafter').map((block) => block.type).join() === 'list,paragraph');
+check('an indented line carries on the item', plain('- a\n  more') === 'a\nmore' && parse('- a\n  more').length === 1);
+
+const richItem = inline('- **bold** for @alice', noEmoji, (name) => (name === 'alice' ? { id: 'u1', username: 'alice' } : undefined));
+check('an item keeps its inline formatting', richItem.some((segment) => segment.styles?.bold && segment.value === 'bold'));
+check('an item can mention someone', richItem.some((segment) => segment.type === 'mention'));
+check(
+  'a mention inside a nested item still counts as one',
+  mentionsUser({ id: 'm', content: '- x\n  - hey @alice' }, 'u1', (name) => (name === 'alice' ? { id: 'u1' } : undefined)),
+);
+check(
+  'a link in an item is a link',
+  inline('- see https://example.com/a').some((segment) => segment.type === 'link' && segment.href === 'https://example.com/a'),
+);
+check('a link in an item can still unfurl', listEmbeddableUrls('- see https://example.com/a').includes('https://example.com/a'));
+
+// What looks a little like a list but is not one.
+check('a minus sign is not a bullet', parse('-5 degrees')[0].type === 'paragraph' && plain('-5 degrees') === '-5 degrees');
+check('a decimal is not a numbered item', parse('1.5 liters')[0].type === 'paragraph');
+check('a lone dash is just a dash', parse('-')[0].type === 'paragraph');
+check('stars hugging a word are italics, not a bullet', styled('*shrug*', 'italic', 'shrug'));
+check('stars with spaces inside are arithmetic', plain('2 * 3 * 4') === '2 * 3 * 4' && !inline('2 * 3 * 4').some((segment) => segment.styles?.italic));
+
+// --- Quotes, headers and subtext ---
+const rest = parse('before\n>>> a\nb\n\nc');
+check('>>> quotes the rest of the message', rest.length === 2 && rest[1].type === 'quote');
+check('>>> keeps every line after it', inlineSegmentsOf(rest[1].blocks).map((segment) => segment.value).join('') === 'a\nb\n\nc');
+check('a quote line needs its space', parse('>.<')[0].type === 'paragraph' && parse('>>>')[0].type === 'paragraph');
+check('a single quote ends with its last marked line', parse('> a\nb').map((block) => block.type).join() === 'quote,paragraph');
+check('a quote can hold a list', parse('> - a\n> - b')[0].blocks[0]?.type === 'list');
+check('quotes do not nest', parse('> > a')[0].blocks[0]?.type === 'paragraph');
+
+check('subtext is its own block', parse('-# small print')[0].type === 'subtext' && plain('-# small print') === 'small print');
+check('subtext needs its space', parse('-#tag')[0].type === 'paragraph');
+check('a level 3 header is detected', parse('### Title')[0].type === 'header' && parse('### Title')[0].level === 3);
+check('four hashes are not a header', parse('#### Title')[0].type === 'paragraph');
+check('a header needs its space', parse('#Title')[0].type === 'paragraph');
+check('a header needs a title', parse('# ')[0].type === 'paragraph');
+
+// --- Escaping ---
+check('escaped stars are literal', plain('\\*not italic\\*') === '*not italic*' && !inline('\\*not italic\\*').some((segment) => segment.styles?.italic));
+check('an escaped dash is not a bullet', parse('\\- not a list')[0].type === 'paragraph' && plain('\\- not a list') === '- not a list');
+check('an escaped hash is not a header', parse('\\# not a header')[0].type === 'paragraph');
+check('an escaped number is not an item', plain('1\\. not a list') === '1. not a list' && parse('1\\. not a list')[0].type === 'paragraph');
+check('an escaped mention stays text', inline('\\@alice', noEmoji, mentionOf).every((segment) => segment.type !== 'mention'));
+check('an escaped emoji stays text', plain('\\:YES:', emoji) === ':YES:');
+check('a backslash can escape itself', plain('\\\\') === '\\');
+check('a backslash before a letter is kept', plain('C:\\Users') === 'C:\\Users');
+
+// --- Timestamps ---
+const stamp = (text) => inline(text).find((segment) => segment.type === 'timestamp');
+check('a timestamp is recognised', stamp('at <t:1700000000>')?.epochMs === 1_700_000_000_000);
+check('a timestamp without a style uses f', stamp('<t:1700000000>')?.style === 'f');
+check('a timestamp keeps its style', stamp('<t:1700000000:R>')?.style === 'R');
+check('an unknown style stays as written', stamp('<t:1700000000:X>') === undefined && plain('<t:1700000000:X>') === '<t:1700000000:X>');
+check('an escaped timestamp stays as written', stamp('\\<t:1700000000>') === undefined);
+check('a moment past what a date holds stays as written', stamp('<t:9999999999999>') === undefined);
+
+const utc = { locale: 'en-US', timeZone: 'UTC' };
+check('t is a short time', /^12:00\sAM$/.test(formatTimestamp(0, 't', utc)));
+check('T is a long time', /^12:00:00\sAM$/.test(formatTimestamp(0, 'T', utc)));
+check('d is a short date', formatTimestamp(0, 'd', utc) === '01/01/1970');
+check('D is a long date', formatTimestamp(0, 'D', utc) === 'January 1, 1970');
+check('f is a date and time', /^January 1, 1970( at|,) 12:00\sAM$/.test(formatTimestamp(0, 'f', utc)));
+check('F adds the weekday', formatTimestamp(0, 'F', utc).startsWith('Thursday, January 1, 1970'));
+check('the tooltip is the full date', formatTimestampTitle(0, utc) === formatTimestamp(0, 'F', utc));
+const hour = 60 * 60 * 1000;
+check('R reads ahead', formatTimestamp(10 * hour, 'R', { now: 7 * hour, locale: 'en-US' }) === 'in 3 hours');
+check('R reads behind', formatTimestamp(0, 'R', { now: 50 * hour, locale: 'en-US' }) === '2 days ago');
+
+// --- Code blocks ---
+check('a code block keeps its language', parse('```python\nprint(1)\n```')[0].language === 'python');
+check('a code block may close at the end of its last line', parse('```js\nfoo()```\nafter').map((block) => block.type).join() === 'code,paragraph');
+check('a closing fence on the last line keeps that line', parse('```js\nfoo()```')[0].text === 'foo()');
+check('a code block may sit on one line', parse('```x = 1```')[0].type === 'code' && parse('```x = 1```')[0].text === 'x = 1');
+check('markdown inside code is literal', parse('```\n- a\n# b\n```').length === 1);
+
+// The highlighter's output goes into the page as markup, so it must escape the
+// code it is given; this is what makes that safe.
+const hostile = highlight('<img src=x onerror="alert(1)"> & </code><script>', 'html');
+check('highlighted code is escaped', hostile !== null && !hostile.includes('<img') && !hostile.includes('<script') && hostile.includes('&lt;'));
+check('highlighting adds only its own spans', hostile.replace(/<span class="hljs-[a-z_ .-]+">|<\/span>/g, '').search(/[<>]/) === -1);
+check('a language alias resolves', highlight('const a = 1;', 'js')?.includes('hljs-keyword'));
+check('a language name ignores case', highlight('x = 1', 'Python') !== null);
+check('an unknown language is left plain', highlight('x', 'brainfudge') === null);
 
 // --- Catching up after being away ---
 // A stand-in shape: mergeLatest only ever compares ids and copies references.

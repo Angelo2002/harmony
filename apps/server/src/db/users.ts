@@ -202,6 +202,9 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
       .run(fromId, intoId);
     sqlite.prepare('UPDATE saved_messages SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
 
+    // Scheduled messages have their own ids, so they simply change hands.
+    sqlite.prepare('UPDATE scheduled_messages SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
     // A ban is keyed by user id, so keep the survivor's own and drop the other.
     sqlite
       .prepare('DELETE FROM bans WHERE user_id = ? AND EXISTS (SELECT 1 FROM bans WHERE user_id = ?)')

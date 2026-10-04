@@ -49,6 +49,16 @@ import {
   timestampToken,
   toDateTimeInputs,
 } from '../src/lib/time-input.ts';
+import {
+  defaultScheduleTime,
+  describeSendTime,
+  parseScheduleInput,
+  removeScheduled,
+  scheduleChoices,
+  scheduleProblem,
+  scheduledBadge,
+  upsertScheduled,
+} from '../src/lib/schedule-time.ts';
 import { firstUnreadIndex, muteLabel, newMessageCount, newMessagesLabel, pillCount } from '../src/lib/unread.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { draftPreview } from '../src/lib/composer-preview.ts';
@@ -939,6 +949,62 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   const applied = applySuggestion('hello in:off other', activeToken('hello in:off other', 12), { label: '#off topic', value: 'off topic' });
   check('applying a suggestion quotes a name with spaces', applied.text === 'hello in:"off topic" other');
   check('and puts the caret after the token', applied.caret === 'hello in:"off topic" '.length);
+}
+
+// --- Scheduled messages: choosing and describing the time ---
+{
+  const base = { now: writeNow, locale: 'en-US', timeZone: 'UTC' };
+  const asIso = (epoch) => (epoch === null ? null : new Date(epoch).toISOString().slice(0, 16));
+
+  check('a typed time reads like the composer expressions', asIso(parseScheduleInput('5pm', base)) === '2025-12-24T17:00');
+  check('with or without the @', parseScheduleInput('@5pm', base) === parseScheduleInput('5pm', base));
+  check('a day and a time', asIso(parseScheduleInput('tomorrow 9am', base)) === '2025-12-25T09:00');
+  check('a countdown', asIso(parseScheduleInput('in 2h', base)) === '2025-12-24T17:00');
+  check('nonsense is not a time', parseScheduleInput('whenever', base) === null);
+  check('empty is not a time', parseScheduleInput('  ', base) === null);
+
+  check('nothing chosen is a problem', scheduleProblem(null, writeNow) !== null);
+  check('a time in the past is a problem', scheduleProblem(writeNow - 1000, writeNow) !== null);
+  check('a time seconds away is a problem', scheduleProblem(writeNow + 10_000, writeNow) !== null);
+  check('a time a few minutes out is fine', scheduleProblem(writeNow + 5 * 60_000, writeNow) === null);
+  check('a time within a year is fine', scheduleProblem(writeNow + 300 * 86_400_000, writeNow) === null);
+  check('a time past a year is a problem', scheduleProblem(writeNow + 400 * 86_400_000, writeNow) !== null);
+
+  const choices = scheduleChoices(writeNow, { locale: 'en-US', timeZone: 'UTC' });
+  check('quick choices run from soonest to latest', choices.every((choice, index) => index === 0 || choice.at > choices[index - 1].at));
+  check('in 30 minutes is 30 minutes', choices[0].at === writeNow + 30 * 60_000);
+  check('tomorrow morning is 9:00 the next day', asIso(choices.at(-1).at) === '2025-12-25T09:00');
+  check('and every quick choice can be scheduled', choices.every((choice) => scheduleProblem(choice.at, writeNow) === null));
+  check('the default is an hour out, on a five minute mark', defaultScheduleTime(writeNow) === writeNow + 60 * 60_000);
+  check('and rounds up', defaultScheduleTime(writeNow + 60_000) === writeNow + 65 * 60_000);
+
+  check(
+    'a time today is described as today, with the zone',
+    describeSendTime(writeNow + 2 * hour, base) === 'Today at 5:00 PM (UTC)',
+  );
+  check('tomorrow is named', describeSendTime(Date.UTC(2025, 11, 25, 9, 0), base) === 'Tomorrow at 9:00 AM (UTC)');
+  check('later this week is a weekday', describeSendTime(Date.UTC(2025, 11, 27, 9, 0), base) === 'Saturday at 9:00 AM (UTC)');
+  check(
+    'further out is a date',
+    describeSendTime(Date.UTC(2026, 0, 10, 9, 0), base) === 'Jan 10, 2026 at 9:00 AM (UTC)',
+  );
+  check(
+    'the member\'s own zone decides the day',
+    describeSendTime(Date.UTC(2025, 11, 25, 23, 30), { ...base, timeZone: 'Asia/Tokyo' }) === 'Tomorrow at 8:30 AM (Asia/Tokyo)' && describeSendTime(Date.UTC(2025, 11, 24, 23, 30), { ...base, timeZone: 'Asia/Tokyo' }) === 'Today at 8:30 AM (Asia/Tokyo)',
+  );
+
+  const entry = (id, sendAt, status = 'pending') => ({ id, sendAt, status, content: id, channelId: 'c', attachments: [], replyToId: null, createdAt: sendAt, error: null });
+  const early = entry('a', '2026-01-01T10:00:00.000Z');
+  const late = entry('b', '2026-01-01T12:00:00.000Z', 'failed');
+  let list = upsertScheduled([], late);
+  list = upsertScheduled(list, early);
+  check('the list stays soonest first', list.map((item) => item.id).join() === 'a,b');
+  list = upsertScheduled(list, { ...early, sendAt: '2026-01-01T13:00:00.000Z' });
+  check('an update replaces in place and re-sorts', list.map((item) => item.id).join() === 'b,a' && list.length === 2);
+  check('removing drops one', removeScheduled(list, 'a').map((item) => item.id).join() === 'b');
+  check('removing a stranger changes nothing', removeScheduled(list, 'zzz').length === 2);
+  check('the badge counts everything and the failed ones', scheduledBadge(list).count === 2 && scheduledBadge(list).failed === 1);
+  check('an empty list has an empty badge', scheduledBadge([]).count === 0 && scheduledBadge([]).failed === 0);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

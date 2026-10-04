@@ -500,6 +500,29 @@ in `db/attachments.ts` apply, so a pinned or saved message and its pictures and 
 video and message retention and are spared by emergency pruning too. They go only when the message
 itself is deleted by its author or a moderator, which cascades the save away.
 
+## Scheduled messages
+
+A scheduled message is one member's queued post, in `scheduled_messages` (with its uploads in
+`scheduled_message_attachments`). `scheduled/service.ts` owns a timer: one `setInterval` tick (10 s,
+`HARMONY_SCHEDULED_TICK_MS`) that also runs once at startup to catch up on anything that came due while
+the server was down. Delivery calls the same `MessageService.create` as a hand-sent message, with an
+auth context rebuilt from the author's current roles, so channel visibility, Send Messages, timeouts,
+bans and slowmode are all checked at send time. The claim is atomic: the queue row is deleted inside
+the transaction that inserts the message (the node:sqlite calls are synchronous, so nothing interleaves),
+and a failure rolls both back, which is why a message is never sent twice and a crash loses nothing.
+A permanent failure leaves the row as `failed` with a reason and notifies the owner's sessions; slowmode
+is treated as a wait and retried for five minutes. Uploads linked from the queue are excluded from the
+"abandoned upload" and age rules in `db/attachments.ts`, and `MessageService` refuses to attach them to
+any other message. `mergeUsers` re-owns the rows; deleting a channel or user cascades them away.
+
+On the client, `lib/scheduled.svelte.ts` only mirrors the queue (it loads the list and follows
+`SCHEDULED_MESSAGE_UPDATE`); nothing is timed in the browser, so a message goes out whether or not a tab
+is open. The pure parts (reading the typed time with the same parser the composer's `@` timestamps use,
+checking it, describing it in the member's own zone) are in `lib/schedule-time.ts` and covered by the
+text smoke test. The composer opens `SchedulePicker` from the chevron by Send, the + menu or
+Ctrl+Shift+Enter, and `ScheduledPanel` (header clock button, with a count badge) lists, edits, sends
+and deletes entries, failed ones included.
+
 ## Notification sounds
 
 Two sounds ship with the client, in `apps/web/public/sounds`: a louder one for a

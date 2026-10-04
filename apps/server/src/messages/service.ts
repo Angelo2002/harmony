@@ -31,6 +31,7 @@ import { findChannel, type ChannelRow } from '../db/channels.ts';
 import { findEmoji } from '../db/emojis.ts';
 import { deleteNameMentions, insertMention, listMentions, type MentionRow } from '../db/mentions.ts';
 import { listSavedAmong } from '../db/saved_messages.ts';
+import { attachmentIsScheduled } from '../db/scheduled_messages.ts';
 import {
   findMessage,
   insertMessage,
@@ -366,7 +367,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     for (const attachmentId of attachmentIds) {
       const attachment = findAttachment(sqlite, attachmentId);
       if (!attachment) throw new HttpError(400, 'invalid_attachment', 'One of the attachments does not exist.');
-      if (attachment.message_id) {
+      if (attachment.message_id || attachmentIsScheduled(sqlite, attachmentId)) {
         throw new HttpError(400, 'attachment_in_use', 'One of the attachments is already in use.');
       }
       if (attachment.uploader_id !== authorId) {

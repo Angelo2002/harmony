@@ -27,6 +27,7 @@
   import ComposerPreview from './ComposerPreview.svelte';
   import EmojiPicker from './EmojiPicker.svelte';
   import GifPicker from './GifPicker.svelte';
+  import SchedulePicker from './SchedulePicker.svelte';
   import Icon from './Icon.svelte';
   import TimestampPicker from './TimestampPicker.svelte';
 
@@ -70,6 +71,7 @@
   let showPicker = $state(false);
   let showGifs = $state(false);
   let showTimes = $state(false);
+  let showSchedule = $state(false);
   /** The phone-only + menu that gathers the four picker buttons. */
   let showActions = $state(false);
 
@@ -276,6 +278,7 @@
     showPicker = !showPicker;
     showGifs = false;
     showTimes = false;
+    showSchedule = false;
     showActions = false;
   }
 
@@ -283,6 +286,7 @@
     showGifs = !showGifs;
     showPicker = false;
     showTimes = false;
+    showSchedule = false;
     showActions = false;
   }
 
@@ -290,7 +294,28 @@
     showTimes = !showTimes;
     showPicker = false;
     showGifs = false;
+    showSchedule = false;
     showActions = false;
+  }
+
+  /** Opens the "send later" popover, from the + menu, the button by Send or Ctrl+Shift+Enter. */
+  function toggleSchedule(): void {
+    showSchedule = !showSchedule;
+    showPicker = false;
+    showGifs = false;
+    showTimes = false;
+    showActions = false;
+    activeTrigger = null;
+  }
+
+  /** The server has the draft now, so the box is emptied the way a send empties it. */
+  function onScheduled(): void {
+    const key = draftKey;
+    if (key !== null) drafts.clear(key);
+    chat.replyTarget = null;
+    showSchedule = false;
+    activeTrigger = null;
+    void tick().then(() => textInput?.focus());
   }
 
   function pickFiles(): void {
@@ -638,6 +663,13 @@
       }
     }
 
+    // Ctrl+Shift+Enter (Cmd on a Mac) schedules the draft instead of sending it.
+    if (event.key === 'Enter' && event.shiftKey && (event.ctrlKey || event.metaKey) && !event.isComposing) {
+      event.preventDefault();
+      if (timeoutUntil === null) toggleSchedule();
+      return;
+    }
+
     // Enter sends and Shift+Enter starts a new line, as in Discord. A key that
     // finishes an IME composition is left to the IME, or picking a Japanese
     // candidate would send the message. Some browsers report `isComposing`
@@ -818,6 +850,21 @@
     <TimestampPicker onpick={(token) => insertAtCaret(token)} onclose={closeTimes} />
   {/if}
 
+  {#if showSchedule && chat.activeChannel}
+    <SchedulePicker
+      channelId={chat.activeChannel.id}
+      channelName={chat.activeChannel.name}
+      content={value}
+      attachmentIds={pending.map((attachment) => attachment.id)}
+      replyToId={chat.replyTarget?.id ?? null}
+      onscheduled={onScheduled}
+      onclose={(refocus) => {
+        showSchedule = false;
+        if (refocus) textInput?.focus();
+      }}
+    />
+  {/if}
+
   {#if pending.length > 0}
     <div class="pending">
       {#each pending as attachment (attachment.id)}
@@ -905,6 +952,9 @@
         <button type="button" role="menuitem" disabled={timeoutUntil !== null} onclick={toggleTimes}>
           <span class="composer-actions-icon"><Icon name="clock" size={18} /></span> Timestamp
         </button>
+        <button type="button" role="menuitem" disabled={timeoutUntil !== null} onclick={toggleSchedule}>
+          <span class="composer-actions-icon"><Icon name="clock" size={18} /></span> Schedule send
+        </button>
         <button type="button" role="menuitem" disabled={uploading || timeoutUntil !== null} onclick={pickFiles}>
           <span class="composer-actions-icon"><Icon name="paperclip" size={18} /></span> Attach image
         </button>
@@ -966,6 +1016,18 @@
       onfocus={updateAutocomplete}
       onblur={() => (activeTrigger = null)}
     ></textarea>
+    <button
+      type="button"
+      class="schedule-trigger"
+      title="Schedule send (Ctrl+Shift+Enter)"
+      aria-label="Schedule send"
+      aria-expanded={showSchedule}
+      aria-haspopup="dialog"
+      disabled={uploading || timeoutUntil !== null}
+      onpointerdown={(event) => event.preventDefault()}
+      onmousedown={(event) => event.preventDefault()}
+      onclick={toggleSchedule}><Icon name="chevron-down" size={16} /></button
+    >
     <button
       type="submit"
       class="send"

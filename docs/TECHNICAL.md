@@ -439,6 +439,18 @@ what the sound actually is, and when it plays, is the client's business.
 Which messages count as a mention is decided by the same parser that renders them,
 so a name inside a backtick block is a quotation rather than a summons.
 
+## Slash helpers
+
+Typing `/` as the first character of the message box opens the same suggestion popup that `:`, `@` and
+`#` use, listing `/shrug`, `/tableflip`, `/unflip`, `/lenny`, `/me <text>` and `/spoiler <text>`. They
+are client-side text transforms in `apps/web/src/lib/slash-commands.ts`, applied when the message is
+sent; the server never sees the command, only the finished text. The first four append an emoticon to
+whatever follows the command word, `/me` sends the text in italics (one emphasis run per line, since
+italics do not cross a line break) and `/spoiler` wraps it in `||`. A command only counts when the first
+word is exactly a known lowercase name followed by whitespace or the end of the text, so `/foo`,
+`/usr/bin` and `/shrugged` go out untouched, and a leading `\/` sends a literal slash. `/me` and
+`/spoiler` with nothing after them are left as typed.
+
 ## Links and media
 
 A message's first link is resolved, and a small card is stored on the message. A link that points

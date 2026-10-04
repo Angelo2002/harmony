@@ -2308,6 +2308,19 @@ button.roster-member:hover {
   vertical-align: -0.25em;
 }
 
+/* A message of only emoji: Discord's large size, for custom and unicode alike. */
+.jumbo-emoji {
+  display: block;
+  font-size: 2.25rem;
+  line-height: 1.2;
+}
+
+.jumbo-emoji .emoji {
+  height: 3rem;
+  margin: 0 2px;
+  vertical-align: middle;
+}
+
 .emoji-picker {
   display: flex;
   flex-direction: column;

@@ -288,6 +288,25 @@ grouped file, so the shape the picker relies on is asserted by the text smoke te
 against the package itself, which is what would catch an upgrade changing it into
 an empty list with no error anywhere.
 
+**Frequently used.** The client remembers the emoji a member sends in messages,
+adds as reactions (adding, not removing) and so on, in `localStorage` under
+`harmony:emoji-usage:<user id>`, per device and never sent to the server. Storage
+access is guarded and an in-memory copy backs it, so it still works for a session
+with storage blocked. `lib/emoji-usage.ts` holds the pure part: up to 36 entries,
+each a use count that halves every 14 days (so recency and frequency both count),
+custom emoji keyed by id so a rename merges and a deleted one is dropped when
+resolved against the live list. The picker shows a **Frequent** tab first when
+there is any history, a bare `:` in the composer offers the top few, and a typed
+`:query` keeps its order except that used matches float up (stable, so custom
+stays ahead of unicode on equal scores).
+
+**Jumbo emoji.** A message that is a single paragraph of nothing but emoji
+(custom ones that resolve and/or unicode, whitespace between, at most 27) and has
+no attachments is drawn large, as on Discord. `lib/jumbo-emoji.ts` decides, using
+`Intl.Segmenter` graphemes so skin tones, ZWJ sequences, flags and keycaps count as
+one emoji while bare digits, `#` and `*` do not. Quotes, lists, headers, code and
+unknown `:names:` make a message ordinary.
+
 An emoji from another Discord server is the one kind the picker does not offer.
 When a bridged message or reaction names an emoji this instance does not have,
 the bridge fetches it from Discord's own emoji CDN by its id — the id in the

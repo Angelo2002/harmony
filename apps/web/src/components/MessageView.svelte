@@ -551,7 +551,7 @@
             </form>
           {:else}
             {#if message.content && !isOnlyTheLink(message)}
-              <div class="content"><MessageContent {blocks} /></div>
+              <div class="content"><MessageContent {blocks} allowJumbo={message.attachments.length === 0} /></div>
             {/if}
 
             {#if message.stickers.length > 0}

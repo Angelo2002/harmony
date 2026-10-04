@@ -15,6 +15,7 @@ import type {
 } from '@harmony/shared';
 import { ApiError, api } from './api';
 import { emojis } from './emojis.svelte';
+import { emojiUsage } from './emoji-usage.svelte';
 import { gifs } from './gifs.svelte';
 import { mentionsUser, mergeLatest } from './messages';
 import { members } from './members.svelte';
@@ -758,6 +759,7 @@ class ChatStore {
         replyToId: replyToId ?? undefined,
       }),
     });
+    emojiUsage.recordContent(content);
     if (channelId !== this.activeChannelId) return;
 
     // Sending from an older stretch of history means wanting to see the reply
@@ -796,10 +798,12 @@ class ChatStore {
 
   /** Adds or removes the current user's reaction; the gateway echoes the result. */
   async toggleReaction(messageId: string, emoji: string, emojiId: string | null): Promise<void> {
+    const removing = this.messages.find((m) => m.id === messageId)?.reactions.some((r) => r.emoji === emoji && r.me);
     await api(`/messages/${messageId}/reactions`, {
       method: 'POST',
       body: JSON.stringify({ emoji, emojiId: emojiId ?? undefined }),
     });
+    if (!removing) emojiUsage.record([{ emoji, emojiId }]);
   }
 
   /** Edits a message's text; the gateway echoes the update. */

@@ -16,6 +16,7 @@
   import MemberBadge from './MemberBadge.svelte';
   import MessageContent from './MessageContent.svelte';
   import PinAction from './PinAction.svelte';
+  import SaveAction from './SaveAction.svelte';
 
   /** Opens the profile card for an author, when there is one to show. */
   function openCard(user: User | null | undefined, element: HTMLElement): void {
@@ -615,6 +616,7 @@
             React
           </button>
           <PinAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
+          <SaveAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
           {#if canEdit(message)}
             <button
               type="button"

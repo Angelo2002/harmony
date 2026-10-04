@@ -785,8 +785,11 @@ class ChatStore {
         if (message.channelId === this.activeChannelId) {
           // Reactions are kept in sync by their own events, and an edit carries a
           // viewer-specific `me`, so never let it clobber what we already have.
+          // The same goes for `saved`, which a broadcast never knows.
           this.messages = this.messages.map((existing) =>
-            existing.id === message.id ? { ...message, reactions: existing.reactions } : existing,
+            existing.id === message.id
+              ? { ...message, reactions: existing.reactions, saved: existing.saved }
+              : existing,
           );
         }
         break;

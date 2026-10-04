@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { chat } from '../lib/chat.svelte';
   import { dragHasFiles, mediaFilesFrom } from '../lib/files';
+  import { saved } from '../lib/saved.svelte';
   import { session } from '../lib/session.svelte';
   import { ui } from '../lib/ui.svelte';
   import { uploads } from '../lib/upload-queue.svelte';
@@ -12,10 +13,14 @@
   import MemberList from './MemberList.svelte';
   import MessageView from './MessageView.svelte';
   import PinsPanel from './PinsPanel.svelte';
+  import SavedButton from './SavedButton.svelte';
+  import SavedPanel from './SavedPanel.svelte';
   import UnreadBadge from './UnreadBadge.svelte';
 
   onMount(() => {
     void chat.start();
+    // Reminders have to come due whether or not the saved panel is open.
+    saved.start();
 
     // A phone that backgrounds the app gets no events at all: the socket dies and
     // nothing scrolls past. Coming back to the foreground is the cue to reconnect
@@ -28,6 +33,7 @@
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      saved.stop();
       chat.stop();
     };
   });
@@ -121,6 +127,7 @@
         >
           <Icon name="pin" size={20} />
         </button>
+        <SavedButton />
         <button
           type="button"
           class="search-open"
@@ -171,6 +178,9 @@
 
   {#if ui.pinsOpen}
     <PinsPanel onclose={() => ui.closePins()} />
+  {/if}
+  {#if ui.savedOpen}
+    <SavedPanel onclose={() => ui.closeSaved()} />
   {/if}
 
   {#if ui.sidebarOpen || ui.rosterOpen}

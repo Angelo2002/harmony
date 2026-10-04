@@ -8,6 +8,7 @@ export type IconName =
   | 'search'
   | 'inbox'
   | 'pin'
+  | 'bookmark'
   | 'users'
   | 'lock'
   | 'link'

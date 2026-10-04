@@ -49,7 +49,13 @@ import {
   insertReaction,
   listReactionsForMessages,
 } from '../db/reactions.ts';
-import { findUserById, findUserByUsername, presentUser } from '../db/users.ts';
+import {
+  findUserById,
+  findUserByUsername,
+  listAllUserNames,
+  matchesPerson,
+  presentUser,
+} from '../db/users.ts';
 import { attachStickerToMessage, listStickersForMessages } from '../db/stickers.ts';
 import { HttpError } from '../http/errors.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
@@ -504,10 +510,47 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
         channelIds = [query.channelId];
       }
 
+      // in: names are matched against the visible channels only, so a hidden
+      // channel answers exactly like one that does not exist.
+      if (query.in !== undefined && query.in.length > 0) {
+        const wanted = new Set(query.in.map((name) => name.replace(/^#/, '').toLowerCase()));
+        const named = visibleChannels(sqlite, channelAccessFor(sqlite, auth.user.id)).filter((channel) =>
+          wanted.has(channel.name.toLowerCase()),
+        );
+        const found = new Set(named.map((channel) => channel.name.toLowerCase()));
+        const missing = [...wanted].filter((name) => !found.has(name));
+        if (missing.length > 0) {
+          throw new HttpError(404, 'no_such_channel', `There is no channel called "${missing[0]}".`);
+        }
+        const inside = new Set(named.map((channel) => channel.id));
+        channelIds = channelIds.filter((id) => inside.has(id));
+      }
+
+      // from: and mentions: name people; a name nobody has matches nothing, which
+      // is the same empty answer as a person who has not written anything.
+      const people = query.from !== undefined || query.mentions !== undefined ? listAllUserNames(sqlite) : [];
+      const authorIds =
+        query.from === undefined
+          ? undefined
+          : people
+              .filter((person) => query.from!.some((name) => matchesPerson(person, name)))
+              .map((person) => person.id);
+      const mentionedUsernames =
+        query.mentions === undefined
+          ? undefined
+          : people
+              .filter((person) => query.mentions!.some((name) => matchesPerson(person, name)))
+              .map((person) => person.username);
+
       const rows = searchMessages(sqlite, {
         query: query.q,
         channelIds,
         authorId: query.authorId,
+        authorIds,
+        mentionedUsernames,
+        has: query.has,
+        sentAfter: query.sentAfter === undefined ? undefined : new Date(query.sentAfter).toISOString(),
+        sentBefore: query.sentBefore === undefined ? undefined : new Date(query.sentBefore).toISOString(),
         limit: query.limit,
         before: query.before,
         beforeId: query.beforeId,

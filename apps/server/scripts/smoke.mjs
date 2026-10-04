@@ -3469,6 +3469,122 @@ try {
   await req(`/channels/${secretChannel.json.id}`, { method: 'DELETE', token: ownerToken });
   await req(`/roles/${secretRole.json.id}`, { method: 'DELETE', token: ownerToken });
 
+  // --- Search filters: from, mentions, in, has, date bounds ---
+  const ownerName = owner.json.user.username;
+  const bobName = bob.json.user.username;
+  const flt = (query, token = ownerToken) => search({ q: 'fltx', limit: '50', ...query }, token);
+  const fltPairs = (pairs, token = ownerToken) => req(`/search?${new URLSearchParams(pairs)}`, { token });
+  const fltImage = await sharp({ create: { width: 6, height: 6, channels: 3, background: { r: 9, g: 99, b: 199 } } })
+    .png()
+    .toBuffer();
+  const fltUpload = async (token, type, name, bytes) => {
+    const form = new FormData();
+    form.append('file', new Blob([bytes], { type }), name);
+    const res = await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      body: form,
+    });
+    return (await res.json()).id;
+  };
+  const fltPostWith = async (content, attachmentId) =>
+    req(`/channels/${searchChannelId}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content, attachmentIds: [attachmentId] },
+    });
+  const fltBefore = Date.now();
+  await postInSearch(ownerToken, 'fltx plain words');
+  await postInSearch(bobToken, `fltx link https://example.invalid/page and hello @${ownerName}`);
+  await fltPostWith('fltx picture', await fltUpload(ownerToken, 'image/png', 'p.png', fltImage));
+  await fltPostWith(
+    'fltx gif',
+    await fltUpload(ownerToken, 'image/gif', 'g.gif', await sharp(fltImage).gif().toBuffer()),
+  );
+  const fltPinned = await postInSearch(ownerToken, 'fltx pinned one');
+  await req(`/channels/${searchChannelId}/pins/${fltPinned.json.id}`, { method: 'PUT', token: ownerToken });
+  const fltAfter = Date.now() + 1;
+
+  const texts = (res) => (res.json?.messages ?? []).map((message) => message.content);
+  check('from: finds one author by username', texts(await flt({ from: bobName })).length === 1);
+  check('from: ignores case', texts(await flt({ from: bobName.toUpperCase() })).length === 1);
+  const fromMany = await fltPairs([['q', 'fltx'], ['from', bobName], ['from', ownerName], ['limit', '50']]);
+  check('several from: values mean either author', texts(fromMany).length === 5, `got ${texts(fromMany).length}`);
+  check('from: a name nobody has finds nothing', texts(await flt({ from: 'nobody-here' })).length === 0);
+  check('mentions: finds messages naming a member', texts(await flt({ mentions: ownerName })).length === 1);
+  check('mentions: leaves out messages naming nobody', texts(await flt({ mentions: bobName })).length === 0);
+  check('in: narrows to a channel by name, ignoring case', texts(await flt({ in: 'SearchRoom' })).length === 5);
+  check('in: another channel finds nothing here', texts(await flt({ in: 'general' })).length === 0);
+  const inUnknown = await flt({ in: 'no-such-room' });
+  check(
+    'in: an unknown channel is 404 no_such_channel',
+    inUnknown.status === 404 && inUnknown.json?.error?.code === 'no_such_channel',
+    JSON.stringify(inUnknown.json),
+  );
+  check('has:image finds pictures and gifs', texts(await flt({ has: 'image' })).length === 2);
+  check('has:gif finds only gifs', texts(await flt({ has: 'gif' })).join() === 'fltx gif');
+  check('has:file finds any attachment (uploads are images or videos)', texts(await flt({ has: 'file' })).length === 2);
+  check('has:video finds none here', texts(await flt({ has: 'video' })).length === 0);
+  check('has:link finds links', texts(await flt({ has: 'link' })).length === 1);
+  check('has:pin finds pinned messages', texts(await flt({ has: 'pin' })).join() === 'fltx pinned one');
+  check('has:sticker finds none here', texts(await flt({ has: 'sticker' })).length === 0);
+  check('has:embed finds none here', texts(await flt({ has: 'embed' })).length === 0);
+  const hasBoth = await fltPairs([['q', 'fltx'], ['has', 'image'], ['has', 'gif']]);
+  check('several has: values must all hold', texts(hasBoth).join() === 'fltx gif');
+  check('a bad has: value is refused (400)', (await flt({ has: 'banana' })).status === 400);
+  const onlyFilter = await fltPairs([['has', 'pin'], ['in', 'searchroom']]);
+  check('filters alone are a search', texts(onlyFilter).join() === 'fltx pinned one');
+  const dated = await fltPairs([
+    ['q', 'fltx'],
+    ['sentAfter', String(fltBefore - 1)],
+    ['sentBefore', String(fltAfter)],
+    ['limit', '50'],
+  ]);
+  check('date bounds include messages in range', texts(dated).length === 5);
+  check('sentBefore excludes later messages', texts(await flt({ sentBefore: String(fltBefore - 1) })).length === 0);
+  check('sentAfter excludes earlier messages', texts(await flt({ sentAfter: String(fltAfter + 100000) })).length === 0);
+  const newestFirst = texts(await fltPairs([['from', ownerName], ['sentAfter', String(fltBefore - 1)]]));
+  check('a bound with no text lists newest first', newestFirst[0] === 'fltx pinned one', newestFirst.join('|'));
+
+  // Filters must never reveal a channel the member cannot see.
+  const hideRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'FilterSecret' } });
+  const hideRoom = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'hiddenroom', requiredRoleId: hideRole.json.id },
+  });
+  const hiddenPost = await req(`/channels/${hideRoom.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: {
+      content: `fltx secret @${bobName}`,
+      attachmentIds: [await fltUpload(ownerToken, 'image/png', 's.png', fltImage)],
+    },
+  });
+  await req(`/channels/${hideRoom.json.id}/pins/${hiddenPost.json.id}`, { method: 'PUT', token: ownerToken });
+  check('an administrator can filter by a locked channel', texts(await flt({ in: 'hiddenroom' })).length === 1);
+  const inHidden = await flt({ in: 'hiddenroom' }, bobToken);
+  const inGhost = await flt({ in: 'ghostroom' }, bobToken);
+  check(
+    'in: a hidden channel answers like a missing one',
+    inHidden.status === 404 &&
+      inGhost.status === 404 &&
+      inHidden.json?.error?.code === inGhost.json?.error?.code,
+    `${inHidden.status} ${inGhost.status}`,
+  );
+  const leaks = (res) => texts(res).some((text) => text.includes('secret'));
+  check('from: does not leak hidden-channel messages', !leaks(await flt({ from: ownerName }, bobToken)));
+  check('mentions: does not leak hidden-channel messages', !leaks(await flt({ mentions: bobName }, bobToken)));
+  check('has:image does not leak hidden-channel messages', !leaks(await flt({ has: 'image' }, bobToken)));
+  check('has:pin does not leak hidden-channel messages', !leaks(await flt({ has: 'pin' }, bobToken)));
+  check('dates alone do not leak hidden-channel messages', !leaks(await fltPairs([['sentAfter', String(fltBefore - 1)]], bobToken)));
+  check(
+    'in: a hidden channel among visible ones is still refused',
+    (await fltPairs([['in', 'searchroom'], ['in', 'hiddenroom']], bobToken)).status === 404,
+  );
+  await req(`/channels/${hideRoom.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${hideRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
   // --- Mentions and the inbox ---
   const mentionChannel = await req('/channels', {
     method: 'POST',

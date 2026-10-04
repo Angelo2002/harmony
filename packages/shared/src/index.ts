@@ -9,3 +9,4 @@ export * from './embeds.ts';
 export * from './gateway.ts';
 export * from './schemas.ts';
 export * from './api.ts';
+export * from './backup.ts';

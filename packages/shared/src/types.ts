@@ -182,7 +182,9 @@ export type AuditKind =
   | 'role_remove'
   | 'member_update'
   | 'member_delete'
-  | 'password_reset';
+  | 'password_reset'
+  | 'backup_download'
+  | 'channel_export';
 
 /**
  * The kind-specific fields of an audit entry. Every field is optional because
@@ -194,6 +196,7 @@ export type AuditKind =
  * - `timeout_add`: `durationMinutes`. `ban`: `reason`.
  * - `role_add` / `role_remove`: `roleName`.
  * - `member_update`: `fields`, the account fields an administrator changed.
+ * - `backup_download`: `filename`. `channel_export`: `channelName` and `filename`.
  *
  * `actorName` and `targetName` are snapshots taken when the entry was written,
  * so it stays readable after a rename or a deletion.

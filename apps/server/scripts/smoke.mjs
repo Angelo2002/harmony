@@ -7,7 +7,10 @@
 //
 // Run with: npm run smoke --workspace @harmony/server
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import { gunzipSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -3473,6 +3476,259 @@ try {
     mediaEntry?.detail.filename === 'gallery.png',
     JSON.stringify(mediaEntry?.detail),
   );
+
+  // --- Backups and channel exports ---
+  const backupPng = await sharp({
+    create: { width: 9, height: 7, channels: 3, background: { r: 200, g: 10, b: 90 } },
+  })
+    .png()
+    .toBuffer();
+  const backupForm = new FormData();
+  backupForm.append('file', new Blob([backupPng], { type: 'image/png' }), 'backup.png');
+  const backupUpload = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: backupForm,
+    })
+  ).json();
+
+  const exportChannel = (
+    await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'export-test', topic: 'For the export' } })
+  ).json;
+  const exportFirst = (
+    await req(`/channels/${exportChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'backup marker message', attachmentIds: [backupUpload.id] },
+    })
+  ).json;
+  await req(`/messages/${exportFirst.id}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { content: 'backup marker message, edited' },
+  });
+  await req(`/messages/${exportFirst.id}/reactions`, { method: 'POST', token: ownerToken, body: { emoji: '👍' } });
+  const exportReply = (
+    await req(`/channels/${exportChannel.id}/messages`, {
+      method: 'POST',
+      token: bobToken,
+      body: { content: '<script>alert("x")</script> & "quotes"', replyToId: exportFirst.id },
+    })
+  ).json;
+  const exportGone = (
+    await req(`/channels/${exportChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'deleted before the export' },
+    })
+  ).json;
+  await req(`/messages/${exportGone.id}`, { method: 'DELETE', token: ownerToken });
+
+  /** Just enough of a tar reader to check the archive: names, types and bytes. */
+  function readTar(buffer) {
+    const entries = new Map();
+    let checksumsOk = true;
+    let offset = 0;
+    while (offset + 512 <= buffer.length) {
+      const head = buffer.subarray(offset, offset + 512);
+      if (head.every((byte) => byte === 0)) break;
+      const field = (start, length) => head.subarray(start, start + length).toString('utf8').replace(/\0[\s\S]*$/, '');
+      let sum = 0;
+      for (let index = 0; index < 512; index++) sum += index >= 148 && index < 156 ? 0x20 : head[index];
+      if (parseInt(field(148, 8).trim(), 8) !== sum) checksumsOk = false;
+      const name = [field(345, 155), field(0, 100)].filter(Boolean).join('/');
+      const size = parseInt(field(124, 12).trim() || '0', 8);
+      offset += 512;
+      entries.set(name, { type: String.fromCharCode(head[156]), data: buffer.subarray(offset, offset + size) });
+      offset += Math.ceil(size / 512) * 512;
+    }
+    return { entries, checksumsOk };
+  }
+
+  const backupRole = await req('/roles', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Backup Admin', permissions: String(1n << 14n) },
+  });
+  check('a plain member cannot download a backup (403)', (await req('/backup', { token: bobToken })).status === 403);
+  check(
+    'a plain member cannot export a channel (403)',
+    (await req(`/channels/${exportChannel.id}/export`, { token: bobToken })).status === 403,
+  );
+  await req(`/members/${bobId}/roles/${backupRole.json.id}`, { method: 'PUT', token: ownerToken });
+  check(
+    'an administrator who is not the owner cannot download a backup (403)',
+    (await req('/backup', { token: bobToken })).status === 403,
+  );
+  check(
+    'an administrator can export a channel',
+    (await fetch(`${BASE}/channels/${exportChannel.id}/export`, { headers: { authorization: `Bearer ${bobToken}` } }))
+      .status === 200,
+  );
+  await req(`/roles/${backupRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
+  // Manage Server alone is enough to export, but not a channel locked away from them.
+  const exportManagerRole = await req('/roles', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'Exporter', permissions: String(1n << 9n) },
+  });
+  const exportLockRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Vault', permissions: '0' } });
+  const lockedExport = (
+    await req('/channels', {
+      method: 'POST',
+      token: ownerToken,
+      body: { name: 'vault', requiredRoleId: exportLockRole.json.id },
+    })
+  ).json;
+  await req(`/members/${bobId}/roles/${exportManagerRole.json.id}`, { method: 'PUT', token: ownerToken });
+  check(
+    'Manage Server can export a channel it can see',
+    (await fetch(`${BASE}/channels/${exportChannel.id}/export`, { headers: { authorization: `Bearer ${bobToken}` } }))
+      .status === 200,
+  );
+  check(
+    'a locked channel the exporter cannot see answers 404',
+    (await req(`/channels/${lockedExport.id}/export`, { token: bobToken })).status === 404,
+  );
+  await req(`/channels/${lockedExport.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${exportManagerRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${exportLockRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
+  check(
+    'exporting a missing channel 404s',
+    (await req('/channels/no-such-channel/export', { token: ownerToken })).status === 404,
+  );
+  check(
+    'an unknown export format is refused (400)',
+    (await req(`/channels/${exportChannel.id}/export?format=pdf`, { token: ownerToken })).status === 400,
+  );
+
+  const backupRes = await fetch(`${BASE}/backup`, { headers: { authorization: `Bearer ${ownerToken}` } });
+  const backupName = /filename="([^"]+)"/.exec(backupRes.headers.get('content-disposition') ?? '')?.[1] ?? '';
+  check('the owner can download a backup', backupRes.status === 200, `status ${backupRes.status}`);
+  check(
+    'the backup is named after the server and the date',
+    /^harmony-backup-[a-z0-9-]+-\d{4}-\d{2}-\d{2}\.tar\.gz$/.test(backupName),
+    backupName,
+  );
+  const backupBytes = Buffer.from(await backupRes.arrayBuffer());
+  let backupTar = { entries: new Map(), checksumsOk: false };
+  try {
+    backupTar = readTar(gunzipSync(backupBytes));
+  } catch (error) {
+    check('the backup is a gzip', false, String(error));
+  }
+  const dbEntry = backupTar.entries.get('harmony.db');
+  check('the backup tar headers are well formed', backupTar.checksumsOk && backupTar.entries.size > 0);
+  check('the backup holds the database', dbEntry?.type === '0' && dbEntry.data.length > 0);
+  if (dbEntry) {
+    const restoredPath = join(dataDir, 'restored-check.db');
+    writeFileSync(restoredPath, dbEntry.data);
+    const restored = new DatabaseSync(restoredPath, { readOnly: true });
+    check(
+      'the database in the backup holds a known message',
+      restored.prepare('SELECT content FROM messages WHERE id = ?').get(exportFirst.id)?.content ===
+        'backup marker message, edited',
+    );
+    check(
+      'the database in the backup holds the owner account',
+      restored.prepare("SELECT is_owner FROM users WHERE username = 'alice'").get()?.is_owner === 1,
+    );
+    restored.close();
+    rmSync(restoredPath, { force: true });
+  }
+  const blobEntry = backupTar.entries.get(`uploads/${backupUpload.hash.slice(0, 2)}/${backupUpload.hash}`);
+  check(
+    'the backup holds an uploaded file, byte for byte',
+    blobEntry !== undefined && createHash('sha256').update(blobEntry.data).digest('hex') === backupUpload.hash,
+  );
+  check(
+    'the temporary snapshot is gone once the backup is sent',
+    readdirSync(dataDir).every((name) => !name.startsWith('.backup-')),
+    readdirSync(dataDir).join(', '),
+  );
+
+  // Walking away halfway still cleans up, and does not wedge the next backup.
+  const abandoned = new AbortController();
+  const abandonedRes = await fetch(`${BASE}/backup`, {
+    headers: { authorization: `Bearer ${ownerToken}` },
+    signal: abandoned.signal,
+  });
+  abandoned.abort();
+  await abandonedRes.body?.cancel().catch(() => {});
+  await sleep(300);
+  check(
+    'an abandoned backup leaves no snapshot behind',
+    readdirSync(dataDir).every((name) => !name.startsWith('.backup-')),
+    readdirSync(dataDir).join(', '),
+  );
+  const nextBackup = await fetch(`${BASE}/backup`, { headers: { authorization: `Bearer ${ownerToken}` } });
+  await nextBackup.arrayBuffer();
+  check('a backup can be taken again after an abandoned one', nextBackup.status === 200, `status ${nextBackup.status}`);
+
+  const jsonExportRes = await fetch(`${BASE}/channels/${exportChannel.id}/export?format=json`, {
+    headers: { authorization: `Bearer ${ownerToken}` },
+  });
+  const jsonDisposition = jsonExportRes.headers.get('content-disposition') ?? '';
+  const jsonExport = await jsonExportRes.json();
+  check(
+    'a JSON export downloads as a file',
+    jsonDisposition.startsWith('attachment;') && jsonDisposition.includes('-export-test-') && jsonDisposition.endsWith('.json"'),
+    jsonDisposition,
+  );
+  const [exportedFirst, exportedReply] = jsonExport.messages ?? [];
+  check(
+    'a JSON export holds the channel and its live messages, oldest first',
+    jsonExport.channel?.name === 'export-test' &&
+      jsonExport.messages?.length === 2 &&
+      exportedFirst?.id === exportFirst.id &&
+      exportedReply?.id === exportReply.id,
+    JSON.stringify(jsonExport.messages?.map((message) => message.content)),
+  );
+  check(
+    'a JSON export carries authors, edits, files and reactions',
+    exportedFirst?.author?.username === 'alice' &&
+      exportedFirst.editedAt !== null &&
+      exportedFirst.attachments?.[0]?.filename === 'backup.png' &&
+      exportedFirst.attachments[0].url.endsWith(`/api/v1/attachments/${backupUpload.id}`) &&
+      exportedFirst.reactions?.[0]?.emoji === '👍' &&
+      exportedFirst.reactions[0].count === 1,
+    JSON.stringify(exportedFirst),
+  );
+  check(
+    'a JSON export carries replies',
+    exportedReply?.replyTo?.id === exportFirst.id && exportedReply.replyTo.authorName !== null,
+    JSON.stringify(exportedReply?.replyTo),
+  );
+
+  const htmlExportRes = await fetch(`${BASE}/channels/${exportChannel.id}/export?format=html`, {
+    headers: { authorization: `Bearer ${ownerToken}` },
+  });
+  const htmlExport = await htmlExportRes.text();
+  check(
+    'an HTML export is a standalone page',
+    (htmlExportRes.headers.get('content-type') ?? '').startsWith('text/html') &&
+      htmlExport.startsWith('<!doctype html>') &&
+      htmlExport.includes('backup marker message, edited'),
+  );
+  check(
+    'an HTML export escapes markup in messages',
+    !htmlExport.includes('<script') && htmlExport.includes('&#60;script&#62;alert(&#34;x&#34;)&#60;/script&#62;'),
+  );
+  check('an HTML export leaves deleted messages out', !htmlExport.includes('deleted before the export'));
+
+  const backupAudit = (await req('/audit?limit=100', { token: ownerToken })).json?.entries ?? [];
+  check(
+    'downloading a backup is logged',
+    backupAudit.some((entry) => entry.kind === 'backup_download' && entry.detail.filename === backupName),
+  );
+  check(
+    'exporting a channel is logged with the channel',
+    backupAudit.some((entry) => entry.kind === 'channel_export' && entry.detail.channelName === 'export-test'),
+  );
+  await req(`/channels/${exportChannel.id}`, { method: 'DELETE', token: ownerToken });
 
   // --- Audit retention and clearing ---
   check('a member cannot clear the log (403)', (await req('/audit', { method: 'DELETE', token: bobToken })).status === 403);

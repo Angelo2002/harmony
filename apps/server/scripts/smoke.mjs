@@ -2118,6 +2118,88 @@ try {
     (await req(`/channels/${colorChannel.id}/messages`, { token: ownerToken })).json?.messages?.length === 0,
   );
 
+  // Pinned and saved messages are outside the age rules on purpose: both are
+  // somebody saying keep this, so retention must leave the message, and the
+  // pictures and clips on it, alone, and emergency pruning must spare them too.
+  const retentionPlainMsg = (
+    await req(`/channels/${colorChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'prune this text' },
+    })
+  ).json;
+  const retentionPinnedMsg = (
+    await req(`/channels/${colorChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'keep this pinned' },
+    })
+  ).json;
+  const retentionKeepUpload = new FormData();
+  retentionKeepUpload.append('file', new Blob([emojiPng], { type: 'image/png' }), 'kept.png');
+  const retentionKeepAttachment = await (
+    await fetch(`${BASE}/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}` },
+      body: retentionKeepUpload,
+    })
+  ).json();
+  const retentionSavedMsg = (
+    await req(`/channels/${colorChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'keep this saved', attachmentIds: [retentionKeepAttachment.id] },
+    })
+  ).json;
+  await req(`/channels/${colorChannel.id}/pins/${retentionPinnedMsg.id}`, { method: 'PUT', token: ownerToken });
+  await req(`/users/@me/saved/${retentionSavedMsg.id}`, { method: 'PUT', token: ownerToken });
+
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { messageRetentionDays: 0 } });
+  const keptRun = await req('/retention/run', { method: 'POST', token: ownerToken });
+  const afterKept = (await req(`/channels/${colorChannel.id}/messages`, { token: ownerToken })).json?.messages ?? [];
+  const keptIds = new Set(afterKept.map((message) => message.id));
+  check(
+    'message retention still deletes an ordinary message',
+    !keptIds.has(retentionPlainMsg.id),
+    JSON.stringify(keptRun.json?.summary),
+  );
+  check('message retention spares a pinned message', keptIds.has(retentionPinnedMsg.id));
+  check('message retention spares a saved message', keptIds.has(retentionSavedMsg.id));
+
+  // The picture on the saved message outlives both the image rule and emergency
+  // pruning, the way a saved gif does.
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { imageRetentionDays: 0 } });
+  await req('/retention/run', { method: 'POST', token: ownerToken });
+  check(
+    'an attachment on a saved message survives the image rule',
+    (
+      await fetch(`${BASE}/attachments/${retentionKeepAttachment.id}`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })
+    ).status === 200,
+  );
+  await req('/retention', { method: 'PATCH', token: ownerToken, body: { storageLimitBytes: 1, storageTargetBytes: 0 } });
+  await req('/retention/run', { method: 'POST', token: ownerToken });
+  check(
+    'emergency pruning spares an attachment on a saved message',
+    (
+      await fetch(`${BASE}/attachments/${retentionKeepAttachment.id}`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })
+    ).status === 200,
+  );
+
+  // Put the scratch channel back the way the next block expects it: drop the pin
+  // and the save, then let retention take the now-unprotected leftovers.
+  await req(`/channels/${colorChannel.id}/pins/${retentionPinnedMsg.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/users/@me/saved/${retentionSavedMsg.id}`, { method: 'DELETE', token: ownerToken });
+  await req('/retention', {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { imageRetentionDays: 0, messageRetentionDays: 0, storageLimitBytes: null, storageTargetBytes: null },
+  });
+  await req('/retention/run', { method: 'POST', token: ownerToken });
+
   // --- Saved gifs ---
   // Reset the age rules so this block is about the rule for favorites, not the
   // image and message ones that ran above.

@@ -1931,6 +1931,11 @@ Retention automatically prunes old content and can cap total storage. Any rule s
 switched off. Image, video, message and audit-log age limits are independent: each is deleted once
 it is older than its own limit, and the log can be cleared outright with `DELETE /api/v1/audit`.
 
+Messages somebody chose to keep are outside the age rules: a pinned message and a message saved by a
+member are never removed by the image, video or message limits, and their attachments are spared by
+emergency pruning too. A save or a pin goes away only when the message itself is deleted by its
+author or a moderator, which takes it with the message.
+
 [Saved gifs](#gifs-and-the-picker) are deliberately outside all of those. `favoriteRetentionDays` is
 the only rule that ages one out, counted from the last time it was saved or sent.
 
@@ -1944,9 +1949,9 @@ counted from the last bridged message that carried one.
 `storageLimitBytes` caps everything stored on disk, which includes saved gifs, emoji, stickers,
 avatars and the instance icon. Once it is exceeded, the pruner removes the oldest attachments until
 usage is back under `storageTargetBytes` (or the limit, if no target is set). Attachments are the
-only thing it removes for space: it never deletes messages, and it stops as soon as a round of
-removals frees nothing, so a cap that the exempt content alone exceeds is left over rather than
-chased by deleting more.
+only thing it removes for space, and it spares the ones on a pinned or saved message: it never
+deletes messages, and it stops as soon as a round of removals frees nothing, so a cap that the exempt
+content alone exceeds is left over rather than chased by deleting more.
 
 ```ts
 type RetentionSettings = {

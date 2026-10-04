@@ -89,6 +89,9 @@ export function createPruner(deps: PrunerDeps): Pruner {
     let deletedBlobs = 0;
     let freedBytes = 0;
 
+    // Image, video and message retention all spare what somebody chose to keep:
+    // pinned messages and saved messages, their attachments included. That
+    // exemption lives in the db layer so every rule applies it the same way.
     if (settings.imageRetentionDays !== null) {
       deletedAttachments += deleteImageAttachmentsOlderThan(deps.sqlite, isoDaysAgo(settings.imageRetentionDays));
     }
@@ -145,10 +148,11 @@ export function createPruner(deps: PrunerDeps): Pruner {
     freedBytes += swept.bytes;
 
     // Emergency pruning: evict the oldest attachments until back under the target.
-    // Attachments are the only thing it may remove. The total also counts saved
-    // gifs, emoji, stickers, avatars and the instance icon, none of which this
-    // touches, and messages hold no bytes of their own: once their attachments
-    // are gone, deleting them frees nothing and would only erase history.
+    // Attachments are the only thing it may remove, and it spares the ones held by
+    // a pinned or saved message. The total also counts saved gifs, emoji, stickers,
+    // avatars and the instance icon, none of which this touches, and messages hold
+    // no bytes of their own: once their attachments are gone, deleting them frees
+    // nothing and would only erase history.
     if (settings.storageLimitBytes !== null) {
       const target =
         settings.storageTargetBytes !== null

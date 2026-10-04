@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { GIF_CONTENT_TYPES, type Attachment } from '@harmony/shared';
+import { EXEMPT_MESSAGE_IDS_SQL } from './messages.ts';
 
 export interface AttachmentRow {
   id: string;
@@ -138,10 +139,17 @@ export function listReferencedHashes(sqlite: DatabaseSync): Set<string> {
   return hashes;
 }
 
+/**
+ * The attachments retention must keep: those hanging off a pinned or saved
+ * message. `message_id` is null for an abandoned upload, which is never exempt,
+ * and the explicit null check keeps NOT IN from turning null into "not deleted".
+ */
+const EXEMPT_ATTACHMENT_SQL = `message_id IS NULL OR message_id NOT IN (${EXEMPT_MESSAGE_IDS_SQL})`;
+
 /** Deletes image rows only; callers sweep the blobs afterwards. */
 export function deleteImageAttachmentsOlderThan(sqlite: DatabaseSync, before: string): number {
   const result = sqlite
-    .prepare("DELETE FROM attachments WHERE created_at < ? AND content_type LIKE 'image/%'")
+    .prepare(`DELETE FROM attachments WHERE created_at < ? AND content_type LIKE 'image/%' AND (${EXEMPT_ATTACHMENT_SQL})`)
     .run(before);
   return Number(result.changes);
 }
@@ -149,7 +157,7 @@ export function deleteImageAttachmentsOlderThan(sqlite: DatabaseSync, before: st
 /** Deletes video rows only; callers sweep the blobs afterwards. */
 export function deleteVideoAttachmentsOlderThan(sqlite: DatabaseSync, before: string): number {
   const result = sqlite
-    .prepare("DELETE FROM attachments WHERE created_at < ? AND content_type LIKE 'video/%'")
+    .prepare(`DELETE FROM attachments WHERE created_at < ? AND content_type LIKE 'video/%' AND (${EXEMPT_ATTACHMENT_SQL})`)
     .run(before);
   return Number(result.changes);
 }
@@ -164,7 +172,13 @@ export function deleteUnattachedAttachmentsOlderThan(sqlite: DatabaseSync, befor
 
 export function deleteOldestAttachments(sqlite: DatabaseSync, limit: number): number {
   const result = sqlite
-    .prepare('DELETE FROM attachments WHERE id IN (SELECT id FROM attachments ORDER BY created_at, rowid LIMIT ?)')
+    .prepare(
+      `DELETE FROM attachments WHERE id IN (
+         SELECT id FROM attachments
+         WHERE ${EXEMPT_ATTACHMENT_SQL}
+         ORDER BY created_at, rowid LIMIT ?
+       )`,
+    )
     .run(limit);
   return Number(result.changes);
 }

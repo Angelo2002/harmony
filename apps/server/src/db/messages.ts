@@ -212,15 +212,34 @@ export function newestMessageAt(sqlite: DatabaseSync, channelId: string): string
   return row?.newest ?? null;
 }
 
+/**
+ * The message ids retention must keep. A pin is an administrator saying "this
+ * stays" and a save is a member saying the same, so both outlive the age rules
+ * for exactly the reason a saved gif does. Shared by the message deletes here and
+ * by the attachment rules in db/attachments.ts so the message, image, video and
+ * emergency sweeps cannot drift apart. Every id in the set is non-null, which is
+ * what makes the NOT IN checks against it safe.
+ */
+export const EXEMPT_MESSAGE_IDS_SQL = `SELECT id FROM messages
+  WHERE pinned_at IS NOT NULL OR id IN (SELECT message_id FROM saved_messages)`;
+
 /** Retention removes rows outright; attachments cascade via their foreign key. */
 export function deleteMessagesOlderThan(sqlite: DatabaseSync, before: string): number {
-  const result = sqlite.prepare('DELETE FROM messages WHERE created_at < ?').run(before);
+  const result = sqlite
+    .prepare(`DELETE FROM messages WHERE created_at < ? AND id NOT IN (${EXEMPT_MESSAGE_IDS_SQL})`)
+    .run(before);
   return Number(result.changes);
 }
 
 export function deleteOldestMessages(sqlite: DatabaseSync, limit: number): number {
   const result = sqlite
-    .prepare('DELETE FROM messages WHERE id IN (SELECT id FROM messages ORDER BY created_at, rowid LIMIT ?)')
+    .prepare(
+      `DELETE FROM messages WHERE id IN (
+         SELECT id FROM messages
+         WHERE id NOT IN (${EXEMPT_MESSAGE_IDS_SQL})
+         ORDER BY created_at, rowid LIMIT ?
+       )`,
+    )
     .run(limit);
   return Number(result.changes);
 }

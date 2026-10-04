@@ -389,8 +389,9 @@ than through a table of pins. A message can only be pinned once, and only to the
 already in, so a separate table would add a join to every read for nothing: as it is, history,
 search and the inbox all carry `Message.pinnedAt` without knowing pins exist. The per-channel list is
 a partial index over the pinned rows. Deletion needs no extra handling either — a soft-deleted
-message is filtered out of the list and the count like everywhere else, and a retention delete takes
-the pin with the row.
+message is filtered out of the list and the count like everywhere else. A pin also outlives the age
+rules: a pinned message, and a saved one, are what retention deliberately never deletes, because
+both are somebody choosing to keep the message. A hand delete still takes the pin with the row.
 
 Pinning needs `ManageMessages`, the same flag that clears other people's reactions, and a channel
 holds at most 50 pins, Discord's limit, so a bridged channel's pins can always fit on both sides.
@@ -404,6 +405,20 @@ The logic lives in `pins/service.ts`, deliberately shaped like the message servi
 applied through `pinBridged` / `unpinBridged`, which skip permission checks and notify no listener,
 so a pin can never echo back and forth. Its update is broadcast straight from the pin service, not
 through the message service's edit path, so a pin is never mistaken for an edit and mirrored as one.
+
+## Saved messages
+
+A save is one member's bookmark, so it lives in a table keyed by member and message rather than on
+the message, and a row may carry a `remind_at` to turn it into a reminder. The list is filtered by
+what the member may still see, so a message they can no longer reach drops out without the row being
+removed. Unsaving deletes the row.
+
+Saved messages share the pin's exemption from age-based retention: a message somebody kept is not
+something a retention sweep should take away. The exemption is a single SQL fragment,
+`EXEMPT_MESSAGE_IDS_SQL` in `db/messages.ts`, that both the message deletes and the attachment rules
+in `db/attachments.ts` apply, so a pinned or saved message and its pictures and clips survive image,
+video and message retention and are spared by emergency pruning too. They go only when the message
+itself is deleted by its author or a moderator, which cascades the save away.
 
 ## Notification sounds
 

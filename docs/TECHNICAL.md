@@ -444,7 +444,9 @@ so a name inside a backtick block is a quotation rather than a summons.
 Typing `/` as the first character of the message box opens the same suggestion popup that `:`, `@` and
 `#` use, listing `/shrug`, `/tableflip`, `/unflip`, `/lenny`, `/me <text>` and `/spoiler <text>`. They
 are client-side text transforms in `apps/web/src/lib/slash-commands.ts`, applied when the message is
-sent; the server never sees the command, only the finished text. The first four append an emoticon to
+sent; the server never sees the command, only the finished text. (The shrug is sent as escaped
+Markdown, `¯\\\_(ツ)\_/¯`, exactly as Discord's own client does, because its backslash and underscores
+would otherwise be eaten and the face italicized.) The first four append an emoticon to
 whatever follows the command word, `/me` sends the text in italics (one emphasis run per line, since
 italics do not cross a line break) and `/spoiler` wraps it in `||`. A command only counts when the first
 word is exactly a known lowercase name followed by whitespace or the end of the text, so `/foo`,

@@ -809,9 +809,12 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
 
 // --- Slash helpers ---
 {
-  const SHRUG = '¯\\_(ツ)_/¯';
+  // The text sent is escaped Markdown that displays as ¯\_(ツ)_/¯.
+  const SHRUG = '¯\\\\\\_(ツ)\\_/¯';
   const FLIP = '(╯°□°)╯︵ ┻━┻';
   check('slash: shrug alone is the face', applySlashCommand('/shrug') === SHRUG);
+  check('slash: and the shrug displays intact through the markdown parser', plain(applySlashCommand('/shrug')) === '¯\\_(ツ)_/¯');
+  check('slash: every face survives the markdown parser', plain(applySlashCommand('/unflip')) === '┬─┬ノ( º _ ºノ)' && plain(applySlashCommand('/lenny')) === '( ͡° ͜ʖ ͡°)' && plain(applySlashCommand('/tableflip')) === '(╯°□°)╯︵ ┻━┻');
   check('slash: shrug appends to text', applySlashCommand('/shrug oh well') === `oh well ${SHRUG}`);
   check('slash: trailing spaces are dropped', applySlashCommand('/shrug   ') === SHRUG);
   check('slash: extra spaces before the text are dropped', applySlashCommand('/shrug    hi  ') === `hi ${SHRUG}`);

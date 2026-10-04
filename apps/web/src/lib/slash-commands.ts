@@ -26,9 +26,14 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'spoiler', usage: '/spoiler <text>', description: 'Hides the text behind a spoiler' },
 ];
 
-/** The face each emoticon command appends. */
+/**
+ * The face each emoticon command appends, as message text. The shrug has to be
+ * escaped the way Discord's own client escapes it: its backslash and underscores
+ * are Markdown, and unescaped the arm vanishes and the face is read as italics.
+ * The text below displays as ¯\_(ツ)_/¯.
+ */
 const FACES: Readonly<Record<string, string>> = {
-  shrug: '¯\\_(ツ)_/¯',
+  shrug: '¯\\\\\\_(ツ)\\_/¯',
   tableflip: '(╯°□°)╯︵ ┻━┻',
   unflip: '┬─┬ノ( º _ ºノ)',
   lenny: '( ͡° ͜ʖ ͡°)',

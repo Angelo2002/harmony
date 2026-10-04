@@ -622,14 +622,140 @@ button.server-name:hover:not(:disabled) {
   margin-bottom: 1.25rem;
 }
 
+.category-header {
+  display: flex;
+  position: relative;
+  align-items: center;
+  padding-bottom: 0.4rem;
+}
+
 .category-name {
-  display: block;
-  padding: 0 0.6rem 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.6rem 0 0.2rem;
+  border-radius: var(--h-radius-xs);
+  background: none;
   color: var(--h-text-faint);
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.08em;
+  text-align: left;
   text-transform: uppercase;
+}
+
+.category-name:hover:not(:disabled) {
+  background: none;
+  box-shadow: none;
+  color: var(--h-text-muted);
+}
+
+.category-name:active:not(:disabled) {
+  transform: none;
+}
+
+.category-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-name .chevron {
+  display: inline-flex;
+  transition: transform var(--h-duration) var(--h-ease);
+}
+
+.category.collapsed .category-name .chevron {
+  transform: rotate(-90deg);
+}
+
+/* A muted category or channel recedes, as on Discord: still there, just quieter. */
+.category-header.muted .category-name,
+.channel.muted {
+  opacity: 0.45;
+}
+
+.channel.muted:hover,
+.channel.muted.active {
+  opacity: 0.7;
+}
+
+.channel-item {
+  position: relative;
+}
+
+/* The "…" that opens a channel's or category's menu, shown on hover and focus. */
+.channel-more {
+  display: none;
+  position: absolute;
+  top: 50%;
+  right: 0.3rem;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: var(--h-radius-xs);
+  background: none;
+  color: var(--h-text-muted);
+  transform: translateY(-50%);
+}
+
+.category-header .channel-more {
+  top: calc(50% - 0.2rem);
+  right: 0.1rem;
+}
+
+.channel-more:hover:not(:disabled) {
+  background: var(--h-hover);
+  box-shadow: none;
+  color: var(--h-text);
+}
+
+.channel-more:active:not(:disabled) {
+  transform: translateY(-50%);
+}
+
+.channel-item:hover .channel-more,
+.channel-item:focus-within .channel-more,
+.channel-item.active .channel-more,
+.category-header:hover .channel-more,
+.category-header:focus-within .channel-more {
+  display: inline-flex;
+}
+
+.channel-item:hover .channel .tail,
+.channel-item:focus-within .channel .tail,
+.channel-item.active .channel .tail {
+  margin-right: 1.5rem;
+}
+
+.channel .channel-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The red number of unread mentions, on a channel or a collapsed category. */
+.mention-pill {
+  flex: none;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.3rem;
+  border-radius: var(--h-radius-full);
+  background: var(--h-error);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1rem;
+  text-align: center;
+}
+
+.category-name .mention-pill {
+  margin-left: auto;
 }
 
 .channel {
@@ -699,15 +825,6 @@ button.server-name:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   opacity: 0.6;
-}
-
-.channel .mention-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: var(--h-radius-full);
-  background: var(--h-error);
-  box-shadow: 0 0 0 2px var(--h-bg-elevated);
 }
 
 .channel.unread {
@@ -1088,6 +1205,120 @@ img.avatar {
   background: var(--h-bg-overlay);
   color: inherit;
 }
+
+/* ---- Message formatting: lists, subtext, timestamps, code ---- */
+
+.content .md-header.md-h3 {
+  font-size: 1.02rem;
+}
+
+.content .md-subtext {
+  margin: 0;
+  color: var(--h-text-faint);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.content .md-list {
+  margin: 0.15rem 0;
+  padding-left: 1.4rem;
+}
+
+.content .md-list .md-list {
+  margin: 0;
+}
+
+.content ul.md-list { list-style-type: disc; }
+.content ul.md-list ul.md-list { list-style-type: circle; }
+.content ul.md-list ul.md-list ul.md-list { list-style-type: square; }
+
+.content .md-list > li::marker {
+  color: var(--h-text-muted);
+}
+
+.content .md-timestamp {
+  padding: 0 0.2rem;
+  border-radius: var(--h-radius-xs);
+  background: var(--h-hover);
+  cursor: help;
+}
+
+.content .code-block-frame {
+  position: relative;
+}
+
+.content .code-copy {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--h-radius-xs);
+  border: 1px solid var(--h-border);
+  background: var(--h-bg-elevated);
+  color: var(--h-text-muted);
+  font-size: 0.72rem;
+  box-shadow: none;
+  opacity: 0;
+  transition: opacity var(--h-duration) var(--h-ease);
+}
+
+.content .code-block-frame:hover .code-copy,
+.content .code-copy:focus-visible {
+  opacity: 1;
+}
+
+/*
+ * Syntax colors. Like the status colors their hues are fixed, so syntax reads as
+ * syntax whatever the accent is, but each is pulled part of the way toward the
+ * theme's text color: lighter on a dark theme, darker on a light one, so the
+ * same rule keeps its contrast either way. (light-dark() would be the obvious
+ * tool, but the theme sets color-scheme from script, which the build's
+ * lowering of light-dark() cannot see.)
+ */
+.code-block {
+  --syntax-red: color-mix(in srgb, #e5534b 70%, var(--h-text));
+  --syntax-green: color-mix(in srgb, #3fa055 70%, var(--h-text));
+  --syntax-blue: color-mix(in srgb, #4a8fe0 70%, var(--h-text));
+  --syntax-purple: color-mix(in srgb, #a371f7 70%, var(--h-text));
+  --syntax-orange: color-mix(in srgb, #d1802a 70%, var(--h-text));
+  --syntax-teal: color-mix(in srgb, #2a9d8f 70%, var(--h-text));
+}
+
+.hljs-comment,
+.hljs-quote { color: var(--h-text-faint); font-style: italic; }
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-meta .hljs-keyword,
+.hljs-doctag { color: var(--syntax-red); }
+.hljs-string,
+.hljs-regexp,
+.hljs-meta .hljs-string { color: var(--syntax-green); }
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-meta,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id { color: var(--syntax-blue); }
+.hljs-title,
+.hljs-title.function_,
+.hljs-section { color: var(--syntax-purple); }
+.hljs-type,
+.hljs-built_in,
+.hljs-title.class_,
+.hljs-symbol { color: var(--syntax-orange); }
+.hljs-name,
+.hljs-tag,
+.hljs-selector-pseudo,
+.hljs-bullet { color: var(--syntax-teal); }
+.hljs-addition { color: var(--syntax-green); background: color-mix(in srgb, #3fa055 15%, transparent); }
+.hljs-deletion { color: var(--syntax-red); background: color-mix(in srgb, #e5534b 15%, transparent); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
 
 /* ---- Embeds ---- */
 
@@ -2354,6 +2585,104 @@ button.roster-member:hover {
   font-weight: 800;
 }
 
+.autocomplete-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  color: var(--h-text-muted);
+}
+
+.autocomplete-item.active .autocomplete-icon {
+  color: inherit;
+}
+
+/* ---- Timestamp picker ---- */
+
+.timestamp-picker {
+  width: min(360px, 100%);
+  padding: 0.6rem;
+  border-radius: var(--h-radius-lg);
+  background: var(--h-glass-bg);
+  -webkit-backdrop-filter: blur(var(--h-glass-blur));
+  backdrop-filter: blur(var(--h-glass-blur));
+  border: 1px solid var(--h-glass-border);
+  box-shadow: var(--h-shadow-lg);
+  animation: picker-in var(--h-duration) var(--h-ease-out);
+}
+
+.timestamp-picker:focus {
+  outline: none;
+}
+
+.timestamp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.timestamp-when {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.timestamp-when input {
+  min-width: 0;
+  color-scheme: inherit;
+}
+
+.timestamp-styles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.3rem;
+}
+
+.timestamp-style {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--h-radius-xs);
+  color: var(--h-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.timestamp-style:hover {
+  background: var(--h-hover);
+}
+
+.timestamp-style.active {
+  background: var(--h-accent-subtle);
+}
+
+.timestamp-style input {
+  margin: 0;
+  padding: 0;
+  accent-color: var(--h-accent);
+}
+
+.timestamp-style-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timestamp-style-name {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--h-text-muted);
+  font-size: 0.75rem;
+}
+
+.timestamp-note {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
 /* ============================================================
    ADMIN PANEL
    ============================================================ */
@@ -3384,4 +3713,207 @@ button.roster-member:hover {
   .profile-card {
     width: min(320px, 92vw);
   }
+}
+
+/* ---- Pinned messages ---- */
+
+.chat-header .pins-open {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.55rem;
+  background: none;
+  color: var(--h-text-muted);
+  line-height: 1;
+  border-radius: var(--h-radius-sm);
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
+}
+
+.chat-header .pins-open:hover {
+  background: var(--h-hover);
+  color: var(--h-text);
+  box-shadow: none;
+}
+
+/* The marker beside a pinned message's time: small and quiet, like "(edited)". */
+.pin-marker {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.3rem;
+  color: var(--h-text-faint);
+  vertical-align: middle;
+}
+
+/* A grouped message has no header line to sit in, so the marker goes to the right. */
+.pin-marker.grouped {
+  float: right;
+  margin: 0.2rem 0 0 0.5rem;
+}
+
+/* Each pin is the jump button with an Unpin beside it for those who may. */
+.pins-panel .search-results li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.pins-panel .search-results .search-result {
+  flex: 1;
+  min-width: 0;
+}
+
+.pins-panel .pin-remove {
+  flex: none;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+/* ---- Saved messages ---- */
+
+.chat-header .saved-open {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.55rem;
+  background: none;
+  color: var(--h-text-muted);
+  line-height: 1;
+  border-radius: var(--h-radius-sm);
+  transition: background var(--h-duration) var(--h-ease),
+              color var(--h-duration) var(--h-ease);
+}
+
+.chat-header .saved-open:hover {
+  background: var(--h-hover);
+  color: var(--h-text);
+  box-shadow: none;
+}
+
+/* A reminder that is due gets the same dot as an unread mention on the inbox. */
+.chat-header .saved-open.has-due::after {
+  content: '';
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--h-radius-full);
+  background: var(--h-error);
+  box-shadow: 0 0 0 2px var(--h-bg);
+}
+
+/* The reminder choices drop down from the Remind button inside the message menu. */
+.remind-action {
+  position: relative;
+  display: inline-flex;
+}
+
+.remind-menu {
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 12rem;
+  padding: 0.3rem;
+  border-radius: var(--h-radius-sm);
+  background: var(--h-bg-elevated);
+  border: 1px solid var(--h-glass-border);
+  box-shadow: var(--h-shadow-lg);
+}
+
+.message-actions .remind-menu button {
+  text-align: left;
+}
+
+.remind-custom {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+}
+
+.remind-custom input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.75rem;
+}
+
+/* Each save is a card rather than a button, since its rendered content can hold links of its own. */
+.saved-panel .saved-entry {
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--h-border);
+  border-radius: var(--h-radius-sm);
+  background: var(--h-bg-deep);
+}
+
+.saved-panel .saved-entry.due {
+  background: var(--h-accent-subtle);
+  box-shadow: inset 3px 0 0 var(--h-error);
+}
+
+.saved-panel .saved-content {
+  margin-top: 0.3rem;
+  max-height: 16rem;
+  overflow: auto;
+}
+
+.saved-panel .saved-note,
+.saved-panel .saved-reminder {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+}
+
+.saved-panel .saved-reminder {
+  color: var(--h-text-muted);
+  font-weight: 600;
+}
+
+.saved-panel .saved-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.saved-panel .saved-actions button {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.saved-panel .saved-heading {
+  margin: 1rem 0 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--h-text-muted);
+}
+
+/* The in-app notice for a reminder that came due while the app was open. */
+.reminder-notice {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 90;
+  width: min(360px, calc(100vw - 2rem));
+  padding: 0.8rem 0.9rem;
+  border-radius: var(--h-radius-sm);
+  background: var(--h-bg-elevated);
+  border: 1px solid var(--h-glass-border);
+  box-shadow: var(--h-shadow-lg);
+}
+
+.reminder-notice p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+}
+
+.reminder-notice-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
 }

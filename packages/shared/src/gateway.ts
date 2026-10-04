@@ -1,4 +1,4 @@
-import type { User } from './types.ts';
+import type { SavedMessage, User } from './types.ts';
 
 /** Gateway opcodes, mirroring Discord's layout so tooling stays familiar. */
 export const GatewayOp = {
@@ -34,6 +34,8 @@ export const GatewayEvent = {
   EmojiCreate: 'EMOJI_CREATE',
   EmojiDelete: 'EMOJI_DELETE',
   RetentionApplied: 'RETENTION_APPLIED',
+  SavedMessageUpdate: 'SAVED_MESSAGE_UPDATE',
+  ChannelSettingsUpdate: 'CHANNEL_SETTINGS_UPDATE',
 } as const;
 export type GatewayEventName = (typeof GatewayEvent)[keyof typeof GatewayEvent];
 
@@ -95,6 +97,17 @@ export interface ReactionsClearPayload {
   channelId: string;
   emoji: string;
   emojiId: string | null;
+}
+
+/**
+ * One of a member's own saves changed. It goes only to that member's sessions,
+ * so their other tabs and devices follow along while nobody else learns of it.
+ */
+export interface SavedMessageUpdatePayload {
+  messageId: string;
+  channelId: string;
+  /** The save as it now stands, or null once it was removed. */
+  saved: SavedMessage | null;
 }
 
 export interface TypingStartPayload {

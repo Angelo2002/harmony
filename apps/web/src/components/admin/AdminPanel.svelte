@@ -5,6 +5,7 @@
   import { visibleAdminTabs, type AdminTabId } from '../../lib/admin';
   import BansSection from './BansSection.svelte';
   import AuditSection from './AuditSection.svelte';
+  import BackupSection from './BackupSection.svelte';
   import ChannelsSection from './ChannelsSection.svelte';
   import BridgeSection from './BridgeSection.svelte';
   import EmojisSection from './EmojisSection.svelte';
@@ -58,6 +59,8 @@
         <BansSection />
       {:else if active === 'audit'}
         <AuditSection />
+      {:else if active === 'backup'}
+        <BackupSection />
       {:else}
         <InvitesSection />
       {/if}

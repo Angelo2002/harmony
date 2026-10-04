@@ -9,9 +9,11 @@ import type {
   Mention,
   Message,
   Role,
+  SavedMessage,
   User,
 } from './types.ts';
 import type { ThemeSettings } from './theme.ts';
+import type { ChannelNotificationSettings } from './channel-settings.ts';
 
 /** Response for a successful register or login. */
 export interface AuthResponse {
@@ -53,8 +55,29 @@ export interface ChannelListResponse {
    * read, so it moves together with `unreadChannelIds`.
    */
   mentionChannelIds: string[];
+  /**
+   * How many unread mentions and replies each channel holds for this member,
+   * for the number beside it. Only channels with at least one are listed, so
+   * its keys are exactly `mentionChannelIds`.
+   */
+  mentionCounts: Record<string, number>;
+  /**
+   * How far this member has read each channel: the time of the newest message
+   * they had seen. A channel they have never opened is absent. It is what lets a
+   * client draw the line above the first new message when a channel is opened.
+   */
+  readMarkers: Record<string, string>;
   /** Channel a client should open on load, or null to fall back to the first one. */
   defaultChannelId: string | null;
+}
+
+/** Response for `GET /api/v1/users/@me/channel-settings`. */
+export interface ChannelSettingsListResponse {
+  /**
+   * The caller's settings for every channel and category they have changed
+   * anything on and can still see. Anything absent is on the defaults.
+   */
+  settings: ChannelNotificationSettings[];
 }
 
 /** Response for `GET /api/v1/mentions`. */
@@ -65,6 +88,19 @@ export interface MentionListResponse {
 /** Response for `GET /api/v1/channels/:id/messages`. */
 export interface MessageListResponse {
   messages: Message[];
+}
+
+/** Response for `GET /api/v1/channels/:id/pins`: the channel's pins, newest pin first. */
+export interface PinListResponse {
+  messages: Message[];
+}
+
+/**
+ * Response for `GET /api/v1/users/@me/saved`: the caller's own saved messages,
+ * newest save first, or their reminders soonest first when asked for those.
+ */
+export interface SavedMessageListResponse {
+  saved: SavedMessage[];
 }
 
 /** Public instance metadata, used by clients before they sign in. */

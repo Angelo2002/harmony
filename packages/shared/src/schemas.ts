@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { LIMITS, MAX_ICON_PADDING, MAX_UPLOAD_CEILING_BYTES } from './constants.ts';
 import { TIMEOUT_MAX_MINUTES } from './moderation.ts';
 import { MAX_SLOWMODE_SECONDS } from './slowmode.ts';
+import { MAX_MUTE_SECONDS, NOTIFICATION_LEVELS } from './channel-settings.ts';
 import { HEX_COLOR_PATTERN } from './theme.ts';
 
 export const usernameSchema = z
@@ -137,6 +138,28 @@ export type MentionQuery = z.infer<typeof mentionQuerySchema>;
 
 export const mediaQuerySchema = cursorQuerySchema;
 export type MediaQuery = z.infer<typeof mediaQuerySchema>;
+
+/**
+ * A member's saved messages page the same way, newest save first: `before` is a
+ * save time and `beforeId` the message it saved. `reminders` asks instead for
+ * the saves carrying a reminder, soonest first, which is what a client needs to
+ * know when to remind; that list is not paged.
+ */
+export const savedQuerySchema = cursorQuerySchema.extend({
+  reminders: z.enum(['true', 'false']).optional(),
+});
+export type SavedQuery = z.infer<typeof savedQuerySchema>;
+
+/**
+ * Saving a message. The body is optional: without `remindAt` a save keeps any
+ * reminder it already had, and an explicit null clears it.
+ */
+export const saveMessageSchema = z
+  .object({
+    remindAt: z.iso.datetime({ offset: true }).nullable().optional(),
+  })
+  .optional();
+export type SaveMessageInput = z.infer<typeof saveMessageSchema>;
 
 /** The picker's local tab: a search term and a page size. */
 export const gifQuerySchema = z.object({
@@ -430,3 +453,22 @@ export const banSchema = z.object({
   reason: z.string().trim().max(300).nullable().optional(),
 });
 export type BanInput = z.infer<typeof banSchema>;
+
+/**
+ * One member's mute and notification settings for a channel or category.
+ * Omitting a field leaves it as it was, so the mute menu and the notification
+ * menu can each change their own half. `muteSeconds` only means something when
+ * muting: a length to mute for, or null (or omitted) for "until I turn it back on".
+ */
+export const updateChannelSettingsSchema = z
+  .object({
+    muted: z.boolean().optional(),
+    muteSeconds: z.number().int().min(1).max(MAX_MUTE_SECONDS).nullable().optional(),
+    level: z.enum(NOTIFICATION_LEVELS).optional(),
+  })
+  .refine((value) => value.muted !== undefined || value.level !== undefined, { message: 'Nothing to update.' })
+  .refine((value) => value.muteSeconds == null || value.muted === true, {
+    message: 'A mute length only goes with muted: true.',
+    path: ['muteSeconds'],
+  });
+export type UpdateChannelSettingsInput = z.infer<typeof updateChannelSettingsSchema>;

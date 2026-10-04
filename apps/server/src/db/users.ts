@@ -85,7 +85,7 @@ export function setUserDiscordId(sqlite: DatabaseSync, id: string, discordId: st
  * Everything the outgoing account authored or carried moves to the survivor
  * before it is deleted, so nothing is orphaned by the `ON DELETE` rules. The
  * composite-keyed tables (reactions, roles, saved gifs, read markers, mentions,
- * bans) can collide where the survivor already holds the same row, so the
+ * saved messages, bans) can collide where the survivor already holds the same row, so the
  * duplicates are dropped first and the rest moved.
  *
  * The whole thing is one transaction: a half-merged pair of accounts would be
@@ -96,6 +96,7 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
   try {
     // Plain references first, so the delete below has nothing left to null out.
     sqlite.prepare('UPDATE messages SET author_id = ? WHERE author_id = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE messages SET pinned_by = ? WHERE pinned_by = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE attachments SET uploader_id = ? WHERE uploader_id = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE audit_log SET actor_id = ? WHERE actor_id = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE audit_log SET target_id = ? WHERE target_id = ?').run(intoId, fromId);
@@ -144,6 +145,20 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
       .run(fromId, intoId);
     sqlite.prepare('UPDATE channel_reads SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
 
+    // Mutes and notification levels: where both accounts chose something for
+    // the same channel or category, the survivor's own choice stands.
+    sqlite
+      .prepare(
+        `DELETE FROM channel_settings
+          WHERE user_id = ?
+            AND EXISTS (SELECT 1 FROM channel_settings s
+                         WHERE s.user_id = ?
+                           AND (s.channel_id = channel_settings.channel_id
+                                OR s.category_id = channel_settings.category_id))`,
+      )
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE channel_settings SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
     sqlite
       .prepare(
         `DELETE FROM mentions
@@ -152,6 +167,17 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
       )
       .run(fromId, intoId);
     sqlite.prepare('UPDATE mentions SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
+    // A message both accounts saved stays saved once, as the survivor saved it.
+    sqlite
+      .prepare(
+        `DELETE FROM saved_messages
+          WHERE user_id = ?
+            AND EXISTS (SELECT 1 FROM saved_messages s
+                         WHERE s.user_id = ? AND s.message_id = saved_messages.message_id)`,
+      )
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE saved_messages SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
 
     // A ban is keyed by user id, so keep the survivor's own and drop the other.
     sqlite

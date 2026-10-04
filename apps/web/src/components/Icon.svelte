@@ -34,6 +34,12 @@
   {:else if name === 'inbox'}
     <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
     <path d="M4 13h4l2 3h4l2-3h4" />
+  {:else if name === 'pin'}
+    <path d="M9 3h6" />
+    <path d="M10 3v6.5L6.5 13v2h11v-2L14 9.5V3" />
+    <path d="M12 15v6" />
+  {:else if name === 'bookmark'}
+    <path d="M6.5 4.5a1.5 1.5 0 0 1 1.5-1.5h8a1.5 1.5 0 0 1 1.5 1.5V21L12 17l-5.5 4z" />
   {:else if name === 'users'}
     <circle cx="9" cy="8" r="3.2" />
     <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
@@ -52,6 +58,9 @@
     <path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" />
     <path d="M9.5 9.75h.01" />
     <path d="M14.5 9.75h.01" />
+  {:else if name === 'clock'}
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
   {:else if name === 'paperclip'}
     <path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7-7" />
   {:else if name === 'heart-filled'}
@@ -74,5 +83,11 @@
     <path d="m19 21 2-2" />
   {:else if name === 'shield'}
     <path d="M12 21.5c4.4-2.1 7-5.4 7-9.5V5.4L12 2.8 5 5.4V12c0 4.1 2.6 7.4 7 9.5z" />
+  {:else if name === 'chevron-down'}
+    <path d="m6 9 6 6 6-6" />
+  {:else if name === 'more'}
+    <path d="M5.5 12h.01" stroke-width="3" />
+    <path d="M12 12h.01" stroke-width="3" />
+    <path d="M18.5 12h.01" stroke-width="3" />
   {/if}
 </svg>

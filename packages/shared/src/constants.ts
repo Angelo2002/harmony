@@ -29,6 +29,8 @@ export const LIMITS = {
   displayName: { max: 32 },
   messageLength: 4_000,
   attachmentsPerMessage: 10,
+  /** Discord's own cap, kept so a bridged channel's pins can always fit on both sides. */
+  pinsPerChannel: 50,
 } as const;
 
 /** Image formats accepted by the attachment upload endpoint. */

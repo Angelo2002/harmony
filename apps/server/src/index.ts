@@ -23,6 +23,8 @@ import { createEmojiImportService } from './emojis/import.ts';
 import { createStickerService } from './stickers/service.ts';
 import { createUserService } from './users/service.ts';
 import { createMessageService } from './messages/service.ts';
+import { createPinService } from './pins/service.ts';
+import { createSavedMessageService } from './saved/service.ts';
 import { GatewayHub } from './realtime/hub.ts';
 import { createPruner } from './retention/pruner.ts';
 import { createBridgeService } from './bridge/service.ts';
@@ -49,6 +51,8 @@ import { registerChannelRoutes } from './routes/channels.ts';
 import { registerMessageRoutes } from './routes/messages.ts';
 import { registerSearchRoutes } from './routes/search.ts';
 import { registerMentionRoutes } from './routes/mentions.ts';
+import { registerPinRoutes } from './routes/pins.ts';
+import { registerSavedRoutes } from './routes/saved.ts';
 import { registerAttachmentRoutes } from './routes/attachments.ts';
 import { registerEmbedRoutes } from './routes/embeds.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
@@ -56,9 +60,11 @@ import { registerStickerRoutes } from './routes/stickers.ts';
 import { registerMediaRoutes } from './routes/media.ts';
 import { registerGifRoutes } from './routes/gifs.ts';
 import { registerUserRoutes } from './routes/users.ts';
+import { registerChannelSettingsRoutes } from './routes/channel-settings.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
 import { registerBridgeRoutes } from './routes/bridge.ts';
 import { registerAuditRoutes } from './routes/audit.ts';
+import { registerBackupRoutes } from './routes/backup.ts';
 import { registerGateway } from './gateway/index.ts';
 
 const config = loadConfig();
@@ -90,6 +96,8 @@ const stickerService = createStickerService(db.sqlite, config);
 const iconService = createIconService(config, settingsService);
 const userService = createUserService(db.sqlite, config);
 const messageService = createMessageService(db.sqlite, hub, auditService);
+const pinService = createPinService(db.sqlite, hub, auditService, messageService);
+const savedService = createSavedMessageService(db.sqlite, hub, messageService);
 const moderationService = createModerationService({ sqlite: db.sqlite, hub, audit: auditService });
 const mediaService = createMediaService(db.sqlite, config);
 const gifService = createGifService(db.sqlite, config, {
@@ -203,6 +211,7 @@ registerSettingsRoutes(app, { settings: settingsService, db });
 registerIconRoutes(app, { icon: iconService });
 registerRetentionRoutes(app, { settings: settingsService, pruner });
 registerAuditRoutes(app, { audit: auditService });
+registerBackupRoutes(app, { db, config, settings: settingsService, audit: auditService });
 registerBridgeRoutes(app, { settings: settingsService, bridge });
 registerRoleRoutes(app, { db, hub });
 registerMemberRoutes(app, {
@@ -218,6 +227,8 @@ registerChannelRoutes(app, { db, hub, bridge, settings: settingsService, importe
 registerMessageRoutes(app, { service: messageService });
 registerSearchRoutes(app, { service: messageService });
 registerMentionRoutes(app, { service: messageService });
+registerPinRoutes(app, { service: pinService });
+registerSavedRoutes(app, { service: savedService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
 registerEmbedRoutes(app, { settings: settingsService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
@@ -225,6 +236,7 @@ registerGifRoutes(app, { service: gifService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
 registerStickerRoutes(app, { service: stickerService });
 registerUserRoutes(app, { db, users: userService, hub });
+registerChannelSettingsRoutes(app, { db, hub });
 registerGateway(app, {
   heartbeatIntervalMs: config.gatewayHeartbeatMs,
   cookieName: config.cookieName,

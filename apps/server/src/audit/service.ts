@@ -29,6 +29,11 @@ export interface AuditService {
   messageDeleted(actorId: string, channelId: string, content: string, attachments: AuditImage[]): void;
   /** Records an edit, with the text either side of it. */
   messageEdited(actorId: string, channelId: string, before: string, after: string): void;
+  /**
+   * Records a message being pinned or unpinned, with its text as it read then.
+   * The target is the message's author, or nobody once that account is gone.
+   */
+  messagePinned(actorId: string, channelId: string, authorId: string | null, content: string, pinned: boolean): void;
   /** Records an image being deleted from the media gallery. */
   mediaDeleted(actorId: string, filename: string, channelName: string | null): void;
   moderation(kind: ModerationAuditKind, actorId: string, targetId: string, detail?: AuditDetail): void;
@@ -40,6 +45,10 @@ export interface AuditService {
   memberDeleted(actorId: string, targetId: string): void;
   /** Records an administrator setting a member's password. */
   passwordReset(actorId: string, targetId: string): void;
+  /** Records the owner downloading a full backup, which holds every account's password hash. */
+  backupDownloaded(actorId: string, filename: string): void;
+  /** Records a channel's history being exported to a file. */
+  channelExported(actorId: string, channelId: string, filename: string): void;
   list(query: AuditQuery): AuditListResponse;
   /** Empties the log, returning how many entries were removed. */
   clear(): number;
@@ -105,6 +114,15 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
       });
     },
 
+    messagePinned(actorId, channelId, authorId, content, pinned) {
+      write(pinned ? 'message_pin' : 'message_unpin', actorId, authorId, channelId, {
+        channelName: findChannel(sqlite, channelId)?.name,
+        actorName: userName(actorId),
+        targetName: userName(authorId),
+        before: content,
+      });
+    },
+
     mediaDeleted(actorId, filename, channelName) {
       write('media_delete', actorId, null, null, {
         filename,
@@ -149,6 +167,18 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
       write('password_reset', actorId, targetId, null, {
         actorName: userName(actorId),
         targetName: userName(targetId),
+      });
+    },
+
+    backupDownloaded(actorId, filename) {
+      write('backup_download', actorId, null, null, { filename, actorName: userName(actorId) });
+    },
+
+    channelExported(actorId, channelId, filename) {
+      write('channel_export', actorId, null, channelId, {
+        channelName: findChannel(sqlite, channelId)?.name,
+        filename,
+        actorName: userName(actorId),
       });
     },
 

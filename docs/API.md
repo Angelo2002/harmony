@@ -26,6 +26,8 @@ code wins — please open an issue.
   - [Messages](#messages)
   - [Search](#search)
   - [Mentions and replies](#mentions-and-replies)
+  - [Pinned messages](#pinned-messages)
+  - [Saved messages](#saved-messages)
   - [Reactions](#reactions)
   - [Attachments](#attachments)
   - [Media gallery](#media-gallery)
@@ -33,9 +35,11 @@ code wins — please open an issue.
   - [Custom emoji](#custom-emoji)
   - [Stickers](#stickers)
   - [Users and avatars](#users-and-avatars)
+  - [Channel notification settings](#channel-notification-settings)
   - [Roles](#roles)
   - [Members](#members)
   - [Audit log](#audit-log)
+  - [Backup and export](#backup-and-export)
   - [Invites](#invites)
   - [Server settings](#server-settings)
   - [Instance icon](#instance-icon)
@@ -117,7 +121,7 @@ implicit `@everyone` role grants every member `ViewChannels`, `SendMessages`, `A
 | --- | --- | --- |
 | `ViewChannels` | `1 << 0` | Reading channels, messages, roles, emoji and attachments |
 | `SendMessages` | `1 << 1` | Posting messages |
-| `ManageMessages` | `1 << 2` | Deleting others' messages, clearing reactions |
+| `ManageMessages` | `1 << 2` | Deleting others' messages, clearing reactions, pinning and unpinning |
 | `AttachFiles` | `1 << 3` | Uploading attachments |
 | `EmbedLinks` | `1 << 4` | *Reserved* — not enforced yet |
 | `AddReactions` | `1 << 5` | Adding and removing your own reactions |
@@ -231,6 +235,8 @@ type Message = {
   replyTo: MessageReference | null;
   reactions: Reaction[];
   embed: LinkEmbed | null;      // link preview, see "Link previews"
+  pinnedAt: string | null;      // when it was pinned, see "Pinned messages"
+  saved: boolean;               // whether the viewer saved it, see "Saved messages"
 };
 
 type LinkEmbed = {
@@ -364,13 +370,15 @@ type AuditKind =
   | 'timeout_add' | 'timeout_clear'
   | 'kick' | 'ban' | 'unban'
   | 'role_add' | 'role_remove'
-  | 'member_update' | 'password_reset';
+  | 'member_update' | 'password_reset'
+  | 'message_pin' | 'message_unpin'
+  | 'backup_download' | 'channel_export';
 
 type AuditDetail = {
   channelName?: string;   // message and media kinds
-  before?: string;        // deleted text, or an edit's old text
+  before?: string;        // deleted text, an edit's old text, or the text pinned or unpinned
   after?: string;         // an edit's new text
-  filename?: string;      // media_delete: the file that was removed
+  filename?: string;      // media_delete: the file that was removed; backup_download / channel_export: the file produced
   attachments?: Array<{ id: string; filename: string }>;  // images a deleted message carried
   durationMinutes?: number;
   reason?: string | null;
@@ -412,6 +420,43 @@ A channel reference is a pointer rather than a summons, so it never appears in t
 When the referenced channel is bridged, [the bridge](#discord-bridge) rewrites `#name` to a real
 Discord channel mention `<#id>` on the way out, and a Discord `<#id>` for a bridged channel back to
 `#name` on the way in. A reference with no counterpart on the other side is left as plain text.
+
+### Formatting
+
+A message's `content` is stored exactly as typed; formatting is applied by the client when it is
+shown. The syntax is Discord's, so text bridged from Discord renders the same here.
+
+| Syntax | Result |
+| --- | --- |
+| `**bold**`, `*italic*` or `_italic_`, `__underline__`, `~~strike~~`, `\|\|spoiler\|\|` | Inline emphasis, which nests |
+| `` `code` `` | Inline code; nothing inside it is formatted |
+| ```` ```lang ```` … ```` ``` ```` | A code block, highlighted when `lang` is a known language (js/ts, json, python, bash/shell, css, html/xml, sql, diff, yaml, rust, go, java, c/cpp, csharp, markdown, and their usual aliases) |
+| `# `, `## `, `### ` at the start of a line | Headers; the space is required and `####` is plain text |
+| `-# ` at the start of a line | Subtext: a small, muted line |
+| `- ` or `* ` at the start of a line | A bulleted list item |
+| `1. ` at the start of a line | A numbered list item; the list starts at the first item's number |
+| `> ` at the start of a line | Quotes that line; consecutive quoted lines form one quote |
+| `>>> ` at the start of a line | Quotes everything after it to the end of the message |
+| `[label](https://…)` | A masked link, never unfurled |
+| `<https://…>` | A link whose preview is suppressed |
+| `<t:1700000000>`, `<t:1700000000:R>` | A timestamp shown in the reader's locale and time zone; styles `t` `T` `d` `D` `f` (default) `F` `R` (relative) |
+| `\*` (a backslash before any ASCII punctuation) | The character itself, unformatted |
+
+List items nest under the item above when indented at least two spaces further, and an indented line
+without a marker continues the item above it. Headers, subtext, lists and code may sit inside a
+quote; quotes do not nest. Mentions, channel references, emoji and links work everywhere except
+inside code.
+
+Timestamps need not be written by hand. In the web client, `@` followed by a time offers each style
+with a preview, and picking one writes the tag; the clock button next to the emoji button does the
+same from a date and time field. The expressions read are `now`, `5pm`, `5:30pm`, `17:30`, `noon`,
+`midnight`; a day (`today`, `tomorrow`, a weekday such as `monday` or `mon`, `2025-12-24`, or `24/12`
+and `24/12/2025` read in the browser locale's day/month order) optionally followed by a time, as in
+`tomorrow 18:00` or `monday at 9am`; and `in 2h`, `in 30 minutes`, `in 3 days`. A time without a day
+is its next occurrence, a day without a time keeps the current time of day, and everything is read in
+the writer's own time zone. When the text after `@` is also the start of a member's name, members are
+listed first and the timestamps after them. The tag is all that is stored, so readers see it in their
+own zone as above.
 
 ## REST reference
 
@@ -564,6 +609,8 @@ has no password, since Discord is its only way in.
   "channels": [ /* Channel */ ],
   "unreadChannelIds": [ "..." ],
   "mentionChannelIds": [ "..." ],
+  "mentionCounts": { "<channelId>": 3 },
+  "readMarkers": { "<channelId>": "2026-01-01T12:00:00.000Z" },
   "defaultChannelId": "..."
 }
 ```
@@ -582,6 +629,18 @@ member can tell what you have seen.
 the caller, which is what draws the red mark beside a channel. A channel drops off it exactly when it
 is read, so it moves together with `unreadChannelIds`. See
 [Mentions and replies](#mentions-and-replies).
+
+`mentionCounts` says how many unread mentions and replies each of those channels holds, for the red
+number beside it; its keys are exactly `mentionChannelIds`. Deleted messages count for neither list,
+and neither do the caller's own messages: a channel whose only new message was deleted is read
+again.
+
+`readMarkers` gives, for each listed channel the caller has ever read, the timestamp of the newest
+message they had seen. A client compares it with message timestamps to draw a "new" line above the
+first message after it when the channel is opened. Channels never read are absent.
+
+Mutes and notification levels do not change any of these lists, which describe what is unread, not
+what is worth a notification; see [Channel notification settings](#channel-notification-settings).
 
 #### `POST /api/v1/channels/:id/read` — `ViewChannels`
 
@@ -945,6 +1004,92 @@ locked away disappears from the list. Deleted messages are never returned. Pagin
 [message search](#get-apiv1search--viewchannels): the cursor is the oldest entry you already have,
 its message's `createdAt` plus its `id`.
 
+### Pinned messages
+
+A member with `ManageMessages` can pin a message to its channel, and anyone who can read the channel
+can list its pins. The pin state travels on the message itself as `pinnedAt`, so pinning or
+unpinning fires an ordinary `MESSAGE_UPDATE` that a client applies like any other update; there is
+no separate pin event. A channel holds at most 50 pins, Discord's own limit. Locked channels follow
+[the same rule as history](#channel-locking): a member who cannot see the channel cannot list its
+pins either, and a deleted message drops out of the list (and stops counting towards the limit).
+
+#### `GET /api/v1/channels/:id/pins` — `ViewChannels`
+
+```json
+{ "messages": [ /* Message, with pinnedAt set */ ] }
+```
+
+Returns every pin in the channel, newest pin first. There is no paging: the list is capped at 50.
+
+#### `PUT /api/v1/channels/:id/pins/:messageId` — `ManageMessages`
+
+Pins the message and returns it with `pinnedAt` set. Pinning a message that is already pinned
+changes nothing and keeps its original pin time. A message that is not in that channel is
+`404 message_not_found`; a channel already holding 50 pins is `400 too_many_pins`.
+
+#### `DELETE /api/v1/channels/:id/pins/:messageId` — `ManageMessages`
+
+Unpins the message. Returns `204`, also when it was not pinned.
+
+### Saved messages
+
+Any member can save a message they can see, Discord's bookmarks, and optionally ask to be reminded
+of it. Saves are private: nobody else can list them or learn of them, and a change is sent only to
+the saver's own sessions as `SAVED_MESSAGE_UPDATE`, never to the channel. Whether a message is saved
+travels on it as `saved`, for the viewer only, in the same way as a reaction's `me`: history, search,
+the inbox and the pin list carry the viewer's value, while a broadcast `MESSAGE_UPDATE` always says
+`false`, so a client keeps the value it already holds.
+
+A save is checked against the caller's access whenever the list is read rather than kept in step
+with it. A message in a channel they can no longer see (locked, or a role they lost) is left out of
+the list but not deleted, and comes back if access does. A deleted message drops out, as it does from
+the pins; there is nothing left to jump to.
+
+```ts
+type SavedMessage = {
+  message: Message;           // with saved: true
+  savedAt: string;
+  remindAt: string | null;    // when to remind, or null for a plain save
+};
+```
+
+#### `GET /api/v1/users/@me/saved` — `ViewChannels`
+
+```json
+{ "saved": [ /* SavedMessage */ ] }
+```
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `limit` | integer 1–100 | 50 | |
+| `before` | ISO 8601 string | — | Return saves made before this time |
+| `beforeId` | string | — | Id of the message `before` came from |
+| `reminders` | `true` | — | Only the saves carrying a reminder, soonest first, unpaged |
+
+Returns the caller's saves, newest save first. The cursor is the oldest entry you already have, its
+`savedAt` plus its message's `id`. With `reminders=true` the list is instead every save with a
+reminder, due or not, soonest first and capped at `limit`, which is what a client reads to know
+when to remind. A reminder that has come due stays until it is cleared or the save is removed; the
+server does nothing when one comes due, so reminding is the client's job.
+
+#### `PUT /api/v1/users/@me/saved/:messageId` — `ViewChannels`
+
+```json
+{ "remindAt": "2026-10-04T09:00:00.000Z" }
+```
+
+Saves the message and returns the `SavedMessage`. The body is optional. Saving a message that is
+already saved keeps its original `savedAt`; a `remindAt` replaces its reminder, `null` clears it,
+and leaving it out keeps whatever it had. A reminder in the past is `400 invalid_reminder`. A message
+that does not exist, was deleted, or is in a channel the caller cannot see is `404
+message_not_found`: the route names no channel, so it does not confirm a hidden message exists.
+Fires `SAVED_MESSAGE_UPDATE` to the caller's sessions when anything changed.
+
+#### `DELETE /api/v1/users/@me/saved/:messageId` — `ViewChannels`
+
+Removes the save. Returns `204`, also when it was not saved, and works for a message the caller can
+no longer see. Fires `SAVED_MESSAGE_UPDATE` with `saved: null` when there was one.
+
 ### Reactions
 
 An emoji is either a unicode character (send it verbatim, e.g. `"👍"`) or a custom emoji shortcode
@@ -1265,6 +1410,54 @@ normal `ViewChannels` check applies. This exists so Discord's servers can fetch 
 mirrored messages; the hash is already public in every avatar URL. Returns `404 avatar_not_found`
 when the user has no picture.
 
+### Channel notification settings
+
+Each member's own mute and notification choices for channels and categories, as on Discord. They are
+private: there is no way to read another member's, and changes are announced only to the member's own
+sessions. A channel inherits from its category, which a client works out itself (the server stores
+each target's settings separately):
+
+- A muted category mutes every channel in it; a channel is muted while either mute is in force.
+- A channel's `level` of `default` takes its category's level; a category's (or an uncategorized
+  channel's) `default` means the server default, `all`.
+- On the web client a muted channel is dimmed, is not shown as unread and plays no sounds, but still
+  shows its mention count unless its level is `nothing`. `mentions` plays a sound only for mentions,
+  and `nothing` plays none and hides the mention count. Muted channels do not mark the tab title;
+  their mentions still do unless the level is `nothing`.
+
+```ts
+type ChannelNotificationSettings = {
+  targetId: string;                 // a channel or category id
+  targetType: 'channel' | 'category';
+  muted: boolean;                   // in force right now; an expired mute reads false
+  muteEndsAt: string | null;        // when it lifts, or null for "until I turn it back on"
+  level: 'default' | 'all' | 'mentions' | 'nothing';
+};
+```
+
+#### `GET /api/v1/users/@me/channel-settings` — `ViewChannels`
+
+`{ "settings": [ /* ChannelNotificationSettings */ ] }` for every channel and category the caller has
+changed anything on and can currently see. Anything absent is on the defaults (not muted, level
+`default`). A mute lifts on its own at `muteEndsAt` with nothing to call; clients should schedule
+their own timer for it.
+
+#### `PUT /api/v1/users/@me/channel-settings/:targetId` — `ViewChannels`
+
+```json
+{ "muted": true, "muteSeconds": 900, "level": "mentions" }
+```
+
+Changes the caller's settings for one channel or category, whichever the id names. Fields left out
+keep their value, but at least one of `muted` and `level` is required. `muteSeconds` (1 to one year)
+goes only with `muted: true`; leaving it out or passing `null` mutes until turned back off. The end is
+computed from the server's clock. The client offers Discord's choices: 15 minutes, 1, 3, 8 and 24
+hours, or indefinitely. `muted: false` lifts any mute. Settings that end up back on the defaults are
+deleted. Returns the new `ChannelNotificationSettings` and sends `CHANNEL_SETTINGS_UPDATE` to the
+caller's own sessions only. `400 validation_error` for a bad body; `404 target_not_found` both for an
+id that does not exist and for a locked channel or category the caller cannot see. Deleting a channel
+or category deletes everyone's settings for it.
+
 ### Roles
 
 #### `GET /api/v1/roles` — `ViewChannels`
@@ -1506,8 +1699,9 @@ The audit log records what was done, by whom and to whom. An entry is logged whe
 **deleted**, capturing the text and any images it carried; a message is **edited**, with the text
 either side of it; an image is **deleted from the media gallery**, naming the file; a member is
 **timed out** or the timeout is lifted; a member is **kicked**; a member is **banned** or unbanned;
-a member's **roles change**; a member's **account is edited**, naming the fields that changed; and a
-member's **password is reset**.
+a member's **roles change**; a member's **account is edited**, naming the fields that changed; a
+member's **password is reset**; a message is **pinned** or **unpinned**, with its text and its
+author as the target; the owner **downloads a backup**; and a channel is **exported**.
 
 Entries are append-only and are never edited. Names and the channel are captured when the action
 happens, so an entry stays readable once a role is renamed, a channel is deleted or an account is
@@ -1537,6 +1731,64 @@ text can be read back from here.
 Returns `204` and empties the log. The clear itself is deliberately not recorded, so afterwards the
 log really is empty. [Audit retention](#retention) ages entries out automatically instead, when it is
 configured.
+
+### Backup and export
+
+#### `GET /api/v1/backup` — owner only
+
+Streams the whole instance as `application/gzip`, with
+`Content-Disposition: attachment; filename="harmony-backup-<server>-<YYYY-MM-DD>.tar.gz"`. The
+archive is a POSIX (ustar) tar laid out like the data directory: `harmony.db`, a consistent snapshot
+taken with SQLite's online backup while the server keeps running, then `uploads/<xx>/<sha-256>` for
+every stored blob. It is built as it is sent, so it never sits in memory or on disk whole; the
+temporary database snapshot is deleted when the response ends, including when the client disconnects
+partway. Restoring is described in [DEPLOYMENT.md](DEPLOYMENT.md#backups).
+
+Restricted to the owner, not just `Administrator`: the archive holds every password and session hash,
+the bridge bot token and the Discord sign-in secret. Anyone else gets `403 owner_only`. Only one backup
+is prepared at a time; a second request meanwhile gets `409 backup_in_progress`. Each download is
+recorded in the audit log as `backup_download`.
+
+#### `GET /api/v1/channels/:id/export` — `ManageServer`
+
+Streams one channel's history as a file download. Deleted messages are left out, as they are from the
+channel. A locked channel the caller cannot see is a `404`, the same as a missing one.
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `format` | `json` or `html` | `json` | Anything else is `400 invalid_format` |
+
+The file is named `harmony-<server>-<channel>-<YYYY-MM-DD>.<format>`. `json` is a `ChannelExport`:
+
+```ts
+type ChannelExport = {
+  format: 1;
+  exportedAt: string;
+  serverName: string;
+  channel: { id: string; name: string; topic: string | null };
+  messages: Array<{                     // oldest first
+    id: string;
+    author: { id: string; username: string; displayName: string | null; isBot: boolean } | null;
+    content: string;
+    createdAt: string;
+    editedAt: string | null;
+    replyTo: { id: string; authorName: string | null; deleted: boolean } | null;
+    attachments: Array<{
+      id: string; filename: string; contentType: string; size: number;
+      url: string;                      // absolute, on the address the export was requested at
+      sourceUrl: string | null;
+    }>;
+    stickers: Array<{ id: string; name: string }>;
+    reactions: Array<{ emoji: string; emojiId: string | null; count: number }>;
+  }>;
+};
+```
+
+`html` is a standalone page with inline styles and no scripts. Message text is HTML-escaped and shown
+as plain text (no Markdown rendering), and the page carries a `Content-Security-Policy` meta tag that
+forbids scripts and remote loads when it is opened from disk. Attachments are links back to the server,
+which still need a signed-in session to open. Each export is recorded in the audit log as
+`channel_export`.
 
 ### Invites
 
@@ -1857,7 +2109,7 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | --- | --- |
 | `READY` | `{ user, gateway_version }` |
 | `MESSAGE_CREATE` | `Message` |
-| `MESSAGE_UPDATE` | `Message` (edits, link previews, and bridged edits) |
+| `MESSAGE_UPDATE` | `Message` (edits, link previews, pins and unpins, and bridged edits) |
 | `MESSAGE_DELETE` | `{ id, channelId }` |
 | `MESSAGE_REACTION_ADD` | `ReactionUpdatePayload` |
 | `MESSAGE_REACTION_REMOVE` | `ReactionUpdatePayload` |
@@ -1875,6 +2127,8 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | `EMOJI_CREATE` | `Emoji` |
 | `EMOJI_DELETE` | `{ id }` |
 | `RETENTION_APPLIED` | `PruneSummary` |
+| `SAVED_MESSAGE_UPDATE` | `{ messageId, channelId, saved: SavedMessage \| null }`, to the saver's own sessions only |
+| `CHANNEL_SETTINGS_UPDATE` | `ChannelNotificationSettings`, sent only to the member it belongs to |
 
 `MEMBER_UPDATE` fires for a member's own profile and avatar changes as well as administrator edits,
 role changes, timeouts, kicks and bans, so a client should refetch the roster (and its own profile,

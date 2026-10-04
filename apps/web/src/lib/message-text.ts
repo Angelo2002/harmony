@@ -1,4 +1,7 @@
 import { RESERVED_MENTIONS, USERNAME_PATTERN, cleanUrl, matchChannelName, type Channel, type Emoji, type User } from '@harmony/shared';
+// The extension is deliberate: the text smoke test imports this module straight
+// into Node, which resolves nothing on its own.
+import { DEFAULT_TIMESTAMP_STYLE, isTimestampStyle, timestampMs, type TimestampStyle } from './timestamp.ts';
 
 /** Inline emphasis that can apply to a run of text. */
 export interface TextStyles {
@@ -51,13 +54,45 @@ export interface CodeSegment {
   styles?: TextStyles;
 }
 
-export type InlineSegment = TextSegment | EmojiSegment | MentionSegment | ChannelSegment | LinkSegment | CodeSegment;
+/** A Discord `<t:…>` timestamp; `value` is the tag as written. */
+export interface TimestampSegment {
+  type: 'timestamp';
+  value: string;
+  epochMs: number;
+  style: TimestampStyle;
+  styles?: TextStyles;
+}
+
+export type InlineSegment =
+  | TextSegment
+  | EmojiSegment
+  | MentionSegment
+  | ChannelSegment
+  | LinkSegment
+  | CodeSegment
+  | TimestampSegment;
+
+export interface ListItem {
+  segments: InlineSegment[];
+  /** Lists nested under this item, in order. */
+  children: ListBlock[];
+}
+
+export interface ListBlock {
+  type: 'list';
+  ordered: boolean;
+  /** The number the first item shows; a numbered list may start anywhere. */
+  start: number;
+  items: ListItem[];
+}
 
 /** A block-level chunk of a message. Inline content is always inside one. */
 export type MessageBlock =
   | { type: 'paragraph'; segments: InlineSegment[] }
-  | { type: 'quote'; segments: InlineSegment[] }
+  | { type: 'quote'; blocks: MessageBlock[] }
   | { type: 'header'; level: number; segments: InlineSegment[] }
+  | { type: 'subtext'; segments: InlineSegment[] }
+  | ListBlock
   | { type: 'code'; text: string; language: string | null };
 
 /**
@@ -66,19 +101,24 @@ export type MessageBlock =
  * single-character forms, then links, and only then emoji and mentions, so a
  * `:name:` or `@name` inside a URL is never mistaken for one.
  *
+ * An escape covers any ASCII punctuation, as on Discord, so `\@name`, `\:name:`
+ * and `\<t:…>` show what was typed rather than what it would have become.
+ *
  * Note the deliberate absence of the `i` flag: emoji shortcodes are
  * case-sensitive, so `:YES:` must not match `:yes:`.
  */
 const INLINE_SOURCE = [
-  '\\\\(?<esc>[*_~`|\\[\\]()>#])',
+  '\\\\(?<esc>[!-\\/:-@\\[-`{-~])',
   '`(?<code>[^`\\n]*?)`',
   '\\*\\*(?<bold>[\\s\\S]+?)\\*\\*',
   '__(?<underline>[\\s\\S]+?)__',
   '~~(?<strike>[\\s\\S]+?)~~',
   '\\|\\|(?<spoiler>[\\s\\S]+?)\\|\\|',
-  '\\*(?<italicStar>[^*\\n]+?)\\*',
+  // Discord's rule: no space just inside the stars, so `2 * 3 * 4` is arithmetic.
+  '\\*(?<italicStar>[^\\s*](?:[^*\\n]*?[^\\s*])?)\\*',
   '(?<![a-zA-Z0-9_])_(?<italicUnderscore>[^_\\n]+?)_(?![a-zA-Z0-9_])',
   '\\[(?<linkText>[^\\]\\n]+?)\\]\\((?<linkUrl>https?:\\/\\/[^\\s)]+)\\)',
+  '<t:(?<timestamp>-?\\d{1,13})(?::(?<timestampStyle>[a-zA-Z]))?>',
   '<(?<autolink>https?:\\/\\/[^\\s>]+)>',
   ':(?<emojiName>[a-zA-Z0-9_]{2,32}):',
   `(?<![a-zA-Z0-9._-])@(?<mentionName>${USERNAME_PATTERN})`,
@@ -207,6 +247,16 @@ function parseInline(
         styles: normalizeStyles(styles),
         noEmbed: true,
       });
+    } else if (group.timestamp !== undefined) {
+      // A style Discord does not know, or a moment no date can hold, leaves the
+      // tag as written rather than guessing at what was meant.
+      const style = group.timestampStyle ?? DEFAULT_TIMESTAMP_STYLE;
+      const epochMs = timestampMs(group.timestamp);
+      if (epochMs !== null && isTimestampStyle(style)) {
+        out.push({ type: 'timestamp', value: match[0], epochMs, style, styles: normalizeStyles(styles) });
+      } else {
+        emitText(out, match[0], styles, channels);
+      }
     } else if (group.autolink !== undefined) {
       out.push({
         type: 'link',
@@ -240,16 +290,116 @@ function parseInline(
   return out;
 }
 
+/** A fence opening a code block on a line of its own, with an optional language. */
 const FENCE = /^```(\S*)\s*$/;
-const CLOSING_FENCE = /^```\s*$/;
-const HEADER = /^(#{1,3})\s+(.*)$/;
-const QUOTE = /^>\s?/;
+/**
+ * The end of a code block: three backticks finishing a line, whether alone or
+ * straight after the last line of code, which is how most people type it.
+ */
+const CLOSING_FENCE = /^(.*?)```\s*$/;
+/** A whole code block on one line, ```like this```. */
+const SINGLE_LINE_FENCE = /^```(.+?)```\s*$/;
+/** Discord's headers stop at three levels and need a space: `####` is just text. */
+const HEADER = /^(#{1,3}) +(\S.*)$/;
+const SUBTEXT = /^-# +(\S.*)$/;
+/**
+ * `>>> ` quotes everything after it, `> ` a single line. Both need the space, as
+ * on Discord, so a `>.<` or a `>>>` on its own stays the text it is.
+ */
+const QUOTE_REST = /^ *>>> /;
+const QUOTE_LINE = /^ *> /;
+/**
+ * A bullet (`-` or `*`) or a number with a dot, then a space and something to
+ * say. The space is what keeps `-5 degrees`, `*shrug*` and `1.5` out of lists.
+ */
+const LIST_ITEM = /^( *)([-*]|\d{1,9}\.) +(\S.*)$/;
+/** A line with leading spaces, which inside a list carries on the item above. */
+const INDENTED = /^ +\S/;
+/** How much further in than its parent an item must sit to nest, as on Discord. */
+const NEST_INDENT = 2;
+/** Deeper items line up with the deepest list rather than stepping in forever. */
+const MAX_LIST_DEPTH = 6;
+
+/** A list as read from the lines, before its items are parsed for inline styles. */
+interface RawList {
+  ordered: boolean;
+  start: number;
+  /** How many spaces the list's own items are indented by. */
+  indent: number;
+  items: RawItem[];
+  /** The item this list is nested under, or null at the top. */
+  parent: RawItem | null;
+}
+
+interface RawItem {
+  lines: string[];
+  children: RawList[];
+}
+
+function newList(marker: string, indent: number, parent: RawItem | null): RawList {
+  const ordered = marker !== '-' && marker !== '*';
+  return { ordered, start: ordered ? Number.parseInt(marker, 10) : 1, indent, items: [], parent };
+}
 
 /**
- * Parses message text into blocks. Fenced code, headers and quotes are handled
- * a line at a time; everything else becomes a paragraph whose newlines are kept
- * by the renderer. Returns segments rather than HTML, so rendering can never
- * inject markup.
+ * Reads a run of list lines starting at `index`, which must be an item.
+ *
+ * Nesting follows indentation: an item at least two spaces further in than the
+ * list above it starts a list under the previous item, and a shallower one goes
+ * back to whichever open list it lines up with. Switching between bullets and
+ * numbers under one item starts a sibling list there; at the top it ends this
+ * list, so the caller starts the next one. The list ends at the first line that
+ * is neither an item nor an indented continuation of one.
+ */
+function readList(lines: readonly string[], index: number): { list: RawList; next: number } {
+  const first = LIST_ITEM.exec(lines[index] ?? '');
+  const root = newList(first?.[2] ?? '-', first?.[1]?.length ?? 0, null);
+  const open: RawList[] = [root];
+  const deepest = (): RawList => open[open.length - 1] ?? root;
+
+  while (index < lines.length) {
+    const line = lines[index] ?? '';
+    const item = LIST_ITEM.exec(line);
+
+    if (!item) {
+      if (!INDENTED.test(line)) break;
+      deepest().items.at(-1)?.lines.push(line.trim());
+      index++;
+      continue;
+    }
+
+    const indent = (item[1] ?? '').length;
+    const marker = item[2] ?? '-';
+    const ordered = marker !== '-' && marker !== '*';
+
+    while (open.length > 1 && indent < deepest().indent) open.pop();
+    let list = deepest();
+    const previous = list.items.at(-1);
+
+    if (previous && indent >= list.indent + NEST_INDENT && open.length < MAX_LIST_DEPTH) {
+      list = newList(marker, indent, previous);
+      previous.children.push(list);
+      open.push(list);
+    } else if (list.ordered !== ordered) {
+      if (!list.parent) break;
+      const sibling = newList(marker, list.indent, list.parent);
+      list.parent.children.push(sibling);
+      open[open.length - 1] = sibling;
+      list = sibling;
+    }
+
+    list.items.push({ lines: [item[3] ?? ''], children: [] });
+    index++;
+  }
+
+  return { list: root, next: index };
+}
+
+/**
+ * Parses message text into blocks. Code, headers, subtext, quotes and lists are
+ * recognised a line at a time; everything else becomes a paragraph whose
+ * newlines are kept by the renderer. Returns segments rather than HTML, so
+ * rendering can never inject markup.
  */
 export function parseMessage(
   content: string,
@@ -259,8 +409,19 @@ export function parseMessage(
 ): MessageBlock[] {
   const inline = (text: string): InlineSegment[] =>
     parseInline(text, emojiLookup, mentionLookup, channels, {}, 0);
+  return parseBlocks(content.split('\n'), inline, true);
+}
 
-  const lines = content.split('\n');
+/**
+ * The block grammar over a run of lines. A quote's lines go through it again
+ * with their markers removed, so a quote can hold headers, lists and code the
+ * way Discord's do; quotes themselves do not nest, on Discord or here.
+ */
+function parseBlocks(
+  lines: readonly string[],
+  inline: (text: string) => InlineSegment[],
+  allowQuotes: boolean,
+): MessageBlock[] {
   const blocks: MessageBlock[] = [];
   let paragraph: string[] = [];
   let index = 0;
@@ -271,19 +432,41 @@ export function parseMessage(
     paragraph = [];
   };
 
+  const toBlock = (list: RawList): ListBlock => ({
+    type: 'list',
+    ordered: list.ordered,
+    start: list.start,
+    items: list.items.map((item) => ({
+      segments: inline(item.lines.join('\n')),
+      children: item.children.map(toBlock),
+    })),
+  });
+
   while (index < lines.length) {
     const line = lines[index] ?? '';
+
+    const singleLine = SINGLE_LINE_FENCE.exec(line);
+    if (singleLine) {
+      flushParagraph();
+      blocks.push({ type: 'code', text: singleLine[1] ?? '', language: null });
+      index++;
+      continue;
+    }
 
     const fence = FENCE.exec(line);
     if (fence) {
       flushParagraph();
       index++;
       const body: string[] = [];
-      while (index < lines.length && !CLOSING_FENCE.test(lines[index] ?? '')) {
-        body.push(lines[index] ?? '');
+      while (index < lines.length) {
+        const closing = CLOSING_FENCE.exec(lines[index] ?? '');
         index++;
+        if (closing) {
+          if (closing[1]) body.push(closing[1]);
+          break;
+        }
+        body.push(lines[index - 1] ?? '');
       }
-      if (index < lines.length) index++; // consume the closing fence
       blocks.push({ type: 'code', text: body.join('\n'), language: fence[1] || null });
       continue;
     }
@@ -296,14 +479,38 @@ export function parseMessage(
       continue;
     }
 
-    if (QUOTE.test(line)) {
+    const subtext = SUBTEXT.exec(line);
+    if (subtext) {
+      flushParagraph();
+      blocks.push({ type: 'subtext', segments: inline(subtext[1] ?? '') });
+      index++;
+      continue;
+    }
+
+    if (allowQuotes && QUOTE_REST.test(line)) {
+      flushParagraph();
+      const rest = [line.replace(QUOTE_REST, ''), ...lines.slice(index + 1)];
+      blocks.push({ type: 'quote', blocks: parseBlocks(rest, inline, false) });
+      index = lines.length;
+      continue;
+    }
+
+    if (allowQuotes && QUOTE_LINE.test(line)) {
       flushParagraph();
       const quote: string[] = [];
-      while (index < lines.length && QUOTE.test(lines[index] ?? '')) {
-        quote.push((lines[index] ?? '').replace(QUOTE, ''));
+      while (index < lines.length && QUOTE_LINE.test(lines[index] ?? '')) {
+        quote.push((lines[index] ?? '').replace(QUOTE_LINE, ''));
         index++;
       }
-      blocks.push({ type: 'quote', segments: inline(quote.join('\n')) });
+      blocks.push({ type: 'quote', blocks: parseBlocks(quote, inline, false) });
+      continue;
+    }
+
+    if (LIST_ITEM.test(line)) {
+      flushParagraph();
+      const { list, next } = readList(lines, index);
+      blocks.push(toBlock(list));
+      index = next;
       continue;
     }
 
@@ -313,4 +520,25 @@ export function parseMessage(
 
   flushParagraph();
   return blocks;
+}
+
+/**
+ * Every inline segment outside code, from every block however deeply nested:
+ * what a caller wants when asking whether a message mentions someone.
+ */
+export function inlineSegmentsOf(blocks: readonly MessageBlock[]): InlineSegment[] {
+  const out: InlineSegment[] = [];
+  const visitList = (list: ListBlock): void => {
+    for (const item of list.items) {
+      out.push(...item.segments);
+      item.children.forEach(visitList);
+    }
+  };
+  for (const block of blocks) {
+    if (block.type === 'code') continue;
+    if (block.type === 'quote') out.push(...inlineSegmentsOf(block.blocks));
+    else if (block.type === 'list') visitList(block);
+    else out.push(...block.segments);
+  }
+  return out;
 }

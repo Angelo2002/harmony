@@ -1,7 +1,7 @@
 import type { Message, User } from '@harmony/shared';
 // The extension is deliberate: unlike the rest of the client's modules, this one
 // is imported straight by Node in the text smoke test, which resolves nothing.
-import { parseMessage } from './message-text.ts';
+import { inlineSegmentsOf, parseMessage } from './message-text.ts';
 
 /**
  * Whether a message is aimed at one particular user: a reply to them, or their
@@ -18,11 +18,7 @@ export function mentionsUser(
   // Only mentions matter here, so the emoji lookup stays empty rather than
   // dragging the whole emoji list into a notification decision.
   const blocks = parseMessage(message.content, new Map(), resolve);
-  return blocks.some(
-    (block) =>
-      block.type !== 'code' &&
-      block.segments.some((segment) => segment.type === 'mention' && segment.user.id === userId),
-  );
+  return inlineSegmentsOf(blocks).some((segment) => segment.type === 'mention' && segment.user.id === userId);
 }
 
 export interface MergeResult {

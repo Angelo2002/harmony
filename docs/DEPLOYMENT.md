@@ -275,6 +275,51 @@ stopped. The uploaded blobs are content-addressed, so the database is the index:
 copy the two together and they stay consistent. Retention pruning removes blobs
 nothing references any more, so a backup is also a good time to let it run.
 
+### From the admin panel
+
+The owner can also download a backup from **Admin → Backup** without shell
+access. It is a single `harmony-backup-<server>-<date>.tar.gz` holding a
+consistent snapshot of the database (taken with SQLite's online backup, so the
+server keeps running) and the whole `uploads/` directory, laid out exactly like
+the data directory:
+
+```
+harmony.db
+uploads/<first two hex digits>/<sha-256>
+```
+
+Only the owner can download one, not other administrators: the archive holds
+every password hash, the Discord bot token and sign-in secret, and every message,
+including deleted ones and those in locked channels. Keep it somewhere only you
+can read. Each download is recorded in the audit log.
+
+To restore from it:
+
+```sh
+# 1. Stop Harmony.
+sudo systemctl stop harmony
+
+# 2. Move the current data aside rather than deleting it, in case you need it.
+mv data data.before-restore
+mkdir data
+
+# 3. Extract the archive into the data directory.
+tar -xzf harmony-backup-myserver-2026-10-03.tar.gz -C data
+
+# 4. Start Harmony again.
+sudo systemctl start harmony
+```
+
+If you extract over an existing data directory instead, delete
+`harmony.db-wal` and `harmony.db-shm` first: they belong to the old database,
+and SQLite would try to apply them to the restored one. Use `HARMONY_DATA_DIR`
+in place of `data` if you moved it. The archive does not carry `.env`, so keep
+that alongside it.
+
+The same tab exports a single channel's history as JSON or as a standalone HTML
+page, for administrators with Manage Server. That is a record to read or hand to
+another tool, not a backup: it cannot be restored.
+
 ## Running as a service
 
 A minimal systemd unit, assuming the checkout is at `/opt/harmony` and runs as a

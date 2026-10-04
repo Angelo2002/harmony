@@ -46,8 +46,8 @@ import {
   updateChannel,
   type ChannelRow,
 } from '../db/channels.ts';
-import { listUnreadChannelIds, markChannelRead } from '../db/channel_reads.ts';
-import { listChannelsWithUnreadMentions } from '../db/mentions.ts';
+import { listReadMarkers, listUnreadChannelIds, markChannelRead } from '../db/channel_reads.ts';
+import { countUnreadMentions } from '../db/mentions.ts';
 import type { Database } from '../db/index.ts';
 import { newestMessageAt } from '../db/messages.ts';
 import { findRole } from '../db/roles.ts';
@@ -112,23 +112,19 @@ export function registerChannelRoutes(app: FastifyInstance, deps: ChannelRouteDe
     // Locked channels and categories are left out rather than listed and refused.
     const access = channelAccessFor(db.sqlite, auth.user.id);
     const channels = visibleChannels(db.sqlite, access);
+    // Only the channels just listed are asked about, so a channel this member
+    // cannot see is not even considered, let alone reported as having news.
+    const channelIds = channels.map((channel) => channel.id);
+    const mentionCounts = countUnreadMentions(db.sqlite, auth.user.id, channelIds);
     const body: ChannelListResponse = {
       categories: visibleCategories(db.sqlite, access).map(toCategory),
       channels: channels.map(toChannel),
-      // Only the channels just listed are asked about, so a channel this member
-      // cannot see is not even considered, let alone reported as having news.
-      unreadChannelIds: listUnreadChannelIds(
-        db.sqlite,
-        auth.user.id,
-        channels.map((channel) => channel.id),
-      ),
-      // The same list, narrowed to the channels that hold an unread mention or
-      // reply, which is what draws the red mark beside a channel.
-      mentionChannelIds: listChannelsWithUnreadMentions(
-        db.sqlite,
-        auth.user.id,
-        channels.map((channel) => channel.id),
-      ),
+      unreadChannelIds: listUnreadChannelIds(db.sqlite, auth.user.id, channelIds),
+      // The channels that hold an unread mention or reply, and how many, which
+      // is what draws the red number beside a channel.
+      mentionChannelIds: Object.keys(mentionCounts),
+      mentionCounts,
+      readMarkers: listReadMarkers(db.sqlite, auth.user.id, channelIds),
       // Freshly read every time, so a client picks up an admin's change on reload.
       defaultChannelId: settings.get().defaultChannelId,
     };

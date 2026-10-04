@@ -20,6 +20,10 @@
     member_update: 'profile',
     member_delete: 'deleted',
     password_reset: 'password',
+    message_pin: 'pin',
+    message_unpin: 'unpin',
+    backup_download: 'backup',
+    channel_export: 'export',
   };
 
   let entries = $state<AuditEntry[]>([]);
@@ -116,6 +120,14 @@
         return `deleted ${targetName(entry)}'s account`;
       case 'password_reset':
         return `reset the password for ${targetName(entry)}`;
+      case 'message_pin':
+        return `pinned a message in #${entry.detail.channelName ?? 'a channel'}`;
+      case 'message_unpin':
+        return `unpinned a message in #${entry.detail.channelName ?? 'a channel'}`;
+      case 'backup_download':
+        return 'downloaded a full backup';
+      case 'channel_export':
+        return `exported #${entry.detail.channelName ?? 'a channel'} as ${entry.detail.filename?.endsWith('.html') ? 'HTML' : 'JSON'}`;
     }
   }
 </script>

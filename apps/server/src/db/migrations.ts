@@ -507,4 +507,90 @@ export const migrations: Migration[] = [
       db.exec(`ALTER TABLE roles ADD COLUMN badge TEXT NOT NULL DEFAULT 'none'`);
     },
   },
+  {
+    version: 23,
+    name: 'message_pins',
+    up(db) {
+      /*
+       * Pinned messages. A message is pinned at most once, to the channel it
+       * already belongs to, so the pin is two columns on the message rather than
+       * a table of its own: every query that reads a message (history, search,
+       * the inbox) carries the pin state for free, and a retention delete takes
+       * the pin with the row. A soft-deleted message keeps its columns but is
+       * filtered out of the pin list, as it is everywhere else. Whoever pinned it
+       * is kept for the record and cleared if their account goes. The partial
+       * index serves the per-channel pin list and its count, and stays as small
+       * as the pins themselves.
+       */
+      db.exec(`ALTER TABLE messages ADD COLUMN pinned_at TEXT`);
+      db.exec(`ALTER TABLE messages ADD COLUMN pinned_by TEXT REFERENCES users(id) ON DELETE SET NULL`);
+      db.exec(`CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at) WHERE pinned_at IS NOT NULL`);
+    },
+  },
+  {
+    version: 24,
+    name: 'channel_settings',
+    up(db) {
+      /*
+       * Each member's mute and notification choices for a channel or a category.
+       * A row names exactly one of the two, each through its own foreign key, so
+       * deleting the channel or category takes the row with it rather than
+       * leaving a setting for something that is gone. Only rows that differ from
+       * the defaults are kept: undoing everything deletes the row.
+       *
+       * `muted` and `mute_ends_at` together describe a mute: an end in the past
+       * simply means it has lifted, which is read off the clock rather than
+       * swept, so nothing has to run for a mute to end on time. A null end with
+       * `muted` set lasts until the member turns it off.
+       *
+       * Like the read marker this is one member's business and nobody else's.
+       */
+      db.exec(`
+        CREATE TABLE channel_settings (
+          user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          channel_id   TEXT REFERENCES channels(id) ON DELETE CASCADE,
+          category_id  TEXT REFERENCES categories(id) ON DELETE CASCADE,
+          muted        INTEGER NOT NULL DEFAULT 0,
+          mute_ends_at TEXT,
+          level        TEXT NOT NULL DEFAULT 'default',
+          updated_at   TEXT NOT NULL,
+          CHECK ((channel_id IS NULL) <> (category_id IS NULL))
+        );
+        CREATE UNIQUE INDEX idx_channel_settings_channel
+          ON channel_settings(user_id, channel_id) WHERE channel_id IS NOT NULL;
+        CREATE UNIQUE INDEX idx_channel_settings_category
+          ON channel_settings(user_id, category_id) WHERE category_id IS NOT NULL;
+      `);
+    },
+  },
+  {
+    version: 25,
+    name: 'saved_messages',
+    up(db) {
+      /*
+       * Messages a member saved for later, Discord's bookmarks. Unlike a pin this
+       * is one person's own list, so it is a table keyed by member and message
+       * rather than a column on the message. Either going takes the save with it:
+       * a retention delete or a deleted account leaves nothing dangling. A soft
+       * delete keeps the row, and the list filters it out like every other read,
+       * so a message nobody can see any more simply stops showing.
+       *
+       * `remind_at` turns a save into a reminder; most saves have none. The
+       * partial index serves the "what is due next" question without growing
+       * with the plain saves.
+       */
+      db.exec(`
+        CREATE TABLE saved_messages (
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+          saved_at   TEXT NOT NULL,
+          remind_at  TEXT,
+          PRIMARY KEY (user_id, message_id)
+        );
+        CREATE INDEX idx_saved_messages_user_saved ON saved_messages(user_id, saved_at DESC);
+        CREATE INDEX idx_saved_messages_message ON saved_messages(message_id);
+        CREATE INDEX idx_saved_messages_remind ON saved_messages(user_id, remind_at) WHERE remind_at IS NOT NULL;
+      `);
+    },
+  },
 ];

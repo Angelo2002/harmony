@@ -21,6 +21,10 @@ export interface MessageRow {
   reply_to_id: string | null;
   /** The unfurled link preview as JSON, or NULL. */
   embed: string | null;
+  /** When the message was pinned, or NULL. See `db/pins.ts`. */
+  pinned_at: string | null;
+  /** Who pinned it, or NULL when unpinned or once that account is gone. */
+  pinned_by: string | null;
 }
 
 /** Reads the stored embed JSON back into a preview, ignoring anything malformed. */

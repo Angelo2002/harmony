@@ -182,7 +182,11 @@ export type AuditKind =
   | 'role_remove'
   | 'member_update'
   | 'member_delete'
-  | 'password_reset';
+  | 'password_reset'
+  | 'message_pin'
+  | 'message_unpin'
+  | 'backup_download'
+  | 'channel_export';
 
 /**
  * The kind-specific fields of an audit entry. Every field is optional because
@@ -194,6 +198,10 @@ export type AuditKind =
  * - `timeout_add`: `durationMinutes`. `ban`: `reason`.
  * - `role_add` / `role_remove`: `roleName`.
  * - `member_update`: `fields`, the account fields an administrator changed.
+ * - `message_pin` / `message_unpin`: `channelName`, and `before` holding the
+ *   message text as it read when it was pinned or unpinned. The target is the
+ *   message's author.
+ * - `backup_download`: `filename`. `channel_export`: `channelName` and `filename`.
  *
  * `actorName` and `targetName` are snapshots taken when the entry was written,
  * so it stays readable after a rename or a deletion.
@@ -242,6 +250,25 @@ export interface Message {
   reactions: Reaction[];
   /** A preview of the first embeddable link in `content`, or null. */
   embed: LinkEmbed | null;
+  /** When the message was pinned to its channel, or null when it is not pinned. */
+  pinnedAt: IsoTimestamp | null;
+  /**
+   * Whether the viewer has saved this message for later. Like a reaction's `me`
+   * it is one member's perspective, so a broadcast always carries false and
+   * clients keep the value they already hold.
+   */
+  saved: boolean;
+}
+
+/**
+ * One message a member saved for later, as their saved list shows it. Saves are
+ * private: nobody but the member who made one ever sees it.
+ */
+export interface SavedMessage {
+  message: Message;
+  savedAt: IsoTimestamp;
+  /** When to remind them about it, or null for a plain save. */
+  remindAt: IsoTimestamp | null;
 }
 
 /**

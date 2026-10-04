@@ -4,7 +4,7 @@
   import { ApiError } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
   import { avatarUrl, initial } from '../lib/avatar';
-  import { parseMessage, type InlineSegment } from '../lib/message-text';
+  import { inlineSegmentsOf, parseMessage } from '../lib/message-text';
   import { emojis } from '../lib/emojis.svelte';
   import { gifs } from '../lib/gifs.svelte';
   import { members } from '../lib/members.svelte';
@@ -14,6 +14,7 @@
   import EmbedVideo from './EmbedVideo.svelte';
   import Icon from './Icon.svelte';
   import MemberBadge from './MemberBadge.svelte';
+  import MessageContent from './MessageContent.svelte';
   import PinAction from './PinAction.svelte';
 
   /** Opens the profile card for an author, when there is one to show. */
@@ -325,55 +326,6 @@
   });
 </script>
 
-{#snippet inlineSegments(segments: InlineSegment[])}
-  {#each segments as segment, index (index)}
-    <span
-      class="seg"
-      class:bold={segment.styles?.bold}
-      class:italic={segment.styles?.italic}
-      class:underline={segment.styles?.underline}
-      class:strike={segment.styles?.strike}
-      class:spoiler={segment.styles?.spoiler}
-    >
-      {#if segment.type === 'emoji'}
-        <img
-          class="emoji"
-          src={`/api/v1/emojis/${segment.emoji.id}`}
-          alt={`:${segment.emoji.name}:`}
-          title={`:${segment.emoji.name}:`}
-        />
-      {:else if segment.type === 'mention'}
-        <button
-          type="button"
-          class="mention profile-trigger"
-          title={`@${segment.user.username}`}
-          onmouseenter={(event) => openCard(segment.user, event.currentTarget)}
-          onmouseleave={() => profileCard.scheduleHide()}
-          onfocus={(event) => openCard(segment.user, event.currentTarget)}
-          onblur={() => profileCard.scheduleHide()}
-        >
-          @{segment.user.displayName ?? segment.user.username}
-        </button>
-      {:else if segment.type === 'channel'}
-        <button
-          type="button"
-          class="channel-mention"
-          title={`#${segment.channel.name}`}
-          onclick={() => chat.selectChannel(segment.channel.id)}
-        >
-          #{segment.channel.name}
-        </button>
-      {:else if segment.type === 'link'}
-        <a class="link" href={segment.href} target="_blank" rel="noreferrer noopener">{segment.value}</a>
-      {:else if segment.type === 'code'}
-        <code class="inline-code">{segment.value}</code>
-      {:else}
-        {segment.value}
-      {/if}
-    </span>
-  {/each}
-{/snippet}
-
 {#snippet embedText(embed: LinkEmbed)}
   {#if embed.siteName}<span class="embed-site">{embed.siteName}</span>{/if}
   {#if embed.title}<span class="embed-title">{embed.title}</span>{/if}
@@ -409,10 +361,8 @@
         (name) => members.byUsername.get(name.toLowerCase()),
         chat.channels,
       )}
-      {@const mentionsMe = blocks.some(
-        (block) =>
-          block.type !== 'code' &&
-          block.segments.some((segment) => segment.type === 'mention' && segment.user.id === myId),
+      {@const mentionsMe = inlineSegmentsOf(blocks).some(
+        (segment) => segment.type === 'mention' && segment.user.id === myId,
       )}
       {@const picture = avatarUrl(message.author)}
       <!--
@@ -502,21 +452,7 @@
             </form>
           {:else}
             {#if message.content && !isOnlyTheLink(message)}
-              <div class="content">
-                {#each blocks as block, blockIndex (blockIndex)}
-                  {#if block.type === 'code'}
-                    <pre class="code-block"><code>{block.text}</code></pre>
-                  {:else if block.type === 'quote'}
-                    <blockquote class="quote">{@render inlineSegments(block.segments)}</blockquote>
-                  {:else if block.type === 'header'}
-                    <p class="md-header" class:md-h1={block.level === 1} class:md-h2={block.level === 2}>
-                      {@render inlineSegments(block.segments)}
-                    </p>
-                  {:else}
-                    <p class="paragraph">{@render inlineSegments(block.segments)}</p>
-                  {/if}
-                {/each}
-              </div>
+              <div class="content"><MessageContent {blocks} /></div>
             {/if}
 
             {#if message.stickers.length > 0}

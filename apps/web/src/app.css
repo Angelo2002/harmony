@@ -1089,6 +1089,120 @@ img.avatar {
   color: inherit;
 }
 
+/* ---- Message formatting: lists, subtext, timestamps, code ---- */
+
+.content .md-header.md-h3 {
+  font-size: 1.02rem;
+}
+
+.content .md-subtext {
+  margin: 0;
+  color: var(--h-text-faint);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.content .md-list {
+  margin: 0.15rem 0;
+  padding-left: 1.4rem;
+}
+
+.content .md-list .md-list {
+  margin: 0;
+}
+
+.content ul.md-list { list-style-type: disc; }
+.content ul.md-list ul.md-list { list-style-type: circle; }
+.content ul.md-list ul.md-list ul.md-list { list-style-type: square; }
+
+.content .md-list > li::marker {
+  color: var(--h-text-muted);
+}
+
+.content .md-timestamp {
+  padding: 0 0.2rem;
+  border-radius: var(--h-radius-xs);
+  background: var(--h-hover);
+  cursor: help;
+}
+
+.content .code-block-frame {
+  position: relative;
+}
+
+.content .code-copy {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--h-radius-xs);
+  border: 1px solid var(--h-border);
+  background: var(--h-bg-elevated);
+  color: var(--h-text-muted);
+  font-size: 0.72rem;
+  box-shadow: none;
+  opacity: 0;
+  transition: opacity var(--h-duration) var(--h-ease);
+}
+
+.content .code-block-frame:hover .code-copy,
+.content .code-copy:focus-visible {
+  opacity: 1;
+}
+
+/*
+ * Syntax colors. Like the status colors their hues are fixed, so syntax reads as
+ * syntax whatever the accent is, but each is pulled part of the way toward the
+ * theme's text color: lighter on a dark theme, darker on a light one, so the
+ * same rule keeps its contrast either way. (light-dark() would be the obvious
+ * tool, but the theme sets color-scheme from script, which the build's
+ * lowering of light-dark() cannot see.)
+ */
+.code-block {
+  --syntax-red: color-mix(in srgb, #e5534b 70%, var(--h-text));
+  --syntax-green: color-mix(in srgb, #3fa055 70%, var(--h-text));
+  --syntax-blue: color-mix(in srgb, #4a8fe0 70%, var(--h-text));
+  --syntax-purple: color-mix(in srgb, #a371f7 70%, var(--h-text));
+  --syntax-orange: color-mix(in srgb, #d1802a 70%, var(--h-text));
+  --syntax-teal: color-mix(in srgb, #2a9d8f 70%, var(--h-text));
+}
+
+.hljs-comment,
+.hljs-quote { color: var(--h-text-faint); font-style: italic; }
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-meta .hljs-keyword,
+.hljs-doctag { color: var(--syntax-red); }
+.hljs-string,
+.hljs-regexp,
+.hljs-meta .hljs-string { color: var(--syntax-green); }
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-meta,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id { color: var(--syntax-blue); }
+.hljs-title,
+.hljs-title.function_,
+.hljs-section { color: var(--syntax-purple); }
+.hljs-type,
+.hljs-built_in,
+.hljs-title.class_,
+.hljs-symbol { color: var(--syntax-orange); }
+.hljs-name,
+.hljs-tag,
+.hljs-selector-pseudo,
+.hljs-bullet { color: var(--syntax-teal); }
+.hljs-addition { color: var(--syntax-green); background: color-mix(in srgb, #3fa055 15%, transparent); }
+.hljs-deletion { color: var(--syntax-red); background: color-mix(in srgb, #e5534b 15%, transparent); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
+
 /* ---- Embeds ---- */
 
 .embed {

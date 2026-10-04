@@ -52,13 +52,14 @@
   }
 
   async function remove(item: MediaItem): Promise<void> {
-    if (!confirm(`Delete ${item.attachment.filename}? This cannot be undone.`)) return;
+    const what = item.copies > 1 ? `all ${item.copies} copies of ${item.attachment.filename}` : item.attachment.filename;
+    if (!confirm(`Delete ${what}? This cannot be undone.`)) return;
 
     busy = true;
     error = null;
     try {
-      await api(`/attachments/${item.attachment.id}`, { method: 'DELETE' });
-      media = media.filter((entry) => entry.attachment.id !== item.attachment.id);
+      await api(`/media/${item.attachment.hash}`, { method: 'DELETE' });
+      media = media.filter((entry) => entry.attachment.hash !== item.attachment.hash);
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : String(cause);
     } finally {
@@ -73,7 +74,10 @@
 
 <section>
   <h3>Media</h3>
-  <p class="muted">Every image and video stored on this instance, newest first. Deleting one frees its bytes.</p>
+  <p class="muted">
+    Every image and video stored on this instance, newest first. Identical files are grouped, with how often each has
+    been shared; deleting one frees its bytes.
+  </p>
   {#if error}<p class="form-error">{error}</p>{/if}
 
   {#if media.length === 0 && !loading}
@@ -102,6 +106,9 @@
                 loading="lazy"
               />
             </a>
+          {/if}
+          {#if item.copies > 1}
+            <span class="media-copies" title={`Sent ${item.copies} times`}>×{item.copies}</span>
           {/if}
           <div class="media-meta">
             <span class="media-name" title={item.attachment.filename}>{item.attachment.filename}</span>

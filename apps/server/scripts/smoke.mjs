@@ -4467,6 +4467,64 @@ try {
     JSON.stringify(mediaEntry?.detail),
   );
 
+  // Identical bytes sent twice is one gallery entry with a reuse count, and the
+  // hash delete removes every copy so the bytes actually free.
+  const repeatedPng = await sharp({
+    create: { width: 9, height: 9, channels: 3, background: { r: 200, g: 30, b: 90 } },
+  })
+    .png()
+    .toBuffer();
+  async function uploadBytes(bytes, name) {
+    const form = new FormData();
+    form.append('file', new Blob([bytes], { type: 'image/png' }), name);
+    return (
+      await fetch(`${BASE}/attachments`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${ownerToken}` },
+        body: form,
+      })
+    ).json();
+  }
+  const repeatedA = await uploadBytes(repeatedPng, 'repeat.png');
+  const repeatedB = await uploadBytes(repeatedPng, 'repeat-again.png');
+  for (const [content, attachmentId] of [
+    ['shared twice', repeatedA.id],
+    ['and again', repeatedB.id],
+  ]) {
+    await req(`/channels/${colorChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content, attachmentIds: [attachmentId] },
+    });
+  }
+  check('identical uploads share one content hash', repeatedA.hash === repeatedB.hash);
+  const groupedItems = ((await req('/media', { token: ownerToken })).json?.media ?? []).filter(
+    (item) => item.attachment.hash === repeatedA.hash,
+  );
+  check(
+    'the media gallery groups identical media into one entry',
+    groupedItems.length === 1 && groupedItems[0].copies === 2,
+    JSON.stringify(groupedItems.map((item) => item.copies)),
+  );
+  check(
+    'a member cannot delete grouped media (403)',
+    (await req(`/media/${repeatedA.hash}`, { method: 'DELETE', token: bobToken })).status === 403,
+  );
+  check(
+    'deleting grouped media removes every copy',
+    (await req(`/media/${repeatedA.hash}`, { method: 'DELETE', token: ownerToken })).status === 204,
+  );
+  check(
+    'the deleted group leaves the gallery',
+    ((await req('/media', { token: ownerToken })).json?.media ?? []).some(
+      (item) => item.attachment.hash === repeatedA.hash,
+    ) === false,
+  );
+  check(
+    'deleting a missing group 404s',
+    (await req(`/media/${repeatedA.hash}`, { method: 'DELETE', token: ownerToken })).status === 404,
+  );
+
   // --- Backups and channel exports ---
   const backupPng = await sharp({
     create: { width: 9, height: 7, channels: 3, background: { r: 200, g: 10, b: 90 } },

@@ -30,4 +30,17 @@ export function registerMediaRoutes(app: FastifyInstance, deps: MediaRouteDeps):
     deps.audit.mediaDeleted(auth.user.id, removed.filename, removed.channelName);
     return reply.status(204).send();
   });
+
+  /**
+   * Removes every stored copy of one piece of content. The gallery groups by hash,
+   * so this is what its delete acts on: deleting one copy of shared bytes would
+   * leave the others, and the blob, in place.
+   */
+  app.delete('/api/v1/media/:hash', async (request, reply) => {
+    const auth = requirePermission(request, Permission.ManageServer);
+    const { hash } = request.params as { hash: string };
+    const removed = deps.service.removeByHash(hash);
+    deps.audit.mediaDeleted(auth.user.id, removed.filename, removed.channelName);
+    return reply.status(204).send();
+  });
 }

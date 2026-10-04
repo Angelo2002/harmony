@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { MediaItem, MediaListResponse, MediaQuery } from '@harmony/shared';
 import type { Config } from '../config.ts';
 import { findChannel } from '../db/channels.ts';
-import { findAttachment, listMedia, deleteAttachment, listReferencedHashes, toAttachment } from '../db/attachments.ts';
+import { findAttachment, listMedia, deleteAttachment, deleteAttachmentsByHash, listAttachmentsByHash, listReferencedHashes, toAttachment } from '../db/attachments.ts';
 import { findMessage } from '../db/messages.ts';
 import { findUserById, presentUser } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
@@ -15,10 +15,15 @@ export interface RemovedMedia {
 }
 
 export interface MediaService {
-  /** A page of stored images, newest first. */
+  /** A page of stored images, newest first, one entry per unique piece of content. */
   list(query: MediaQuery): MediaListResponse;
   /** Deletes an attachment and reclaims its bytes when nothing else uses them. */
   remove(attachmentId: string): RemovedMedia;
+  /**
+   * Deletes every copy sharing a content hash, which is what actually frees the
+   * bytes, and reclaims them when nothing else references the blob.
+   */
+  removeByHash(hash: string): RemovedMedia;
 }
 
 export function createMediaService(sqlite: DatabaseSync, config: Config): MediaService {
@@ -44,6 +49,7 @@ export function createMediaService(sqlite: DatabaseSync, config: Config): MediaS
           uploader: uploaderRow ? presentUser(sqlite, uploaderRow) : null,
           channelId: row.channel_id,
           channelName: row.channel_name,
+          copies: row.copies,
         };
       });
       return { media };
@@ -63,6 +69,23 @@ export function createMediaService(sqlite: DatabaseSync, config: Config): MediaS
       if (!listReferencedHashes(sqlite).has(row.hash)) blobs.delete(row.hash);
 
       return { filename: row.filename, channelName };
+    },
+
+    removeByHash(hash) {
+      const rows = listAttachmentsByHash(sqlite, hash);
+      if (rows.length === 0) throw new HttpError(404, 'media_not_found', 'That media does not exist.');
+
+      // The newest copy names the file and channel for the audit log.
+      const newest = rows[0]!;
+      const channelName = channelNameFor(newest.message_id);
+
+      deleteAttachmentsByHash(sqlite, hash);
+
+      // Now that every copy is gone, the blob is unreferenced unless an emoji,
+      // avatar or saved gif still points at the same bytes.
+      if (!listReferencedHashes(sqlite).has(hash)) blobs.delete(hash);
+
+      return { filename: newest.filename, channelName };
     },
   };
 }

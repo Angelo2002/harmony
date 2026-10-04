@@ -209,20 +209,31 @@ export function listAttachmentsForMessages(
 export interface MediaRow extends AttachmentRow {
   channel_id: string | null;
   channel_name: string | null;
+  /** How many stored attachments share this content hash. */
+  copies: number;
 }
 
 /**
- * A page of stored media, newest first, with the channel each attachment's
- * message belongs to. Abandoned uploads (no message yet) come back with null
- * channel fields. The cursor mirrors message history: timestamp plus id.
+ * A page of stored media, newest first, one entry per unique piece of content.
+ *
+ * Rows are grouped by content hash: the same bytes sent ten times is one entry
+ * carrying `copies: 10`, not ten. The representative row is the newest copy, so
+ * the uploader, channel and date shown are those of the most recent send, and the
+ * cursor mirrors message history on that representative's timestamp plus rowid.
+ * Abandoned uploads (no message yet) come back with null channel fields.
  */
 export function listMedia(
   sqlite: DatabaseSync,
   options: { limit: number; before?: string; beforeId?: string },
 ): MediaRow[] {
   const { limit, before, beforeId } = options;
-  const base = `SELECT a.*, m.channel_id AS channel_id, c.name AS channel_name
-                FROM attachments a
+  const base = `SELECT a.*, m.channel_id AS channel_id, c.name AS channel_name, g.copies AS copies
+                FROM (SELECT hash, COUNT(*) AS copies, MAX(created_at) AS newest_at
+                        FROM attachments GROUP BY hash) g
+                JOIN attachments a ON a.rowid = (
+                  SELECT a2.rowid FROM attachments a2
+                   WHERE a2.hash = g.hash AND a2.created_at = g.newest_at
+                   ORDER BY a2.rowid DESC LIMIT 1)
                 LEFT JOIN messages m ON m.id = a.message_id
                 LEFT JOIN channels c ON c.id = m.channel_id`;
 
@@ -231,16 +242,31 @@ export function listMedia(
       ? sqlite
           .prepare(
             `${base}
-             WHERE a.created_at < ?
-                OR (a.created_at = ? AND a.rowid < (SELECT rowid FROM attachments WHERE id = ?))
-             ORDER BY a.created_at DESC, a.rowid DESC LIMIT ?`,
+             WHERE g.newest_at < ?
+                OR (g.newest_at = ? AND a.rowid < (SELECT rowid FROM attachments WHERE id = ?))
+             ORDER BY g.newest_at DESC, a.rowid DESC LIMIT ?`,
           )
           .all(before, before, beforeId, limit)
       : before
-        ? sqlite.prepare(`${base} WHERE a.created_at < ? ORDER BY a.created_at DESC, a.rowid DESC LIMIT ?`).all(before, limit)
-        : sqlite.prepare(`${base} ORDER BY a.created_at DESC, a.rowid DESC LIMIT ?`).all(limit);
+        ? sqlite
+            .prepare(`${base} WHERE g.newest_at < ? ORDER BY g.newest_at DESC, a.rowid DESC LIMIT ?`)
+            .all(before, limit)
+        : sqlite.prepare(`${base} ORDER BY g.newest_at DESC, a.rowid DESC LIMIT ?`).all(limit);
 
   return rows as unknown as MediaRow[];
+}
+
+/** Deletes every attachment sharing a content hash, returning how many went. */
+export function deleteAttachmentsByHash(sqlite: DatabaseSync, hash: string): number {
+  const result = sqlite.prepare('DELETE FROM attachments WHERE hash = ?').run(hash);
+  return Number(result.changes);
+}
+
+/** Every attachment row with this content hash, newest first. */
+export function listAttachmentsByHash(sqlite: DatabaseSync, hash: string): AttachmentRow[] {
+  return sqlite
+    .prepare('SELECT * FROM attachments WHERE hash = ? ORDER BY created_at DESC, rowid DESC')
+    .all(hash) as unknown as AttachmentRow[];
 }
 
 export function deleteAttachment(sqlite: DatabaseSync, id: string): boolean {

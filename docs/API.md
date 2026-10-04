@@ -1145,11 +1145,14 @@ or `404 attachment_not_found`.
 
 ### Media gallery
 
-The admin gallery lists every stored image and video in one place.
+The admin gallery lists every stored image and video in one place. Media is grouped by content
+hash, so the same bytes sent many times is a single entry carrying a `copies` count of how often it
+was shared; deleting that entry removes every copy and frees the bytes.
 
 #### `GET /api/v1/media` — `ManageServer`
 
-A page of stored media, **newest first**.
+A page of media, **newest first**, one entry per unique piece of content. The entry for a group is
+its newest copy, so the `uploader`, channel and date are those of the most recent send.
 
 | Query | Type | Default | Notes |
 | --- | --- | --- | --- |
@@ -1167,14 +1170,22 @@ together.
       "attachment": { "...": "..." },
       "uploader": { "...": "..." },
       "channelId": "...",
-      "channelName": "general"
+      "channelName": "general",
+      "copies": 3
     }
   ]
 }
 ```
 
 `uploader`, `channelId` and `channelName` are `null` for an upload that was never attached to a
-message.
+message. `copies` is how many stored copies of these exact bytes exist.
+
+#### `DELETE /api/v1/media/:hash` — `ManageServer`
+
+Deletes every stored copy of the content with this hash, then reclaims the blob once nothing else —
+no other attachment, emoji, avatar or saved gif — references the same bytes. This is what the
+gallery's delete acts on, since removing a single copy would leave the rest, and the bytes, in
+place. Returns `204`, or `404 media_not_found`.
 
 ### Gifs and the picker
 

@@ -247,6 +247,11 @@ export interface MediaItem {
   /** Channel holding the attachment's message, or null for an abandoned upload. */
   channelId: string | null;
   channelName: string | null;
+  /**
+   * How many copies of this exact content are stored — the same bytes sent this
+   * many times. Storage keeps one blob regardless; this is how often it was shared.
+   */
+  copies: number;
 }
 
 /** A page of the media gallery, newest first. */

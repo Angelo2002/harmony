@@ -3189,6 +3189,7 @@ button.roster-member:hover {
 }
 
 .media-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -3219,6 +3220,21 @@ button.roster-member:hover {
   object-fit: cover;
   border-radius: var(--h-radius-xs);
   background: #000;
+}
+
+/* How many times the same bytes were sent, over the corner of the thumbnail. */
+.media-copies {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--h-radius-full);
+  background: rgb(0 0 0 / 65%);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.5;
+  pointer-events: none;
 }
 
 .media-meta {

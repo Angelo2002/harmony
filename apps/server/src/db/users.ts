@@ -145,6 +145,20 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
       .run(fromId, intoId);
     sqlite.prepare('UPDATE channel_reads SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
 
+    // Mutes and notification levels: where both accounts chose something for
+    // the same channel or category, the survivor's own choice stands.
+    sqlite
+      .prepare(
+        `DELETE FROM channel_settings
+          WHERE user_id = ?
+            AND EXISTS (SELECT 1 FROM channel_settings s
+                         WHERE s.user_id = ?
+                           AND (s.channel_id = channel_settings.channel_id
+                                OR s.category_id = channel_settings.category_id))`,
+      )
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE channel_settings SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
     sqlite
       .prepare(
         `DELETE FROM mentions

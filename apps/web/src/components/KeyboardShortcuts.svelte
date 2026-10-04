@@ -6,7 +6,16 @@
   import QuickSwitcher from './QuickSwitcher.svelte';
   import ShortcutHelp from './ShortcutHelp.svelte';
 
-  const order = $derived(sidebarOrder(chat.categories, chat.channels).map((channel) => channel.id));
+  const ordered = $derived(sidebarOrder(chat.categories, chat.channels));
+  const order = $derived(ordered.map((channel) => channel.id));
+  /** Muted channels are skipped by the unread arrows, as on Discord, unless they hold a mention. */
+  const unreadStops = $derived(
+    new Set(
+      ordered
+        .filter((channel) => chat.unreadShown(channel) || chat.mentionsShown(channel) > 0)
+        .map((channel) => channel.id),
+    ),
+  );
 
   // Every channel opened, by whatever route, is what the switcher offers first.
   $effect(() => {
@@ -21,7 +30,7 @@
       order,
       chat.activeChannelId,
       direction,
-      unreadOnly ? (id) => chat.unread.has(id) || chat.mention.has(id) : undefined,
+      unreadOnly ? (id) => unreadStops.has(id) : undefined,
     );
     if (!next) return;
     void chat.selectChannel(next);

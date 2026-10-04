@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { LIMITS, MAX_ICON_PADDING, MAX_UPLOAD_CEILING_BYTES } from './constants.ts';
 import { TIMEOUT_MAX_MINUTES } from './moderation.ts';
 import { MAX_SLOWMODE_SECONDS } from './slowmode.ts';
+import { MAX_MUTE_SECONDS, NOTIFICATION_LEVELS } from './channel-settings.ts';
 import { HEX_COLOR_PATTERN } from './theme.ts';
 
 export const usernameSchema = z
@@ -452,3 +453,22 @@ export const banSchema = z.object({
   reason: z.string().trim().max(300).nullable().optional(),
 });
 export type BanInput = z.infer<typeof banSchema>;
+
+/**
+ * One member's mute and notification settings for a channel or category.
+ * Omitting a field leaves it as it was, so the mute menu and the notification
+ * menu can each change their own half. `muteSeconds` only means something when
+ * muting: a length to mute for, or null (or omitted) for "until I turn it back on".
+ */
+export const updateChannelSettingsSchema = z
+  .object({
+    muted: z.boolean().optional(),
+    muteSeconds: z.number().int().min(1).max(MAX_MUTE_SECONDS).nullable().optional(),
+    level: z.enum(NOTIFICATION_LEVELS).optional(),
+  })
+  .refine((value) => value.muted !== undefined || value.level !== undefined, { message: 'Nothing to update.' })
+  .refine((value) => value.muteSeconds == null || value.muted === true, {
+    message: 'A mute length only goes with muted: true.',
+    path: ['muteSeconds'],
+  });
+export type UpdateChannelSettingsInput = z.infer<typeof updateChannelSettingsSchema>;

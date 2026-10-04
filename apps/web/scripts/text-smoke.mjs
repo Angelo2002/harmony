@@ -1,13 +1,23 @@
 // Focused checks for the client's pure logic: parsing message text into markdown,
 // links, emoji and mentions, the merge that catches up after being away, deciding
 // whether a message is aimed at you, what the emoji picker offers and finds, and
-// the quick switcher's matching, the channel arrows and the unread tab title,
-// and reading the time expressions the composer turns into timestamps.
+// the quick switcher's matching, the channel arrows, the unread tab title and
+// how mutes change it, how a channel inherits its category's settings, where
+// the "new" line and the new-messages bar land, and reading the time
+// expressions the composer turns into timestamps.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { listEmbeddableUrls, matchChannelName, rewriteChannelMentions } from '@harmony/shared';
+import {
+  MUTE_DURATIONS,
+  isMuteActive,
+  listEmbeddableUrls,
+  matchChannelName,
+  nextMuteExpiry,
+  resolveChannelSettings,
+  rewriteChannelMentions,
+} from '@harmony/shared';
 import { highlight } from '../src/lib/highlighter.ts';
 import { inlineSegmentsOf, parseMessage } from '../src/lib/message-text.ts';
 import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
@@ -17,6 +27,7 @@ import {
   sidebarOrder,
   stepChannel,
   unreadBadge,
+  unreadSummary,
   unreadTitle,
 } from '../src/lib/quick-switch.ts';
 import {
@@ -27,6 +38,7 @@ import {
   timestampToken,
   toDateTimeInputs,
 } from '../src/lib/time-input.ts';
+import { firstUnreadIndex, muteLabel, newMessageCount, newMessagesLabel, pillCount } from '../src/lib/unread.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
 
@@ -592,10 +604,125 @@ check('a query matching nothing lists nothing', rank('zzz').length === 0);
 // --- Unread tab title and app badge ---
 check('nothing unread shows the bare name', unreadTitle('Harmony', 0, 0) === 'Harmony');
 check('unread without mentions shows a dot', unreadTitle('Harmony', 0, 3) === '• Harmony');
-check('mentions show how many channels hold one', unreadTitle('Harmony', 2, 5) === '(2) Harmony');
+check('mentions show how many are waiting', unreadTitle('Harmony', 2, 5) === '(2) Harmony');
 check('the app badge is a number for mentions', unreadBadge(2, 5) === 2);
 check('the app badge is a dot for plain unread', unreadBadge(0, 1) === 'dot');
 check('the app badge clears when all is read', unreadBadge(0, 0) === null);
+
+// --- Unread totals with mutes and notification levels ---
+{
+  const listed = [{ id: 'loud' }, { id: 'hushed' }, { id: 'silent' }, { id: 'pinged' }];
+  const settings = {
+    loud: { muted: false, level: 'all' },
+    hushed: { muted: true, level: 'all' },
+    silent: { muted: false, level: 'nothing' },
+    pinged: { muted: true, level: 'mentions' },
+  };
+  const summary = (unread, counts) =>
+    unreadSummary(listed, new Set(unread), counts, (channel) => settings[channel.id]);
+  const quietOnly = summary(['hushed'], {});
+  check('a muted channel adds nothing to the title', quietOnly.unread === 0 && quietOnly.mentions === 0);
+  check('nor does the title mark it', unreadTitle('Harmony', quietOnly.mentions, quietOnly.unread) === 'Harmony');
+  const both = summary(['loud', 'hushed'], {});
+  check('an unmuted unread channel still counts', both.unread === 1 && unreadBadge(both.mentions, both.unread) === 'dot');
+  const mentioned = summary(['pinged', 'silent'], { pinged: 3, silent: 4 });
+  check(
+    'mentions in a muted channel still count, but not where nothing is wanted',
+    mentioned.mentions === 3 && mentioned.unread === 2,
+  );
+  check('the title counts mentions, not channels', unreadTitle('Harmony', 7, 2) === '(7) Harmony');
+  check(
+    'a channel that is no longer listed counts for nothing',
+    summary(['gone'], { gone: 2 }).mentions === 0 && summary(['gone'], { gone: 2 }).unread === 0,
+  );
+}
+
+// --- Mute and notification settings, with category inheritance ---
+{
+  const now = Date.parse('2026-01-01T12:00:00Z');
+  const later = '2026-01-01T13:00:00.000Z';
+  const sooner = '2026-01-01T12:30:00.000Z';
+  const past = '2026-01-01T11:00:00.000Z';
+  const setting = (fields) => ({ targetId: 'x', targetType: 'channel', muted: false, muteEndsAt: null, level: 'default', ...fields });
+
+  const plain = resolveChannelSettings(undefined, undefined, now);
+  check('no settings means unmuted and all messages', !plain.muted && plain.level === 'all');
+  check(
+    'a channel inherits its category level',
+    resolveChannelSettings(undefined, setting({ level: 'mentions' }), now).level === 'mentions',
+  );
+  check(
+    'a channel level beats its category',
+    resolveChannelSettings(setting({ level: 'all' }), setting({ level: 'nothing' }), now).level === 'all',
+  );
+  check(
+    'a category left on default falls back to the server default',
+    resolveChannelSettings(setting({ level: 'default' }), setting({ level: 'default' }), now).level === 'all',
+  );
+  const byCategory = resolveChannelSettings(undefined, setting({ muted: true, muteEndsAt: later }), now);
+  check(
+    'a muted category mutes its channels',
+    byCategory.muted && byCategory.mutedByCategory && byCategory.muteEndsAt === later,
+  );
+  check('an expired mute is no mute', !resolveChannelSettings(setting({ muted: true, muteEndsAt: past }), undefined, now).muted);
+  check('a mute lifts exactly at its end', !isMuteActive({ muted: true, muteEndsAt: sooner }, Date.parse(sooner)));
+  check('a mute without an end lasts', isMuteActive({ muted: true, muteEndsAt: null }, now + 1e12));
+  const both = resolveChannelSettings(
+    setting({ muted: true, muteEndsAt: sooner }),
+    setting({ muted: true, muteEndsAt: later }),
+    now,
+  );
+  check('with both muted the later end wins', both.muted && !both.mutedByCategory && both.muteEndsAt === later);
+  check(
+    'and a mute with no end beats any end',
+    resolveChannelSettings(setting({ muted: true, muteEndsAt: sooner }), setting({ muted: true }), now).muteEndsAt === null,
+  );
+  check(
+    'the next expiry is the soonest one still ahead',
+    nextMuteExpiry(
+      [
+        { muted: true, muteEndsAt: later },
+        { muted: true, muteEndsAt: sooner },
+        { muted: true, muteEndsAt: past },
+        { muted: true, muteEndsAt: null },
+        { muted: false, muteEndsAt: null },
+      ],
+      now,
+    ) === Date.parse(sooner),
+  );
+  check('nothing to expire gives null', nextMuteExpiry([{ muted: true, muteEndsAt: null }], now) === null);
+  check('the menus offer Discord\'s six mute lengths', MUTE_DURATIONS.map((d) => d.seconds).join() === '900,3600,10800,28800,86400,');
+  check('a mute with no end says so', muteLabel(null) === 'Muted until you turn it back on');
+  check('a mute ending today gives just a time', /^Muted until \d/.test(muteLabel(new Date(now + 60_000).toISOString(), now)));
+}
+
+// --- The "new" line and the bar above it ---
+{
+  const me = 'me';
+  const at = (minute) => `2026-01-01T12:${String(minute).padStart(2, '0')}:00.000Z`;
+  const msg = (id, minute, author = 'them') => ({ id, createdAt: at(minute), author: author === null ? null : { id: author } });
+  const list = [msg('a', 1), msg('b', 2), msg('c', 3, me), msg('d', 4), msg('e', 5)];
+
+  check('no marker, no line', firstUnreadIndex(list, null, me, true) === -1);
+  check('the line goes above the first message after the marker', firstUnreadIndex(list, at(1), me, false) === 1);
+  check('your own message never gets the line', firstUnreadIndex(list, at(2), me, false) === 3);
+  check('a message from a deleted account still counts', firstUnreadIndex([msg('x', 1), msg('y', 2, null)], at(1), me, false) === 1);
+  check('nothing newer, no line', firstUnreadIndex(list, at(5), me, false) === -1);
+  check(
+    'when older history is not loaded the line waits for it',
+    firstUnreadIndex(list, at(0), me, false) === -1 && firstUnreadIndex(list, at(0), me, true) === 0,
+  );
+  const counted = newMessageCount(list, at(1), me, false);
+  check('the bar counts new messages from others', counted.count === 3 && !counted.more);
+  const partial = newMessageCount(list, at(0), me, false);
+  check('and says "more" when the marker is beyond what is loaded', partial.count === 4 && partial.more);
+  check('a whole channel loaded has no "more"', newMessageCount(list, at(0), me, true).more === false);
+  const clock = () => '12:01';
+  check('the bar reads naturally', newMessagesLabel(3, false, at(1), clock) === '3 new messages since 12:01');
+  check('one message is singular', newMessagesLabel(1, false, at(1), clock) === '1 new message since 12:01');
+  check('a partial count gets a plus', newMessagesLabel(50, true, at(1), clock) === '50+ new messages since 12:01');
+  check('pills cap at 99+', pillCount(5) === '5' && pillCount(99) === '99' && pillCount(100) === '99+');
+}
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

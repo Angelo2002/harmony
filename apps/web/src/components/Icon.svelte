@@ -83,5 +83,11 @@
     <path d="m19 21 2-2" />
   {:else if name === 'shield'}
     <path d="M12 21.5c4.4-2.1 7-5.4 7-9.5V5.4L12 2.8 5 5.4V12c0 4.1 2.6 7.4 7 9.5z" />
+  {:else if name === 'chevron-down'}
+    <path d="m6 9 6 6 6-6" />
+  {:else if name === 'more'}
+    <path d="M5.5 12h.01" stroke-width="3" />
+    <path d="M12 12h.01" stroke-width="3" />
+    <path d="M18.5 12h.01" stroke-width="3" />
   {/if}
 </svg>

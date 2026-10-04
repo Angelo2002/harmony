@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { chat } from '../lib/chat.svelte';
   import { meta } from '../lib/meta.svelte';
-  import { unreadBadge, unreadTitle } from '../lib/quick-switch';
+  import { channelSettings } from '../lib/channel-settings.svelte';
+  import { unreadBadge, unreadSummary, unreadTitle } from '../lib/quick-switch';
 
   /**
    * The Badging API, which only some browsers have and only an installed app
@@ -14,22 +15,18 @@
     clearAppBadge?: () => Promise<void>;
   }
 
-  /*
-   * Counted over the channels actually listed, so a stale id the server still
-   * remembers for a channel this member can no longer see cannot keep the tab
-   * marked with nothing in the sidebar to explain it.
-   */
-  const mentions = $derived(chat.channels.filter((channel) => chat.mention.has(channel.id)).length);
-  const unread = $derived(
-    chat.channels.filter((channel) => chat.unread.has(channel.id) || chat.mention.has(channel.id)).length,
+  // Muted channels keep quiet here too, and mentions stop counting only where
+  // the member asked to hear about nothing at all.
+  const summary = $derived(
+    unreadSummary(chat.channels, chat.unread, chat.mentionCounts, (channel) => channelSettings.resolve(channel)),
   );
 
   $effect(() => {
-    document.title = unreadTitle(meta.serverName, mentions, unread);
+    document.title = unreadTitle(meta.serverName, summary.mentions, summary.unread);
   });
 
   $effect(() => {
-    setBadge(unreadBadge(mentions, unread));
+    setBadge(unreadBadge(summary.mentions, summary.unread));
   });
 
   /** Best effort: a browser may refuse, such as when the app is not installed. */

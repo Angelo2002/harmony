@@ -27,36 +27,39 @@ export function insertMention(
 }
 
 /**
- * The channels holding a mention or reply this member has not read, which is
- * what puts a mark beside them. A mention counts as read exactly when the
- * channel does, so the same cursor that clears a channel's unread mark clears
- * this too, and there is no second read state to keep in step.
+ * How many mentions and replies this member has not read in each channel, which
+ * is the number drawn beside it. Channels with none are left out. A mention
+ * counts as read exactly when the channel does, so the same cursor that clears
+ * a channel's unread mark clears this too, and there is no second read state to
+ * keep in step. A message deleted since no longer counts, the way it no longer
+ * shows in the inbox.
  *
  * Callers pass only the channels the member may see, so a channel that has been
  * locked away is not even considered.
  */
-export function listChannelsWithUnreadMentions(
+export function countUnreadMentions(
   sqlite: DatabaseSync,
   userId: string,
   channelIds: string[],
-): string[] {
-  if (channelIds.length === 0) return [];
+): Record<string, number> {
+  if (channelIds.length === 0) return {};
 
   const placeholders = channelIds.map(() => '?').join(', ');
   const rows = sqlite
     .prepare(
-      `SELECT DISTINCT mn.channel_id AS id
+      `SELECT mn.channel_id AS id, COUNT(*) AS count
          FROM mentions mn
          JOIN messages m ON m.id = mn.message_id
          LEFT JOIN channel_reads r ON r.user_id = mn.user_id AND r.channel_id = mn.channel_id
         WHERE mn.user_id = ?
           AND m.deleted_at IS NULL
           AND mn.channel_id IN (${placeholders})
-          AND mn.created_at > COALESCE(r.read_at, '')`,
+          AND mn.created_at > COALESCE(r.read_at, '')
+        GROUP BY mn.channel_id`,
     )
-    .all(userId, ...channelIds) as unknown as Array<{ id: string }>;
+    .all(userId, ...channelIds) as unknown as Array<{ id: string; count: number }>;
 
-  return rows.map((row) => row.id);
+  return Object.fromEntries(rows.map((row) => [row.id, Number(row.count)]));
 }
 
 /**

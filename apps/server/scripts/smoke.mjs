@@ -3432,6 +3432,219 @@ try {
   );
   await req(`/members/${bobId}`, { method: 'PATCH', token: ownerToken, body: { discordId: null } });
 
+  // --- Mention counts and unread state ---
+  // The channel list counts unread mentions per channel rather than flagging
+  // them, says how far each channel was read, and ignores deleted messages.
+  {
+    const countsRoom = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'countsroom' } }))
+      .json.id;
+    const listFor = async (token) => (await channelsFor(token)).json;
+    await postIn(countsRoom, ownerToken, { content: '@bob one' });
+    await postIn(countsRoom, ownerToken, { content: '@bob two' });
+    const third = await postIn(countsRoom, ownerToken, { content: '@bob three' });
+    await postIn(countsRoom, ownerToken, { content: 'nobody named here' });
+
+    let list = await listFor(bobToken);
+    check('every unread mention in a channel is counted', list.mentionCounts?.[countsRoom] === 3);
+    check('the counted channels are the mention list', list.mentionChannelIds.includes(countsRoom));
+    check('a channel never read has no read marker', list.readMarkers?.[countsRoom] === undefined);
+    check('the poster has no mentions counted there', (await listFor(ownerToken)).mentionCounts[countsRoom] === undefined);
+
+    await req(`/messages/${third.json.id}`, { method: 'DELETE', token: ownerToken });
+    list = await listFor(bobToken);
+    check('a deleted mention stops counting', list.mentionCounts[countsRoom] === 2);
+
+    await req(`/channels/${countsRoom}/read`, { method: 'POST', token: bobToken });
+    list = await listFor(bobToken);
+    check(
+      'reading the channel clears its count',
+      list.mentionCounts[countsRoom] === undefined && !list.mentionChannelIds.includes(countsRoom),
+    );
+    check(
+      'and moves its read marker to the newest message',
+      typeof list.readMarkers[countsRoom] === 'string' && !list.unreadChannelIds.includes(countsRoom),
+    );
+
+    // A deleted message is not news: once the only new message goes, so does the mark.
+    const fleeting = await postIn(countsRoom, ownerToken, { content: 'here and gone' });
+    check('a new message makes the channel unread', (await listFor(bobToken)).unreadChannelIds.includes(countsRoom));
+    await req(`/messages/${fleeting.json.id}`, { method: 'DELETE', token: ownerToken });
+    check(
+      'deleting it leaves the channel read again',
+      !(await listFor(bobToken)).unreadChannelIds.includes(countsRoom),
+    );
+
+    // A mention in a channel locked away from bob is never counted for him.
+    const countsRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Counts' } });
+    const countsLocked = await req('/channels', {
+      method: 'POST',
+      token: ownerToken,
+      body: { name: 'countslocked', requiredRoleId: countsRole.json.id },
+    });
+    await postIn(countsLocked.json.id, ownerToken, { content: '@bob behind a lock' });
+    list = await listFor(bobToken);
+    check(
+      'a locked channel leaks no mention count, unread mark or read marker',
+      list.mentionCounts[countsLocked.json.id] === undefined &&
+        !list.unreadChannelIds.includes(countsLocked.json.id) &&
+        list.readMarkers[countsLocked.json.id] === undefined,
+    );
+    await req(`/channels/${countsLocked.json.id}`, { method: 'DELETE', token: ownerToken });
+    await req(`/roles/${countsRole.json.id}`, { method: 'DELETE', token: ownerToken });
+    await req(`/channels/${countsRoom}`, { method: 'DELETE', token: ownerToken });
+  }
+
+  // --- Mute and notification settings ---
+  {
+    const settingsOf = async (token) => (await req('/users/@me/channel-settings', { token })).json?.settings ?? [];
+    const put = (targetId, body, token = bobToken) =>
+      req(`/users/@me/channel-settings/${targetId}`, { method: 'PUT', token, body });
+    const quietCategory = (
+      await req('/categories', { method: 'POST', token: ownerToken, body: { name: 'Quiet corner' } })
+    ).json;
+    const quietRoom = (
+      await req('/channels', {
+        method: 'POST',
+        token: ownerToken,
+        body: { name: 'quietroom', categoryId: quietCategory.id },
+      })
+    ).json;
+
+    check('nobody starts with any settings', (await settingsOf(bobToken)).length === 0);
+    check(
+      'reading settings needs a session (401)',
+      (await req('/users/@me/channel-settings')).status === 401,
+    );
+
+    const bobWatcher = await openGateway({ token: bobToken });
+    const ownerWatcher = await openGateway({ token: ownerToken });
+    const before = Date.now();
+    const muted = await put(quietRoom.id, { muted: true, muteSeconds: 900 });
+    const endsIn = Date.parse(muted.json?.muteEndsAt ?? '') - before;
+    check(
+      'muting a channel for 15 minutes is accepted',
+      muted.status === 200 &&
+        muted.json.targetType === 'channel' &&
+        muted.json.muted === true &&
+        endsIn > 899_000 &&
+        endsIn < 905_000 &&
+        muted.json.level === 'default',
+      JSON.stringify(muted.json),
+    );
+    await sleep(250);
+    check(
+      'the change reaches the member\'s own sessions',
+      bobWatcher.events.some((event) => event.t === 'CHANNEL_SETTINGS_UPDATE' && event.d?.targetId === quietRoom.id),
+    );
+    check(
+      'and nobody else\'s',
+      !ownerWatcher.events.some((event) => event.t === 'CHANNEL_SETTINGS_UPDATE'),
+    );
+    bobWatcher.ws.close();
+    ownerWatcher.ws.close();
+
+    const leveled = await put(quietRoom.id, { level: 'mentions' });
+    check(
+      'changing the level leaves the mute alone',
+      leveled.json?.level === 'mentions' && leveled.json.muted === true && leveled.json.muteEndsAt === muted.json.muteEndsAt,
+    );
+
+    const categoryMuted = await put(quietCategory.id, { muted: true });
+    check(
+      'a category can be muted until turned back on',
+      categoryMuted.status === 200 &&
+        categoryMuted.json.targetType === 'category' &&
+        categoryMuted.json.muted === true &&
+        categoryMuted.json.muteEndsAt === null,
+    );
+    await put(quietCategory.id, { level: 'nothing' });
+    let mine = await settingsOf(bobToken);
+    const ofRoom = mine.find((entry) => entry.targetId === quietRoom.id);
+    const ofCategory = mine.find((entry) => entry.targetId === quietCategory.id);
+    check(
+      'channel and category settings are kept apart, the channel only inheriting on the client',
+      mine.length === 2 && ofRoom?.level === 'mentions' && ofCategory?.level === 'nothing' && ofCategory?.muted === true,
+    );
+    check(
+      'settings are only visible to their owner',
+      (await settingsOf(ownerToken)).every((entry) => entry.targetId !== quietRoom.id && entry.targetId !== quietCategory.id),
+    );
+
+    await put(quietCategory.id, { muted: false });
+    mine = await settingsOf(bobToken);
+    check(
+      'unmuting the category keeps its level and the channel\'s own settings',
+      mine.find((entry) => entry.targetId === quietCategory.id)?.level === 'nothing' &&
+        mine.find((entry) => entry.targetId === quietRoom.id)?.muted === true,
+    );
+
+    const unmuted = await put(quietRoom.id, { muted: false });
+    check(
+      'unmuting a channel keeps its level',
+      unmuted.json?.muted === false && unmuted.json.muteEndsAt === null && unmuted.json.level === 'mentions',
+    );
+    await put(quietRoom.id, { level: 'default' });
+    check(
+      'settings back on the defaults are forgotten',
+      !(await settingsOf(bobToken)).some((entry) => entry.targetId === quietRoom.id),
+    );
+
+    // A short mute lifts on its own, read off the clock rather than swept.
+    await put(quietRoom.id, { muted: true, muteSeconds: 1 });
+    await sleep(1300);
+    const expired = (await settingsOf(bobToken)).find((entry) => entry.targetId === quietRoom.id);
+    check(
+      'an expired mute reads as no mute',
+      expired !== undefined && expired.muted === false && expired.muteEndsAt === null,
+    );
+    check(
+      'and stays lifted when something else changes',
+      (await put(quietRoom.id, { level: 'all' })).json?.muted === false,
+    );
+
+    for (const [body, why] of [
+      [{}, 'an empty change'],
+      [{ muted: true, muteSeconds: 0 }, 'a zero-length mute'],
+      [{ muted: true, muteSeconds: 1.5 }, 'a fractional mute'],
+      [{ muted: true, muteSeconds: 400 * 24 * 60 * 60 }, 'a mute longer than a year'],
+      [{ muteSeconds: 60 }, 'a length without muting'],
+      [{ muted: false, muteSeconds: 60 }, 'a length while unmuting'],
+      [{ level: 'loud' }, 'an unknown level'],
+      [{ muted: 'yes' }, 'a muted flag that is not a boolean'],
+    ]) {
+      check(`${why} is refused (400)`, (await put(quietRoom.id, body)).status === 400);
+    }
+    check('an unknown target is refused (404)', (await put('no-such-channel', { muted: true })).status === 404);
+
+    // A locked channel answers exactly like a missing one, so it cannot be probed.
+    const settingsRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Settings' } });
+    const settingsLocked = await req('/channels', {
+      method: 'POST',
+      token: ownerToken,
+      body: { name: 'settingslocked', requiredRoleId: settingsRole.json.id },
+    });
+    check(
+      'a channel the member cannot see is refused like a missing one (404)',
+      (await put(settingsLocked.json.id, { muted: true })).status === 404,
+    );
+    check(
+      'while someone who can see it may mute it',
+      (await put(settingsLocked.json.id, { muted: true }, ownerToken)).status === 200,
+    );
+    await req(`/channels/${settingsLocked.json.id}`, { method: 'DELETE', token: ownerToken });
+    check(
+      'deleting a channel takes its settings with it',
+      !(await settingsOf(ownerToken)).some((entry) => entry.targetId === settingsLocked.json.id),
+    );
+    await req(`/roles/${settingsRole.json.id}`, { method: 'DELETE', token: ownerToken });
+    await req(`/channels/${quietRoom.id}`, { method: 'DELETE', token: ownerToken });
+    await req(`/categories/${quietCategory.id}`, { method: 'DELETE', token: ownerToken });
+    check(
+      'and deleting a category takes its own',
+      !(await settingsOf(bobToken)).some((entry) => entry.targetId === quietCategory.id),
+    );
+  }
+
   // --- Audit log ---
   check('the audit log needs ManageServer (403)', (await req('/audit', { token: bobToken })).status === 403);
 

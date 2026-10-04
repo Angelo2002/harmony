@@ -2,6 +2,7 @@ import type {
   Category,
   Channel,
   ChannelListResponse,
+  ChannelNotificationSettings,
   MeResponse,
   Message,
   PruneSummary,
@@ -19,6 +20,7 @@ import { mentionsUser, mergeLatest } from './messages';
 import { members } from './members.svelte';
 import { roster } from './roster.svelte';
 import { session } from './session.svelte';
+import { channelSettings } from './channel-settings.svelte';
 import { playNotification } from './sounds';
 import { GatewayClient, type GatewayFrame } from './gateway';
 
@@ -34,6 +36,8 @@ const readDebounceMs = 1000;
 /** Page size, and most pages, used to re-check what is loaded after a prune. */
 const reconcilePageSize = 100;
 const reconcileMaxPages = 10;
+/** Most history pages a jump to the first unread message will load. */
+const unreadJumpMaxPages = 20;
 /** The longest delay `setTimeout` honors; anything longer fires at once. */
 const maxTimerMs = 2 ** 31 - 1;
 
@@ -104,13 +108,22 @@ class ChatStore {
   unreadChannelIds = $state<string[]>([]);
   unread = $derived(new Set(this.unreadChannelIds));
   /**
-   * Channels holding an unread mention or reply for this member, which is what
-   * draws the red mark beside a channel. Like `unreadChannelIds` it is per
-   * member and kept by the server, and a channel drops off it exactly when it is
-   * read.
+   * How many unread mentions and replies each channel holds for this member,
+   * which is the red number beside it. Like `unreadChannelIds` it is per member
+   * and kept by the server, and a channel drops off it exactly when it is read.
    */
-  mentionChannelIds = $state<string[]>([]);
+  mentionCounts = $state<Record<string, number>>({});
+  /** The channels with at least one unread mention, for anything that only needs to know whether. */
+  mentionChannelIds = $derived(Object.keys(this.mentionCounts));
   mention = $derived(new Set(this.mentionChannelIds));
+  /**
+   * Where this member had read the open channel up to when they opened it, while
+   * it still had something new in it; null when it had nothing. It is a snapshot
+   * on purpose: reading the channel moves the real marker at once, but the "new"
+   * line and the bar above it stay put until the member leaves, the way
+   * Discord's do, and are worked out afresh on the way back in.
+   */
+  newSince = $state<string | null>(null);
   /**
    * Bumped when a jump wants the message list to scroll to its end. An explicit
    * signal because replacing the list looks like a prepend to the view, which it
@@ -150,6 +163,21 @@ class ChatStore {
   #historyLoad = 0;
   /** Refreshes the session when a timeout runs out, so the composer reopens. */
   #timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * How far this member has read each channel, as the server last said plus
+   * whatever has been read here since. Only ever consulted when a channel is
+   * opened, to place the "new" line, so it need not be reactive.
+   */
+  #readMarkers = new Map<string, string>();
+  /** The newest message seen live in each channel, so reading one moves its marker that far. */
+  #latestSeen = new Map<string, string>();
+  /**
+   * Mentions counted here as they arrived, by message id, so deleting one can
+   * take it back off the count. Ones the server counted are settled by asking
+   * it again instead, since it alone knows which messages they were.
+   */
+  #liveMentions = new Map<string, string>();
+  #unreadRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   get activeChannel(): Channel | null {
     return this.channels.find((channel) => channel.id === this.activeChannelId) ?? null;
@@ -157,6 +185,21 @@ class ChatStore {
 
   channelsIn(categoryId: string | null): Channel[] {
     return this.channels.filter((channel) => channel.categoryId === categoryId);
+  }
+
+  /**
+   * The number on a channel's red pill: its unread mentions, unless the member
+   * asked to hear about nothing there. A mute alone does not hide it, as on
+   * Discord, since being named is what a mute still lets through.
+   */
+  mentionsShown(channel: Pick<Channel, 'id' | 'categoryId'>): number {
+    const count = this.mentionCounts[channel.id] ?? 0;
+    return count > 0 && channelSettings.resolve(channel).level !== 'nothing' ? count : 0;
+  }
+
+  /** Whether a channel stands out as unread: something new in it, and not muted. */
+  unreadShown(channel: Pick<Channel, 'id' | 'categoryId'>): boolean {
+    return this.unread.has(channel.id) && !channelSettings.resolve(channel).muted;
   }
 
   /**
@@ -174,6 +217,9 @@ class ChatStore {
     document.addEventListener('visibilitychange', this.#onVisibility);
     this.#scheduleTimeoutLift();
     await this.loadChannels();
+    // Settings only quiet things down, so a failure leaves everything on the
+    // defaults rather than keeping the app from starting.
+    await channelSettings.load().catch(() => {});
     await emojis.load();
     await gifs.loadFavorites();
     await members.load();
@@ -197,7 +243,14 @@ class ChatStore {
     this.detached = false;
     this.highlightedId = null;
     this.unreadChannelIds = [];
-    this.mentionChannelIds = [];
+    this.mentionCounts = {};
+    this.newSince = null;
+    this.#readMarkers.clear();
+    this.#latestSeen.clear();
+    this.#liveMentions.clear();
+    if (this.#unreadRefreshTimer) clearTimeout(this.#unreadRefreshTimer);
+    this.#unreadRefreshTimer = null;
+    channelSettings.reset();
     if (this.#highlightTimer) clearTimeout(this.#highlightTimer);
     this.#highlightTimer = null;
     if (this.#timeoutTimer) clearTimeout(this.#timeoutTimer);
@@ -226,6 +279,7 @@ class ChatStore {
     // moment, so the one refresh that would throw is caught rather than left to
     // surface as an unhandled rejection. The rest keep whatever they already have.
     void this.loadChannels().catch(() => {});
+    void channelSettings.load().catch(() => {});
     void roster.load();
     void members.load();
     void emojis.load();
@@ -342,8 +396,7 @@ class ChatStore {
     const data = await api<ChannelListResponse>('/channels');
     this.categories = data.categories;
     this.channels = data.channels;
-    this.unreadChannelIds = data.unreadChannelIds;
-    this.mentionChannelIds = data.mentionChannelIds;
+    this.#applyReadState(data);
 
     // Keep the current selection if it still exists. Otherwise open the
     // admin-configured default channel, falling back to the first channel and
@@ -359,6 +412,64 @@ class ChatStore {
     }
   }
 
+  /** Takes the server's word on what is unread, how many mentions wait where, and how far each channel was read. */
+  #applyReadState(data: ChannelListResponse): void {
+    this.unreadChannelIds = data.unreadChannelIds;
+    this.mentionCounts = data.mentionCounts;
+    // Whatever was counted live is in the server's numbers now.
+    this.#liveMentions.clear();
+    // A read sent a moment ago may not have landed yet, which is why markers
+    // only ever move forward here.
+    for (const [channelId, readAt] of Object.entries(data.readMarkers)) this.#advanceMarker(channelId, readAt);
+  }
+
+  /**
+   * Asks the server again what is unread, a moment after something happened
+   * that only it can settle, such as a message being deleted in a channel that
+   * has mentions waiting. Coalesced, since a purge deletes many at once.
+   */
+  #refreshUnreadSoon(): void {
+    if (this.#unreadRefreshTimer) return;
+    this.#unreadRefreshTimer = setTimeout(() => {
+      this.#unreadRefreshTimer = null;
+      void api<ChannelListResponse>('/channels')
+        .then((data) => {
+          this.#applyReadState(data);
+          // The open channel is being read, whatever the server thought a moment ago.
+          if (this.activeChannelId && document.visibilityState === 'visible' && !this.detached) {
+            this.#markRead(this.activeChannelId, true);
+          }
+        })
+        .catch(() => {});
+    }, readDebounceMs);
+  }
+
+  /**
+   * Marks channels read without opening them, from the sidebar's "Mark as
+   * read" on a channel or a whole category.
+   */
+  markChannelsRead(channelIds: readonly string[]): void {
+    let marked = false;
+    for (const channelId of channelIds) {
+      if (!this.unread.has(channelId) && !this.mention.has(channelId)) continue;
+      this.#markRead(channelId, false);
+      marked = true;
+    }
+    if (this.activeChannelId && channelIds.includes(this.activeChannelId)) this.newSince = null;
+    // Only the server knows which message a channel nobody opened was read up
+    // to, and the next visit's "new" line needs it.
+    if (marked) this.#refreshUnreadSoon();
+  }
+
+  /**
+   * The "Mark as read" on the bar over the open channel: the channel is read
+   * already, so this only lets go of the "new" line and the bar that points at it.
+   */
+  dismissNew(): void {
+    this.newSince = null;
+    if (this.activeChannelId) this.#markRead(this.activeChannelId, false);
+  }
+
   /**
    * Says the open channel has been read: it stops being marked here at once, and
    * the server is told, which is what makes it stay read across a reload.
@@ -371,10 +482,12 @@ class ChatStore {
     if (this.unread.has(channelId)) {
       this.unreadChannelIds = this.unreadChannelIds.filter((id) => id !== channelId);
     }
-    // Reading a channel reads the mentions in it too, so the mark goes with it.
-    if (this.mention.has(channelId)) {
-      this.mentionChannelIds = this.mentionChannelIds.filter((id) => id !== channelId);
-    }
+    // Reading a channel reads the mentions in it too, so the count goes with it.
+    if (channelId in this.mentionCounts) this.#setMentionCount(channelId, 0);
+    // The server moves its marker to the newest message; follow it as far as
+    // what has been seen here, so the next visit's "new" line starts after it.
+    if (channelId === this.activeChannelId) this.#advanceMarker(channelId, this.messages.at(-1)?.createdAt);
+    this.#advanceMarker(channelId, this.#latestSeen.get(channelId));
     this.#readPending.add(channelId);
 
     if (this.#readTimer) {
@@ -389,6 +502,20 @@ class ChatStore {
     } else {
       this.#flushRead();
     }
+  }
+
+  /** Sets one channel's mention count, dropping the entry once nothing is left. */
+  #setMentionCount(channelId: string, count: number): void {
+    const next = { ...this.mentionCounts };
+    if (count > 0) next[channelId] = count;
+    else delete next[channelId];
+    this.mentionCounts = next;
+  }
+
+  /** Moves this client's idea of a channel's read marker forward, never back. */
+  #advanceMarker(channelId: string, readAt: string | undefined): void {
+    const known = this.#readMarkers.get(channelId);
+    if (readAt && (!known || readAt > known)) this.#readMarkers.set(channelId, readAt);
   }
 
   #flushRead(): void {
@@ -420,11 +547,23 @@ class ChatStore {
     this.detached = false;
     this.replyTarget = null;
     this.highlightedId = null;
+    this.newSince = this.#unreadSince(channelId);
     if (channelId) this.#markRead(channelId, false);
     this.#clearTyping();
     if (channelId) await this.loadHistory(channelId);
     // Nothing to load, and any load still out belongs to a channel left behind.
     else this.loading = false;
+  }
+
+  /**
+   * Where the "new" line should start for a channel about to be opened: its
+   * read marker, if it has something unread past it. A channel never read at
+   * all has no marker, and drawing the line over its whole history would say
+   * nothing, so it gets none.
+   */
+  #unreadSince(channelId: string | null): string | null {
+    if (!channelId || !this.unread.has(channelId)) return null;
+    return this.#readMarkers.get(channelId) ?? null;
   }
 
   /** One page of a channel's history, ending just before the cursor when given. */
@@ -451,6 +590,8 @@ class ChatStore {
         this.messages = messages;
         this.hasMore = messages.length >= historyPageSize;
         this.detached = false;
+        // Opening the channel read it, up to what has just been loaded.
+        this.#advanceMarker(channelId, messages.at(-1)?.createdAt);
       }
     } catch (cause) {
       // Access to a locked channel can be taken away while it is open. Refresh the
@@ -483,6 +624,8 @@ class ChatStore {
    * from the present until the reader asks to go back.
    */
   async jumpToMessage(channelId: string, message: Message): Promise<void> {
+    // A jump within the open channel keeps its "new" line where it was.
+    if (channelId !== this.activeChannelId) this.newSince = this.#unreadSince(channelId);
     this.activeChannelId = channelId;
     this.messages = [];
     this.hasMore = false;
@@ -566,6 +709,23 @@ class ChatStore {
       this.hasMore = page.length >= historyPageSize;
     } finally {
       this.loadingOlder = false;
+    }
+  }
+
+  /**
+   * Loads older pages until the first message after the read marker is among
+   * them, for the bar that offers to jump there. Bounded, so a channel with a
+   * vast backlog stops at a sensible depth rather than pulling in everything.
+   */
+  async loadToFirstUnread(): Promise<void> {
+    const channelId = this.activeChannelId;
+    const since = this.newSince;
+    if (!channelId || since === null) return;
+    for (let pages = 0; pages < unreadJumpMaxPages; pages++) {
+      const oldest = this.messages[0];
+      if (!this.hasMore || !oldest || oldest.createdAt <= since || this.loadingOlder) return;
+      await this.loadOlder();
+      if (channelId !== this.activeChannelId) return;
     }
   }
 
@@ -735,12 +895,20 @@ class ChatStore {
     const me = session.user;
     if (!me || message.author?.id === me.id) return;
 
+    // The member's own say over the channel comes first: a muted channel, or one
+    // set to nothing, stays silent whatever arrives in it, and one set to only
+    // mentions lets nothing else through.
+    const channel = this.channels.find((entry) => entry.id === message.channelId);
+    const settings = channel ? channelSettings.resolve(channel) : null;
+    if (settings && (settings.muted || settings.level === 'nothing')) return;
+
     // A mention is aimed at this person wherever they happen to be looking, so
     // it is worth the louder sound even from another channel.
     if (this.#mentionsMe(message)) {
       if (me.notifyMajor) playNotification('major');
       return;
     }
+    if (settings?.level === 'mentions') return;
 
     // Anything else only counts in the channel being read. Otherwise a busy
     // instance would chirp once per message in every channel at once.
@@ -754,21 +922,33 @@ class ChatStore {
         this.#notify(message);
 
         const active = message.channelId === this.activeChannelId;
+        const mine = message.author !== null && message.author.id === session.user?.id;
+        this.#latestSeen.set(message.channelId, message.createdAt);
         // An open channel in a tab nobody is looking at has not really been read,
         // so only the visible case counts. Coming back to the tab readies it again.
         // Neither has one showing an older stretch, where the message is held back.
         const reading = active && document.visibilityState === 'visible' && !this.detached;
         if (reading) {
           this.#markRead(message.channelId, true);
-        } else if (!this.unread.has(message.channelId)) {
-          this.unreadChannelIds = [...this.unreadChannelIds, message.channelId];
+        } else if (mine) {
+          // Sent from another device. Posting reads the channel on the server, so
+          // it is not news here either, and the marker follows it.
+          this.#advanceMarker(message.channelId, message.createdAt);
+        } else {
+          // The first message to arrive unseen in the open channel is where the
+          // "new" line goes, for when the member comes back to the tab.
+          if (active && this.newSince === null) this.newSince = this.#readMarkers.get(message.channelId) ?? null;
+          if (!this.unread.has(message.channelId)) {
+            this.unreadChannelIds = [...this.unreadChannelIds, message.channelId];
+          }
         }
 
         // A mention aims at this member wherever they are, so it earns the red
-        // mark even in a channel they are not looking at. Reading it clears the
-        // mark, so the open-and-visible case is left to #markRead above.
-        if (!reading && this.#mentionsMe(message) && !this.mention.has(message.channelId)) {
-          this.mentionChannelIds = [...this.mentionChannelIds, message.channelId];
+        // number even in a channel they are not looking at. Reading it clears the
+        // count, so the open-and-visible case is left to #markRead above.
+        if (!reading && this.#mentionsMe(message)) {
+          this.#setMentionCount(message.channelId, (this.mentionCounts[message.channelId] ?? 0) + 1);
+          this.#liveMentions.set(message.id, message.channelId);
         }
 
         if (!active) break;
@@ -821,8 +1001,21 @@ class ChatStore {
         if (payload.channelId === this.activeChannelId) {
           this.messages = this.messages.filter((message) => message.id !== payload.id);
         }
+        // A deleted mention no longer counts. One counted here can be taken off
+        // directly; for the rest only the server knows whether this was one of
+        // them, and whether the channel still has anything unread without it.
+        const counted = this.#liveMentions.get(payload.id);
+        if (counted !== undefined) {
+          this.#liveMentions.delete(payload.id);
+          this.#setMentionCount(counted, (this.mentionCounts[counted] ?? 0) - 1);
+        } else if (this.unread.has(payload.channelId) && payload.channelId !== this.activeChannelId) {
+          this.#refreshUnreadSoon();
+        }
         break;
       }
+      case 'CHANNEL_SETTINGS_UPDATE':
+        channelSettings.apply(frame.d as ChannelNotificationSettings);
+        break;
       case 'TYPING_START': {
         const payload = frame.d as TypingStartPayload;
         if (payload.channelId !== this.activeChannelId) break;

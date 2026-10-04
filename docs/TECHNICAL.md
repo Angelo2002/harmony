@@ -345,8 +345,20 @@ and nothing is collected for the Discord stand-in accounts, since they can never
 
 There is deliberately **no second read cursor**. A mention is unread while the channel it landed in
 is unread, so reading the channel — including jumping to the message from the inbox — clears the red
-mark and the entry's unread state together. That is why `mentionChannelIds` in the channel list is
-just `unreadChannelIds` narrowed to the channels that hold one.
+mark and the entry's unread state together. That is why `mentionCounts` in the channel list is just
+a count of the mentions newer than each channel's read marker, and `mentionChannelIds` its keys.
+
+The client draws a "new" line and a "new messages since" bar from the same marker, which the channel
+list also returns as `readMarkers`. Opening a channel moves the marker at once, so the client takes a
+snapshot of it on the way in and keeps the line where it was until the member leaves. Read state is
+not broadcast, so reading a channel on one device clears it on another only at that device's next
+channel-list refresh (a reconnect or coming back to the tab).
+
+Mutes and notification levels (`channel_settings`, one row per member and channel or category, only
+for non-default choices) are deliberately separate from read state: they decide what the client
+dims, counts in the tab title and plays a sound for, never what is unread. A channel inherits from
+its category on the client, through `resolveChannelSettings` in `packages/shared`, and an expired mute
+is read off the clock rather than swept away.
 
 Which messages count as a mention is decided by the same parser that renders them, and the inbox uses
 one definition of "aimed at me" throughout: the same check drives the louder notification sound, the

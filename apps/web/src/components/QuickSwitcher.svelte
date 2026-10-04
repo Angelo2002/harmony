@@ -123,10 +123,10 @@
             <span class="qs-hash">
               {#if row.channel.discordChannelId}<Icon name="link" size={15} />{:else}#{/if}
             </span>
-            <span class="qs-name" class:unread={chat.unread.has(row.id)}>{row.channel.name}</span>
-            {#if chat.mention.has(row.id)}
+            <span class="qs-name" class:unread={chat.unreadShown(row.channel)}>{row.channel.name}</span>
+            {#if chat.mentionsShown(row.channel) > 0}
               <span class="qs-mention" title="You were mentioned"></span>
-            {:else if chat.unread.has(row.id)}
+            {:else if chat.unreadShown(row.channel)}
               <span class="qs-unread" title="Unread messages"></span>
             {/if}
             {#if row.category}<span class="qs-aside">{row.category}</span>{/if}

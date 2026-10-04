@@ -34,6 +34,10 @@
   {:else if name === 'inbox'}
     <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
     <path d="M4 13h4l2 3h4l2-3h4" />
+  {:else if name === 'pin'}
+    <path d="M9 3h6" />
+    <path d="M10 3v6.5L6.5 13v2h11v-2L14 9.5V3" />
+    <path d="M12 15v6" />
   {:else if name === 'users'}
     <circle cx="9" cy="8" r="3.2" />
     <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />

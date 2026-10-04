@@ -120,6 +120,14 @@ class ChatStore {
     return this.channels.filter((channel) => channel.categoryId === categoryId);
   }
 
+  /**
+   * Lets a panel follow live events for itself, such as the pins panel keeping
+   * its list in step with pins made elsewhere. Returns the unsubscribe.
+   */
+  onGatewayEvent(listener: (frame: GatewayFrame) => void): () => void {
+    return this.#gateway.onEvent(listener);
+  }
+
   async start(): Promise<void> {
     if (this.#started) return;
     this.#started = true;

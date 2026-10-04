@@ -7,6 +7,7 @@ export type IconName =
   | 'menu'
   | 'search'
   | 'inbox'
+  | 'pin'
   | 'users'
   | 'lock'
   | 'link'

@@ -14,6 +14,7 @@
   import EmbedVideo from './EmbedVideo.svelte';
   import Icon from './Icon.svelte';
   import MemberBadge from './MemberBadge.svelte';
+  import PinAction from './PinAction.svelte';
 
   /** Opens the profile card for an author, when there is one to show. */
   function openCard(user: User | null | undefined, element: HTMLElement): void {
@@ -484,10 +485,12 @@
               {/if}
               <time>{formatTime(message.createdAt)}</time>
               {#if message.editedAt}<span class="edited">(edited)</span>{/if}
+              {#if message.pinnedAt}<span class="pin-marker" title="Pinned"><Icon name="pin" size={13} /></span>{/if}
             </div>
           {:else if message.editedAt}
             <span class="edited">(edited)</span>
           {/if}
+          {#if grouped && message.pinnedAt}<span class="pin-marker grouped" title="Pinned"><Icon name="pin" size={13} /></span>{/if}
 
           {#if editingId === message.id}
             <form class="edit-form" onsubmit={(event) => saveEdit(event, message)}>
@@ -667,6 +670,7 @@
           >
             React
           </button>
+          <PinAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
           {#if canEdit(message)}
             <button
               type="button"

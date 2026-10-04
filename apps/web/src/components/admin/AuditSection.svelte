@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import type { AuditEntry, AuditKind, AuditListResponse } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
+  import { lightbox } from '../../lib/lightbox.svelte';
 
   const pageSize = 50;
 
@@ -169,7 +170,15 @@
           {#if entry.detail.attachments?.length}
             <div class="audit-media">
               {#each entry.detail.attachments as image (image.id)}
-                <a href={`/api/v1/attachments/${image.id}`} target="_blank" rel="noreferrer">
+                <a
+                  href={`/api/v1/attachments/${image.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onclick={(event) => {
+                    event.preventDefault();
+                    lightbox.open(`/api/v1/attachments/${image.id}`, image.filename);
+                  }}
+                >
                   <img src={`/api/v1/attachments/${image.id}`} alt={image.filename} loading="lazy" />
                 </a>
               {/each}

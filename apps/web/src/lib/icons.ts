@@ -19,6 +19,7 @@ export type IconName =
   | 'gif'
   | 'plus'
   | 'send'
+  | 'close'
   | 'heart'
   | 'heart-filled'
   | 'crown'

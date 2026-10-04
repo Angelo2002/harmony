@@ -3,6 +3,7 @@
   import type { MediaItem, MediaListResponse } from '@harmony/shared';
   import { ApiError, api } from '../../lib/api';
   import { formatBytes } from '../../lib/format';
+  import { lightbox } from '../../lib/lightbox.svelte';
 
   const pageSize = 50;
 
@@ -86,7 +87,15 @@
             <!-- svelte-ignore a11y_media_has_caption -->
             <video src={`/api/v1/attachments/${item.attachment.id}`} controls preload="metadata"></video>
           {:else}
-            <a href={`/api/v1/attachments/${item.attachment.id}`} target="_blank" rel="noreferrer">
+            <a
+              href={`/api/v1/attachments/${item.attachment.id}`}
+              target="_blank"
+              rel="noreferrer"
+              onclick={(event) => {
+                event.preventDefault();
+                lightbox.open(`/api/v1/attachments/${item.attachment.id}`, item.attachment.filename);
+              }}
+            >
               <img
                 src={`/api/v1/attachments/${item.attachment.id}`}
                 alt={item.attachment.filename}

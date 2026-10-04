@@ -20,6 +20,7 @@
   import type { IconName } from '../lib/icons';
   import { session } from '../lib/session.svelte';
   import { parseTimeExpression, timestampChoices, type ParsedMoment } from '../lib/time-input';
+  import { loadUnicodeEmoji, type UnicodeEmoji } from '../lib/unicode-emoji';
   import { uploads } from '../lib/upload-queue.svelte';
   import EmojiPicker from './EmojiPicker.svelte';
   import GifPicker from './GifPicker.svelte';
@@ -71,6 +72,27 @@
   let suggestionList = $state<HTMLUListElement | null>(null);
 
   /**
+   * The unicode set, loaded on first use rather than shipped with the app, the
+   * same way the emoji picker loads it. `:` autocomplete is the only place the
+   * composer needs it, so a session that never types one never pays for it.
+   */
+  let unicodeEmoji = $state<UnicodeEmoji[]>([]);
+  let unicodeRequested = false;
+
+  function ensureUnicodeEmoji(): void {
+    if (unicodeRequested) return;
+    unicodeRequested = true;
+    void loadUnicodeEmoji()
+      .then((groups) => {
+        unicodeEmoji = groups.flatMap((group) => group.emojis);
+      })
+      .catch(() => {
+        // Leave it empty and let the next `:` try again.
+        unicodeRequested = false;
+      });
+  }
+
+  /**
    * An `@` starts both a mention and a timestamp, so a mention trigger also
    * carries the moment its text reads as, when it reads as one.
    */
@@ -86,6 +108,8 @@
     detail: string | null;
     imageUrl: string | null;
     initial: string | null;
+    /** A unicode emoji shown as its own glyph, rather than an image or an initial. */
+    emoji?: string | null;
     icon: IconName | null;
     /** The text inserted when the row is accepted. */
     insert: string;
@@ -398,6 +422,7 @@
     if (next?.kind === 'mention' && activeTrigger?.kind !== 'mention') {
       void members.refreshIfStale(directoryMaxAgeMs);
     }
+    if (next?.kind === 'emoji') ensureUnicodeEmoji();
     activeTrigger = next;
   }
 
@@ -433,7 +458,7 @@
             (emoji) => !emoji.name.toLowerCase().startsWith(needle) && emoji.name.toLowerCase().includes(needle),
           )
         : [];
-      return [...prefix, ...rest].slice(0, maxSuggestions).map((emoji) => ({
+      const server: Suggestion[] = [...prefix, ...rest].map((emoji) => ({
         key: `emoji:${emoji.id}`,
         label: `:${emoji.name}:`,
         detail: null,
@@ -442,6 +467,31 @@
         icon: null,
         insert: `:${emoji.name}: `,
       }));
+
+      // Unicode emoji share the trigger. The instance's own come first, so a
+      // custom `:smile:` wins over the unicode one, and only a typed name brings
+      // them in: an empty query would otherwise drown the server emoji.
+      const unicode: Suggestion[] = needle
+        ? unicodeEmoji
+            .filter((emoji) => emoji.name.toLowerCase().includes(needle))
+            .sort((a, b) => {
+              const aPrefix = a.name.toLowerCase().startsWith(needle) ? 0 : 1;
+              const bPrefix = b.name.toLowerCase().startsWith(needle) ? 0 : 1;
+              return aPrefix - bPrefix || a.name.localeCompare(b.name);
+            })
+            .map((emoji) => ({
+              key: `unicode:${emoji.emoji}`,
+              label: emoji.name,
+              detail: null,
+              imageUrl: null,
+              initial: null,
+              emoji: emoji.emoji,
+              icon: null,
+              insert: `${emoji.emoji} `,
+            }))
+        : [];
+
+      return [...server, ...unicode].slice(0, maxSuggestions);
     }
 
     if (trigger.kind === 'channel') {
@@ -761,6 +811,8 @@
           >
             {#if suggestion.imageUrl}
               <img class="autocomplete-image" src={suggestion.imageUrl} alt="" />
+            {:else if suggestion.emoji}
+              <span class="autocomplete-emoji">{suggestion.emoji}</span>
             {:else if suggestion.initial}
               <span class="autocomplete-initial">{suggestion.initial}</span>
             {:else if suggestion.icon}

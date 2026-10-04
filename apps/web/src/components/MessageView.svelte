@@ -8,6 +8,7 @@
   import { firstUnreadIndex, newMessageCount, newMessagesLabel } from '../lib/unread';
   import { emojis } from '../lib/emojis.svelte';
   import { gifs } from '../lib/gifs.svelte';
+  import { lightbox } from '../lib/lightbox.svelte';
   import { members } from '../lib/members.svelte';
   import { profileCard } from '../lib/profile-card.svelte';
   import { session } from '../lib/session.svelte';
@@ -550,6 +551,10 @@
                     href={`/api/v1/stickers/${sticker.id}`}
                     target="_blank"
                     rel="noreferrer noopener"
+                    onclick={(event) => {
+                      event.preventDefault();
+                      lightbox.open(`/api/v1/stickers/${sticker.id}`, sticker.name);
+                    }}
                   >
                     <img src={`/api/v1/stickers/${sticker.id}`} alt={sticker.name} title={sticker.name} loading="lazy" />
                   </a>
@@ -584,6 +589,14 @@
                         href={attachment.sourceUrl ?? `/api/v1/attachments/${attachment.id}`}
                         target="_blank"
                         rel="noreferrer noopener"
+                        onclick={(event) => {
+                          // Show it large in the app. The href stays for
+                          // open-in-new-tab and the no-script case, but Electron
+                          // has no tab to open. The lightbox shows our own copy,
+                          // not a source link that may have gone dead.
+                          event.preventDefault();
+                          lightbox.open(`/api/v1/attachments/${attachment.id}`, attachment.filename);
+                        }}
                       >
                         <img
                           src={`/api/v1/attachments/${attachment.id}`}

@@ -11,6 +11,7 @@
   import AuthPanel from './components/AuthPanel.svelte';
   import Chat from './components/Chat.svelte';
   import InboxPanel from './components/InboxPanel.svelte';
+  import Lightbox from './components/Lightbox.svelte';
   import ProfileCard from './components/ProfileCard.svelte';
   import ProfilePanel from './components/ProfilePanel.svelte';
   import SearchPanel from './components/SearchPanel.svelte';
@@ -137,6 +138,7 @@
     <SetupWizard onclose={() => (setupOpen = false)} />
   {/if}
   <ProfileCard />
+  <Lightbox />
 {:else}
   <AuthPanel />
 {/if}

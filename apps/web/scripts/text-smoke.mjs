@@ -40,6 +40,7 @@ import {
 } from '../src/lib/time-input.ts';
 import { firstUnreadIndex, muteLabel, newMessageCount, newMessagesLabel, pillCount } from '../src/lib/unread.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
+import { draftPreview } from '../src/lib/composer-preview.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
 
 const require = createRequire(import.meta.url);

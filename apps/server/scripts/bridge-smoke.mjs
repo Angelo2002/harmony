@@ -12,7 +12,7 @@ import sharp from 'sharp';
 import { Database } from '../src/db/index.ts';
 import { insertChannel, listChannels } from '../src/db/channels.ts';
 import { listCategories } from '../src/db/categories.ts';
-import { findUserById, findUserByDiscordId, insertUser } from '../src/db/users.ts';
+import { findUserById, findUserByDiscordId, insertUser, setUserDiscordId } from '../src/db/users.ts';
 import { findBridgeMessageByHarmonyId, hasSeenBridgeMessage } from '../src/db/bridge.ts';
 import { listLinkedAttachments } from '../src/db/attachments.ts';
 import { createEmbedService } from '../src/embeds/service.ts';
@@ -27,6 +27,7 @@ import { createMessageService } from '../src/messages/service.ts';
 import { createAuditService } from '../src/audit/service.ts';
 import { createUserService } from '../src/users/service.ts';
 import { createBridgeService } from '../src/bridge/service.ts';
+import { createPollService } from '../src/polls/service.ts';
 import { createChannelImportService } from '../src/channels/import.ts';
 import { createPruner } from '../src/retention/pruner.ts';
 
@@ -58,6 +59,13 @@ function createFakeTransport() {
     reactionCleared: [],
     reactionsRemovedAll: [],
     presence: [],
+    pollVoteAdded: [],
+    pollVoteRemoved: [],
+    pollEnded: [],
+    pollMirrors: [],
+    pollEnds: [],
+    // Who Discord reports for an answer, keyed "<discord message id>:<answer id>".
+    pollVoters: {},
     guildEmojis: [{ id: '700', name: 'YES', animated: false }],
     // A mutable channel list, so a test can add one to import selectively.
     textChannels: [
@@ -116,6 +124,26 @@ function createFakeTransport() {
     onPresence(handler) {
       state.presence.push(handler);
     },
+    onPollVoteAdded(handler) {
+      state.pollVoteAdded.push(handler);
+    },
+    onPollVoteRemoved(handler) {
+      state.pollVoteRemoved.push(handler);
+    },
+    onPollEnded(handler) {
+      state.pollEnded.push(handler);
+    },
+    async mirrorPoll(input) {
+      state.pollMirrors.push(input);
+      // Discord numbers the answers from 1, in the order given.
+      return { messageId: `discord-poll-${state.pollMirrors.length}`, answerIds: input.answers.map((_, i) => i + 1) };
+    },
+    async endPoll(input) {
+      state.pollEnds.push(input);
+    },
+    async fetchPollVoters(input) {
+      return state.pollVoters[`${input.discordMessageId}:${input.answerId}`] ?? [];
+    },
     async guildEmojis() {
       return state.guildEmojis;
     },
@@ -173,6 +201,12 @@ function createFakeTransport() {
     emitReactionsRemovedAll(removed) {
       for (const handler of state.reactionsRemovedAll) handler(removed);
     },
+    emitPollVote(vote, add = true) {
+      for (const handler of add ? state.pollVoteAdded : state.pollVoteRemoved) handler(vote);
+    },
+    emitPollEnd(ended) {
+      for (const handler of state.pollEnded) handler(ended);
+    },
     emitPresence(presence) {
       for (const handler of state.presence) handler(presence);
     },
@@ -202,6 +236,7 @@ const audit = createAuditService(db.sqlite);
 const messages = createMessageService(db.sqlite, hub, audit);
 const attachments = createAttachmentService(db.sqlite, config, settings);
 const users = createUserService(db.sqlite, config);
+const polls = createPollService(db.sqlite, hub, messages);
 const transport = createFakeTransport();
 
 const previews = [];
@@ -210,6 +245,7 @@ const bridge = createBridgeService({
   config,
   settings,
   messages,
+  polls,
   users,
   hub,
   logger,
@@ -1531,6 +1567,274 @@ try {
   const bridgedMention = messages.createBridged(channelId, samId, 'from discord', [], null);
   messages.editBridged(bridgedMention.id, 'from discord, for @bob');
   check('a bridged edit that names someone reaches their inbox', inbox().some((entry) => entry.message.id === bridgedMention.id));
+
+  // 13d. Polls. A poll made here is posted to Discord as a native poll; one made
+  // there arrives as a poll message. Discord's bots cannot vote, so votes cross
+  // in one direction only (Discord into Harmony), and closing crosses both ways.
+  const pollsOf = (messageId) => messages.byId(messageId)?.poll;
+  const pollEvents = () => broadcasts.filter((entry) => entry.event === 'POLL_UPDATE');
+
+  const made = polls.create(auth, channelId, {
+    question: 'Best snack?',
+    options: [{ text: 'Chips', emoji: '🥔' }, { text: 'Fruit' }, { text: 'Cake' }],
+    allowMultiple: false,
+    durationHours: 2,
+  });
+  await sleep(50);
+  const pollMirror = transport.state.pollMirrors.at(-1);
+  check(
+    'a poll made in Harmony is posted to Discord as a native poll',
+    pollMirror?.question === 'Best snack?' &&
+      pollMirror.answers.map((a) => a.text).join() === 'Chips,Fruit,Cake' &&
+      pollMirror.answers[0].emoji === '🥔' &&
+      pollMirror.answers[1].emoji === null &&
+      pollMirror.allowMultiple === false &&
+      pollMirror.durationHours === 2 &&
+      pollMirror.discordChannelId === '111',
+    JSON.stringify(pollMirror),
+  );
+  check('the post says whose question it is, and pings nobody', pollMirror?.content === 'alice asked in Harmony:');
+  check(
+    'it is not also sent as a text message',
+    !transport.state.mirrors.some((m) => m.content === 'Best snack?'),
+  );
+  const pollDiscordId = findBridgeMessageByHarmonyId(db.sqlite, made.id)?.discord_message_id;
+  check('the Discord copy is recorded as this message\'s mirror', pollDiscordId === 'discord-poll-1');
+  check('and is never mistaken for something said on Discord', hasSeenBridgeMessage(db.sqlite, pollDiscordId));
+  const optionIds = made.poll.options.map((o) => o.id);
+
+  // A Harmony vote is local: Discord's API gives a bot no way to cast one.
+  const mirrorsBefore = transport.state.pollMirrors.length;
+  polls.vote(bobAuth, made.id, { optionIds: [optionIds[2]] });
+  await sleep(50);
+  check(
+    'a vote made in Harmony sends nothing to Discord',
+    transport.state.pollMirrors.length === mirrorsBefore && transport.state.pollEnds.length === 0,
+  );
+  check('and counts here', pollsOf(made.id)?.options[2].count === 1);
+
+  // Discord voters are counted under stand-in accounts, live.
+  const discordVote = (answerId, extra = {}) => ({
+    messageId: pollDiscordId,
+    channelId: '111',
+    answerId,
+    userId: '5001',
+    userName: 'Discord Dee',
+    ...extra,
+  });
+  transport.emitPollVote(discordVote(1));
+  await sleep(50);
+  const afterDiscordVote = pollsOf(made.id);
+  const deeId = findUserByDiscordId(db.sqlite, '5001')?.id;
+  check(
+    'a vote on Discord is counted here under a stand-in account',
+    afterDiscordVote?.options[0].count === 1 && afterDiscordVote.totalVoters === 2 && findUserById(db.sqlite, deeId)?.is_bot === 1,
+    JSON.stringify(afterDiscordVote),
+  );
+  check(
+    'and clients are told with the voter attached',
+    pollEvents().at(-1)?.payload?.actorId === deeId && pollEvents().at(-1)?.payload?.totalVoters === 2,
+  );
+  transport.emitPollVote(discordVote(2));
+  await sleep(50);
+  check(
+    'changing a vote on Discord moves it (single answer)',
+    pollsOf(made.id)?.options.map((o) => o.count).join() === '0,1,1',
+  );
+  transport.emitPollVote(discordVote(2), false);
+  await sleep(50);
+  check('taking a vote back on Discord removes it', pollsOf(made.id)?.options.map((o) => o.count).join() === '0,0,1');
+  check(
+    'votes from Discord are never sent back to Discord',
+    transport.state.pollMirrors.length === mirrorsBefore && transport.state.pollEnds.length === 0,
+  );
+  const voterNames = polls.voters(auth, made.id, optionIds[2]).voters.map((v) => v.user.username);
+  check('the voter list shows the Harmony voter by name', voterNames.join() === 'bob', voterNames.join());
+
+  // A person linked to a Discord account is one voter however they vote.
+  setUserDiscordId(db.sqlite, bobId, '4242');
+  const bobDiscord = (answerId) => discordVote(answerId, { userId: '4242', userName: 'Bobby on Discord' });
+  transport.emitPollVote(bobDiscord(3));
+  await sleep(50);
+  check(
+    'a linked member voting on Discord for what they chose here is not counted twice',
+    pollsOf(made.id)?.options[2].count === 1 && pollsOf(made.id)?.totalVoters === 1,
+    JSON.stringify(pollsOf(made.id)),
+  );
+  check(
+    'and no stand-in is invented for them',
+    findUserByDiscordId(db.sqlite, '4242')?.id === bobId,
+  );
+  transport.emitPollVote(bobDiscord(1));
+  await sleep(50);
+  check(
+    'a different choice from the same person on the other side replaces the first',
+    pollsOf(made.id)?.options.map((o) => o.count).join() === '1,0,0' && pollsOf(made.id)?.totalVoters === 1,
+    JSON.stringify(pollsOf(made.id)),
+  );
+  transport.emitPollVote(bobDiscord(1), false);
+  await sleep(50);
+  check('and withdrawing on Discord withdraws the member\'s vote', pollsOf(made.id)?.totalVoters === 0);
+
+  // A vote for an answer nobody knows, or a message that was never bridged.
+  transport.emitPollVote(discordVote(9));
+  transport.emitPollVote(discordVote(1, { messageId: 'never-bridged' }));
+  await sleep(50);
+  check('votes for an unknown answer or message are ignored', pollsOf(made.id)?.totalVoters === 0);
+
+  // Ending a poll here ends it on Discord, once.
+  polls.end(auth, made.id);
+  await sleep(50);
+  check(
+    'ending a poll here ends the Discord poll',
+    transport.state.pollEnds.length === 1 &&
+      transport.state.pollEnds[0].channelId === '111' &&
+      transport.state.pollEnds[0].discordMessageId === pollDiscordId,
+  );
+  transport.emitPollEnd({ messageId: pollDiscordId, channelId: '111' });
+  await sleep(50);
+  check('Discord reporting it closed does not end it again', transport.state.pollEnds.length === 1);
+  transport.emitPollVote(discordVote(1));
+  await sleep(50);
+  check('a vote arriving after the poll closed is ignored', pollsOf(made.id)?.totalVoters === 0);
+
+  // Discord closing a poll made here (its own clock) does not decide it here.
+  const endless = polls.create(auth, channelId, {
+    question: 'No end?',
+    options: [{ text: 'a' }, { text: 'b' }],
+    allowMultiple: true,
+    durationHours: null,
+  });
+  await sleep(50);
+  check('a poll with no expiry gets Discord\'s longest duration', transport.state.pollMirrors.at(-1)?.durationHours === 768);
+  check('and keeps its multiple answers', transport.state.pollMirrors.at(-1)?.allowMultiple === true);
+  const endlessDiscordId = findBridgeMessageByHarmonyId(db.sqlite, endless.id)?.discord_message_id;
+  transport.emitPollEnd({ messageId: endlessDiscordId, channelId: '111' });
+  await sleep(50);
+  check('Discord\'s clock does not close a poll made here', pollsOf(endless.id)?.closedAt === null);
+
+  // Deleting the message removes the Discord poll through the bot.
+  const deletesBefore = transport.state.deletes.length + transport.state.botDeletes.length;
+  messages.remove(auth, endless.id);
+  await sleep(50);
+  check(
+    'deleting a poll here deletes the Discord message',
+    transport.state.deletes.length + transport.state.botDeletes.length === deletesBefore + 1,
+  );
+
+  // A poll made on Discord arrives as a poll message, voters and all.
+  transport.state.pollVoters['dp1:1'] = [{ id: '5001', name: 'Discord Dee' }, { id: '5002', name: 'Discord Eli' }];
+  transport.state.pollVoters['dp1:2'] = [{ id: '4242', name: 'Bobby on Discord' }];
+  const mirrorsAtDiscordPoll = transport.state.mirrors.length;
+  transport.emit(
+    fromDiscord({
+      id: 'dp1',
+      content: '',
+      authorId: '5003',
+      authorName: 'Discord Fay',
+      poll: {
+        question: 'Movie night?',
+        answers: [
+          { id: 1, text: 'Friday', emoji: '🎬' },
+          { id: 2, text: 'Saturday', emoji: null },
+        ],
+        allowMultiple: true,
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        finalized: false,
+      },
+    }),
+  );
+  await sleep(100);
+  const arrived = recent().find((m) => m.poll?.question === 'Movie night?');
+  check(
+    'a poll made on Discord arrives as a poll message with its options',
+    arrived?.content === 'Movie night?' &&
+      arrived.poll.options.map((o) => o.text).join() === 'Friday,Saturday' &&
+      arrived.poll.options[0].emoji === '🎬' &&
+      arrived.poll.allowMultiple === true &&
+      arrived.poll.source === 'discord' &&
+      arrived.author?.isBot === true,
+    JSON.stringify(arrived),
+  );
+  check(
+    'its existing votes are read from Discord and counted, a linked member as themselves',
+    arrived?.poll.options.map((o) => o.count).join() === '2,1' && arrived.poll.totalVoters === 3,
+    JSON.stringify(arrived?.poll),
+  );
+  check('it is not mirrored back to Discord', transport.state.mirrors.length === mirrorsAtDiscordPoll && transport.state.pollMirrors.length === 2);
+  check(
+    'it is announced to clients like any new message',
+    broadcasts.some((entry) => entry.event === 'MESSAGE_CREATE' && entry.payload?.id === arrived?.id && entry.payload?.poll),
+  );
+  transport.emitPollVote({ messageId: 'dp1', channelId: '111', answerId: 2, userId: '5001', userName: 'Discord Dee' });
+  await sleep(50);
+  check(
+    'later votes on it arrive live; a multiple-answer poll keeps both of Dee\'s',
+    pollsOf(arrived.id)?.options.map((o) => o.count).join() === '2,2' && pollsOf(arrived.id)?.totalVoters === 3,
+    JSON.stringify(pollsOf(arrived.id)),
+  );
+  // A vote made in Harmony counts here but Discord never hears of it.
+  polls.vote(auth, arrived.id, { optionIds: [arrived.poll.options[1].id] });
+  check('members here can vote on it too', pollsOf(arrived.id)?.totalVoters === 4);
+  let externalError = null;
+  try {
+    polls.end(modAuth, arrived.id);
+  } catch (error) {
+    externalError = error;
+  }
+  check('but ending it is Discord\'s to do', externalError?.code === 'poll_external', String(externalError?.code));
+  check('and a bridged edit cannot rewrite its question', messages.editBridged(arrived.id, 'something else') === null);
+  transport.emitPollEnd({ messageId: 'dp1', channelId: '111' });
+  await sleep(50);
+  check('Discord closing it closes it here', typeof pollsOf(arrived.id)?.closedAt === 'string');
+  check(
+    'the close is announced',
+    pollEvents().some((entry) => entry.payload?.messageId === arrived.id && entry.payload?.closedAt),
+  );
+  check('and the close is not sent back to Discord', transport.state.pollEnds.length === 1);
+  transport.emitPollEnd({ messageId: 'dp1', channelId: '111' });
+  await sleep(20);
+  check('a repeated close report is harmless', typeof pollsOf(arrived.id)?.closedAt === 'string');
+
+  // A poll Discord already finalized arrives closed, with who voted, and a
+  // history import of it stays silent.
+  transport.state.pollVoters['dp2:1'] = [{ id: '5002', name: 'Discord Eli' }];
+  const broadcastsBeforeImport = broadcasts.length;
+  transport.state.recentMessages = [
+    fromDiscord({
+      id: 'dp2',
+      content: '',
+      authorId: '5003',
+      authorName: 'Discord Fay',
+      createdAt: '2025-01-01T00:00:00.000Z',
+      poll: {
+        question: 'Old poll',
+        answers: [{ id: 1, text: 'Yes', emoji: null }, { id: 2, text: 'No', emoji: null }],
+        allowMultiple: false,
+        expiresAt: '2025-01-02T00:00:00.000Z',
+        finalized: true,
+      },
+    }),
+  ];
+  await bridge.importChannel(channelId);
+  const imported = recent().find((m) => m.poll?.question === 'Old poll');
+  check(
+    'an imported finished poll keeps its voters and is closed',
+    imported?.poll.closedAt !== null && imported?.poll.options[0].count === 1 && imported.poll.totalVoters === 1,
+    JSON.stringify(imported?.poll),
+  );
+  check(
+    'importing it is not a live message',
+    !broadcasts.slice(broadcastsBeforeImport).some((entry) => entry.event === 'MESSAGE_CREATE' && entry.payload?.id === imported?.id),
+  );
+  transport.state.recentMessages = [];
+  await bridge.importChannel(channelId);
+  check('importing again does not duplicate it', recent().filter((m) => m.poll?.question === 'Old poll').length === 1);
+
+  // A Discord message that is only a poll with no usable answers is dropped.
+  transport.emit(fromDiscord({ id: 'dp3', content: '', poll: { question: 'x', answers: [{ id: 1, text: 'only', emoji: null }], allowMultiple: false, expiresAt: null, finalized: false } }));
+  await sleep(50);
+  check('a poll with fewer than two answers is not imported', !recent().some((m) => m.poll?.question === 'x'));
 
   // 14. Disabling stops the transport, and takes the presence with it.
   settings.updateBridge({ enabled: false });

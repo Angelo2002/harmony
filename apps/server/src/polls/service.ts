@@ -59,8 +59,11 @@ export interface PollService {
   sweepExpired(): number;
   start(): void;
   stop(): void;
-  /** A Discord voter picked an answer (`add`) or took it back. */
-  voteBridged(messageId: string, discordAnswerId: number, userId: string, add: boolean): boolean;
+  /**
+   * A Discord voter picked an answer (`add`) or took it back. `importing` lets the
+   * first read of a poll that Discord has already closed record who voted.
+   */
+  voteBridged(messageId: string, discordAnswerId: number, userId: string, add: boolean, importing?: boolean): boolean;
   /** Discord closed a poll made there. */
   closeBridged(messageId: string): boolean;
   /** Notified when a member ends a poll by hand, never for bridged closes or the clock. */
@@ -243,11 +246,11 @@ export function createPollService(
       timer = null;
     },
 
-    voteBridged(messageId, discordAnswerId, userId, add) {
+    voteBridged(messageId, discordAnswerId, userId, add, importing = false) {
       const message = findMessage(sqlite, messageId);
       if (!message || message.deleted_at) return false;
       const poll = findPollByMessage(sqlite, messageId);
-      if (!poll || isClosed(poll)) return false;
+      if (!poll || (isClosed(poll) && !importing)) return false;
       const option = listPollOptions(sqlite, poll.id).find((candidate) => candidate.discord_answer_id === discordAnswerId);
       if (!option) return false;
 

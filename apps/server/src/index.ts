@@ -154,6 +154,7 @@ const bridge = createBridgeService({
   config,
   settings: settingsService,
   messages: messageService,
+  polls: pollService,
   users: userService,
   hub,
   logger: bridgeLogger,

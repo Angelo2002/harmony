@@ -39,6 +39,7 @@ import {
   type EmojiRow,
 } from '../db/emojis.ts';
 import { findMessage } from '../db/messages.ts';
+import { findPollByMessage, listPollOptions, setOptionDiscordAnswerId } from '../db/polls.ts';
 import { countLocalReaction, listReactionsForMessages } from '../db/reactions.ts';
 import {
   findStickerByDiscordId,
@@ -58,6 +59,7 @@ import {
 import { HttpError } from '../http/errors.ts';
 import type { ServerLogService } from '../log/service.ts';
 import type { MessageService, ReactionEvent } from '../messages/service.ts';
+import type { PollService } from '../polls/service.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
 import type { UserService } from '../users/service.ts';
@@ -70,6 +72,8 @@ import {
   type DiscordIncomingDelete,
   type DiscordIncomingEdit,
   type DiscordIncomingMessage,
+  type DiscordIncomingPollEnd,
+  type DiscordIncomingPollVote,
   type DiscordIncomingPresence,
   type DiscordIncomingReaction,
   type DiscordIncomingReactionsRemoved,
@@ -136,6 +140,7 @@ export interface BridgeDeps {
   config: Config;
   settings: SettingsService;
   messages: MessageService;
+  polls: PollService;
   users: UserService;
   hub: GatewayHub;
   logger: BridgeLogger;
@@ -735,6 +740,12 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
       return;
     }
 
+    // A poll is posted as a native Discord poll, through the bot.
+    if (message.poll) {
+      await mirrorPoll(message, channel);
+      return;
+    }
+
     const { content, allowedUserMentions } = await outboundContent(message);
     const files = collectMirrorFiles(message);
     if (!content && files.length === 0) {
@@ -758,6 +769,57 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     // Our own webhook message is accounted for too, so it is never mistaken for
     // something a member said if it is ever fetched back.
     rememberBridgeMessage(deps.sqlite, result.messageId, new Date().toISOString());
+  }
+
+  /** Discord's longest poll, in hours; a poll with no expiry here gets this much there. */
+  const DISCORD_MAX_POLL_HOURS = 768;
+
+  /**
+   * Posts a Harmony poll to Discord as a native poll. Discord's bots cannot
+   * vote, so the two sides count their own voters: what happens here stays here,
+   * and Discord's votes are carried back in (see ingestPollVote). The poll is the
+   * bot's message, since a webhook cannot carry one, so a line above it says whose
+   * question it is.
+   */
+  async function mirrorPoll(message: Message, channel: ChannelRow): Promise<void> {
+    const active = transport;
+    const poll = message.poll;
+    const row = poll ? findPollByMessage(deps.sqlite, message.id) : null;
+    if (!active || !poll || !row || !channel.discord_channel_id) return;
+
+    const hours = poll.closesAt
+      ? Math.min(Math.max(Math.ceil((Date.parse(poll.closesAt) - Date.now()) / 3_600_000), 1), DISCORD_MAX_POLL_HOURS)
+      : DISCORD_MAX_POLL_HOURS;
+    const result = await active.mirrorPoll({
+      discordChannelId: channel.discord_channel_id,
+      content: `${authorName(message)} asked in Harmony:`,
+      question: poll.question,
+      answers: poll.options.map((option) => ({ text: option.text, emoji: option.emoji })),
+      allowMultiple: poll.allowMultiple,
+      durationHours: hours,
+    });
+    insertBridgeMessage(deps.sqlite, {
+      harmonyMessageId: message.id,
+      discordMessageId: result.messageId,
+      createdAt: new Date().toISOString(),
+    });
+    rememberBridgeMessage(deps.sqlite, result.messageId, new Date().toISOString());
+    // Pair each option with the answer Discord numbered it as, so a vote there
+    // lands on the right option here.
+    listPollOptions(deps.sqlite, row.id).forEach((option, index) => {
+      const answerId = result.answerIds[index];
+      if (answerId !== undefined) setOptionDiscordAnswerId(deps.sqlite, option.id, answerId);
+    });
+  }
+
+  /** Ends the Discord copy of a poll somebody closed early here. */
+  async function mirrorPollEnd(message: Message): Promise<void> {
+    const active = transport;
+    if (!active) return;
+    const mapping = findBridgeMessageByHarmonyId(deps.sqlite, message.id);
+    const channel = findChannel(deps.sqlite, message.channelId);
+    if (!mapping || !channel?.discord_channel_id) return;
+    await active.endPoll({ channelId: channel.discord_channel_id, discordMessageId: mapping.discord_message_id });
   }
 
   /** Where a bridged Harmony message lives on the Discord side, if anywhere. */
@@ -983,6 +1045,9 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     const author = resolveGhostUser(message.authorId, message.authorName, true);
     await mirrorGhostAvatar(active, author, message);
 
+    // A native Discord poll arrives as a poll message of its own.
+    if (message.poll) return ingestPoll(active, message, channel, author, silent);
+
     const attachmentIds: string[] = [];
     const skipped: string[] = [];
     for (const attachment of message.attachments) {
@@ -1055,6 +1120,81 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
     // A link posted on Discord previews here too, exactly as if it were typed here.
     deps.resolvePreview?.(created.id, content);
     return true;
+  }
+
+  /**
+   * Brings a Discord poll in as a poll message with its options. Who has voted so
+   * far is read from Discord (up to its page of 100 per answer) and counted under
+   * the stand-in accounts, or under the member a Discord account is linked to, so
+   * a person who also votes here is still one voter. The poll is closed last, if
+   * Discord already closed it, because a closed poll takes no votes.
+   */
+  async function ingestPoll(
+    active: DiscordTransport,
+    message: DiscordIncomingMessage,
+    channel: ChannelRow,
+    author: UserRow,
+    silent: boolean,
+  ): Promise<boolean> {
+    const poll = message.poll;
+    if (!poll || poll.answers.length < 2) return false;
+
+    const answers = poll.answers.slice(0, 10);
+    const created = deps.messages.createPollBridged(
+      channel.id,
+      author.id,
+      {
+        question: poll.question.trim().slice(0, 300) || 'Poll',
+        options: answers.map((answer) => ({
+          text: answer.text.trim().slice(0, 55) || '…',
+          emoji: answer.emoji,
+          discordAnswerId: answer.id,
+        })),
+        allowMultiple: poll.allowMultiple,
+        closesAt: poll.expiresAt,
+        source: 'discord',
+      },
+      { createdAt: message.createdAt, silent },
+    );
+    insertBridgeMessage(deps.sqlite, {
+      harmonyMessageId: created.id,
+      discordMessageId: message.id,
+      createdAt: new Date().toISOString(),
+    });
+    rememberBridgeMessage(deps.sqlite, message.id, new Date().toISOString());
+
+    for (const answer of answers) {
+      try {
+        const voters = await active.fetchPollVoters({
+          channelId: message.channelId,
+          discordMessageId: message.id,
+          answerId: answer.id,
+        });
+        for (const voter of voters) {
+          const stand = resolveGhostUser(voter.id, voter.name);
+          deps.polls.voteBridged(created.id, answer.id, stand.id, true, true);
+        }
+      } catch (error) {
+        logger.debug('could not read the voters of a discord poll', {
+          messageId: message.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    if (poll.finalized) deps.polls.closeBridged(created.id);
+    return true;
+  }
+
+  async function ingestPollVote(vote: DiscordIncomingPollVote, add: boolean): Promise<void> {
+    const mapping = findBridgeMessageByDiscordId(deps.sqlite, vote.messageId);
+    if (!mapping) return;
+    const voter = resolveGhostUser(vote.userId, vote.userName);
+    deps.polls.voteBridged(mapping.harmony_message_id, vote.answerId, voter.id, add);
+  }
+
+  function ingestPollEnd(ended: DiscordIncomingPollEnd): void {
+    const mapping = findBridgeMessageByDiscordId(deps.sqlite, ended.messageId);
+    if (mapping) deps.polls.closeBridged(mapping.harmony_message_id);
   }
 
   /** How many recent Discord messages a plain backfill pulls in. */
@@ -1214,6 +1354,7 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
   deps.messages.onReactionAdded((event) => watch(() => mirrorReaction(event, 'add'), event.message.channelId));
   deps.messages.onReactionRemoved((event) => watch(() => mirrorReaction(event, 'remove'), event.message.channelId));
   deps.messages.onReactionsCleared((event) => watch(() => mirrorReaction(event, 'clear'), event.message.channelId));
+  deps.polls.onPollEnded((message) => watch(() => mirrorPollEnd(message), message.channelId));
 
   return {
     status,
@@ -1265,6 +1406,19 @@ export function createBridgeService(deps: BridgeDeps): BridgeService {
         }
       });
       transport.onPresence((presence) => applyDiscordPresence(presence));
+      transport.onPollVoteAdded((vote) => {
+        void ingestPollVote(vote, true).catch((error: unknown) => logger.info('bridge poll sync failed', error));
+      });
+      transport.onPollVoteRemoved((vote) => {
+        void ingestPollVote(vote, false).catch((error: unknown) => logger.info('bridge poll sync failed', error));
+      });
+      transport.onPollEnded((ended) => {
+        try {
+          ingestPollEnd(ended);
+        } catch (error) {
+          logger.info('bridge poll sync failed', error);
+        }
+      });
       activeToken = desired;
       await transport.start();
       const connected = transport.status();

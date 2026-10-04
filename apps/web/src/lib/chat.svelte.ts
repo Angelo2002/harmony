@@ -479,11 +479,7 @@ class ChatStore {
    * within a moment is the same request.
    */
   #markRead(channelId: string, soon: boolean): void {
-    if (this.unread.has(channelId)) {
-      this.unreadChannelIds = this.unreadChannelIds.filter((id) => id !== channelId);
-    }
-    // Reading a channel reads the mentions in it too, so the count goes with it.
-    if (channelId in this.mentionCounts) this.#setMentionCount(channelId, 0);
+    this.#clearUnread(channelId);
     // The server moves its marker to the newest message; follow it as far as
     // what has been seen here, so the next visit's "new" line starts after it.
     if (channelId === this.activeChannelId) this.#advanceMarker(channelId, this.messages.at(-1)?.createdAt);
@@ -502,6 +498,15 @@ class ChatStore {
     } else {
       this.#flushRead();
     }
+  }
+
+  /** Drops a channel's unread mark and mention count, without telling the server. */
+  #clearUnread(channelId: string): void {
+    if (this.unread.has(channelId)) {
+      this.unreadChannelIds = this.unreadChannelIds.filter((id) => id !== channelId);
+    }
+    // Reading a channel reads the mentions in it too, so the count goes with it.
+    if (channelId in this.mentionCounts) this.#setMentionCount(channelId, 0);
   }
 
   /** Sets one channel's mention count, dropping the entry once nothing is left. */
@@ -932,8 +937,9 @@ class ChatStore {
           this.#markRead(message.channelId, true);
         } else if (mine) {
           // Sent from another device. Posting reads the channel on the server, so
-          // it is not news here either, and the marker follows it.
+          // it is not news here either: drop the marks and follow the marker.
           this.#advanceMarker(message.channelId, message.createdAt);
+          this.#clearUnread(message.channelId);
         } else {
           // The first message to arrive unseen in the open channel is where the
           // "new" line goes, for when the member comes back to the tab.
@@ -945,8 +951,9 @@ class ChatStore {
 
         // A mention aims at this member wherever they are, so it earns the red
         // number even in a channel they are not looking at. Reading it clears the
-        // count, so the open-and-visible case is left to #markRead above.
-        if (!reading && this.#mentionsMe(message)) {
+        // count, so the open-and-visible case is left to #markRead above, and a
+        // message this account posted elsewhere has just been cleared too.
+        if (!reading && !mine && this.#mentionsMe(message)) {
           this.#setMentionCount(message.channelId, (this.mentionCounts[message.channelId] ?? 0) + 1);
           this.#liveMentions.set(message.id, message.channelId);
         }

@@ -27,6 +27,7 @@ code wins — please open an issue.
   - [Search](#search)
   - [Mentions and replies](#mentions-and-replies)
   - [Pinned messages](#pinned-messages)
+  - [Saved messages](#saved-messages)
   - [Reactions](#reactions)
   - [Attachments](#attachments)
   - [Media gallery](#media-gallery)
@@ -234,6 +235,7 @@ type Message = {
   reactions: Reaction[];
   embed: LinkEmbed | null;      // link preview, see "Link previews"
   pinnedAt: string | null;      // when it was pinned, see "Pinned messages"
+  saved: boolean;               // whether the viewer saved it, see "Saved messages"
 };
 
 type LinkEmbed = {
@@ -1011,6 +1013,65 @@ changes nothing and keeps its original pin time. A message that is not in that c
 #### `DELETE /api/v1/channels/:id/pins/:messageId` — `ManageMessages`
 
 Unpins the message. Returns `204`, also when it was not pinned.
+
+### Saved messages
+
+Any member can save a message they can see, Discord's bookmarks, and optionally ask to be reminded
+of it. Saves are private: nobody else can list them or learn of them, and a change is sent only to
+the saver's own sessions as `SAVED_MESSAGE_UPDATE`, never to the channel. Whether a message is saved
+travels on it as `saved`, for the viewer only, in the same way as a reaction's `me`: history, search,
+the inbox and the pin list carry the viewer's value, while a broadcast `MESSAGE_UPDATE` always says
+`false`, so a client keeps the value it already holds.
+
+A save is checked against the caller's access whenever the list is read rather than kept in step
+with it. A message in a channel they can no longer see (locked, or a role they lost) is left out of
+the list but not deleted, and comes back if access does. A deleted message drops out, as it does from
+the pins; there is nothing left to jump to.
+
+```ts
+type SavedMessage = {
+  message: Message;           // with saved: true
+  savedAt: string;
+  remindAt: string | null;    // when to remind, or null for a plain save
+};
+```
+
+#### `GET /api/v1/users/@me/saved` — `ViewChannels`
+
+```json
+{ "saved": [ /* SavedMessage */ ] }
+```
+
+| Query | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `limit` | integer 1–100 | 50 | |
+| `before` | ISO 8601 string | — | Return saves made before this time |
+| `beforeId` | string | — | Id of the message `before` came from |
+| `reminders` | `true` | — | Only the saves carrying a reminder, soonest first, unpaged |
+
+Returns the caller's saves, newest save first. The cursor is the oldest entry you already have, its
+`savedAt` plus its message's `id`. With `reminders=true` the list is instead every save with a
+reminder, due or not, soonest first and capped at `limit`, which is what a client reads to know
+when to remind. A reminder that has come due stays until it is cleared or the save is removed; the
+server does nothing when one comes due, so reminding is the client's job.
+
+#### `PUT /api/v1/users/@me/saved/:messageId` — `ViewChannels`
+
+```json
+{ "remindAt": "2026-10-04T09:00:00.000Z" }
+```
+
+Saves the message and returns the `SavedMessage`. The body is optional. Saving a message that is
+already saved keeps its original `savedAt`; a `remindAt` replaces its reminder, `null` clears it,
+and leaving it out keeps whatever it had. A reminder in the past is `400 invalid_reminder`. A message
+that does not exist, was deleted, or is in a channel the caller cannot see is `404
+message_not_found`: the route names no channel, so it does not confirm a hidden message exists.
+Fires `SAVED_MESSAGE_UPDATE` to the caller's sessions when anything changed.
+
+#### `DELETE /api/v1/users/@me/saved/:messageId` — `ViewChannels`
+
+Removes the save. Returns `204`, also when it was not saved, and works for a message the caller can
+no longer see. Fires `SAVED_MESSAGE_UPDATE` with `saved: null` when there was one.
 
 ### Reactions
 
@@ -1992,6 +2053,7 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | `EMOJI_CREATE` | `Emoji` |
 | `EMOJI_DELETE` | `{ id }` |
 | `RETENTION_APPLIED` | `PruneSummary` |
+| `SAVED_MESSAGE_UPDATE` | `{ messageId, channelId, saved: SavedMessage \| null }`, to the saver's own sessions only |
 
 `MEMBER_UPDATE` fires for a member's own profile and avatar changes as well as administrator edits,
 role changes, timeouts, kicks and bans, so a client should refetch the roster (and its own profile,

@@ -85,7 +85,7 @@ export function setUserDiscordId(sqlite: DatabaseSync, id: string, discordId: st
  * Everything the outgoing account authored or carried moves to the survivor
  * before it is deleted, so nothing is orphaned by the `ON DELETE` rules. The
  * composite-keyed tables (reactions, roles, saved gifs, read markers, mentions,
- * bans) can collide where the survivor already holds the same row, so the
+ * saved messages, bans) can collide where the survivor already holds the same row, so the
  * duplicates are dropped first and the rest moved.
  *
  * The whole thing is one transaction: a half-merged pair of accounts would be
@@ -153,6 +153,17 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
       )
       .run(fromId, intoId);
     sqlite.prepare('UPDATE mentions SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+
+    // A message both accounts saved stays saved once, as the survivor saved it.
+    sqlite
+      .prepare(
+        `DELETE FROM saved_messages
+          WHERE user_id = ?
+            AND EXISTS (SELECT 1 FROM saved_messages s
+                         WHERE s.user_id = ? AND s.message_id = saved_messages.message_id)`,
+      )
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE saved_messages SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
 
     // A ban is keyed by user id, so keep the survivor's own and drop the other.
     sqlite

@@ -138,6 +138,28 @@ export type MentionQuery = z.infer<typeof mentionQuerySchema>;
 export const mediaQuerySchema = cursorQuerySchema;
 export type MediaQuery = z.infer<typeof mediaQuerySchema>;
 
+/**
+ * A member's saved messages page the same way, newest save first: `before` is a
+ * save time and `beforeId` the message it saved. `reminders` asks instead for
+ * the saves carrying a reminder, soonest first, which is what a client needs to
+ * know when to remind; that list is not paged.
+ */
+export const savedQuerySchema = cursorQuerySchema.extend({
+  reminders: z.enum(['true', 'false']).optional(),
+});
+export type SavedQuery = z.infer<typeof savedQuerySchema>;
+
+/**
+ * Saving a message. The body is optional: without `remindAt` a save keeps any
+ * reminder it already had, and an explicit null clears it.
+ */
+export const saveMessageSchema = z
+  .object({
+    remindAt: z.iso.datetime({ offset: true }).nullable().optional(),
+  })
+  .optional();
+export type SaveMessageInput = z.infer<typeof saveMessageSchema>;
+
 /** The picker's local tab: a search term and a page size. */
 export const gifQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),

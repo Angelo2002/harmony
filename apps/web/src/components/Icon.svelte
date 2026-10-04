@@ -38,6 +38,8 @@
     <path d="M9 3h6" />
     <path d="M10 3v6.5L6.5 13v2h11v-2L14 9.5V3" />
     <path d="M12 15v6" />
+  {:else if name === 'bookmark'}
+    <path d="M6.5 4.5a1.5 1.5 0 0 1 1.5-1.5h8a1.5 1.5 0 0 1 1.5 1.5V21L12 17l-5.5 4z" />
   {:else if name === 'users'}
     <circle cx="9" cy="8" r="3.2" />
     <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />

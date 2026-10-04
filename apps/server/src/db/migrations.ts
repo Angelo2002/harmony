@@ -527,4 +527,34 @@ export const migrations: Migration[] = [
       db.exec(`CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at) WHERE pinned_at IS NOT NULL`);
     },
   },
+  {
+    version: 25,
+    name: 'saved_messages',
+    up(db) {
+      /*
+       * Messages a member saved for later, Discord's bookmarks. Unlike a pin this
+       * is one person's own list, so it is a table keyed by member and message
+       * rather than a column on the message. Either going takes the save with it:
+       * a retention delete or a deleted account leaves nothing dangling. A soft
+       * delete keeps the row, and the list filters it out like every other read,
+       * so a message nobody can see any more simply stops showing.
+       *
+       * `remind_at` turns a save into a reminder; most saves have none. The
+       * partial index serves the "what is due next" question without growing
+       * with the plain saves.
+       */
+      db.exec(`
+        CREATE TABLE saved_messages (
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+          saved_at   TEXT NOT NULL,
+          remind_at  TEXT,
+          PRIMARY KEY (user_id, message_id)
+        );
+        CREATE INDEX idx_saved_messages_user_saved ON saved_messages(user_id, saved_at DESC);
+        CREATE INDEX idx_saved_messages_message ON saved_messages(message_id);
+        CREATE INDEX idx_saved_messages_remind ON saved_messages(user_id, remind_at) WHERE remind_at IS NOT NULL;
+      `);
+    },
+  },
 ];

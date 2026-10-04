@@ -86,8 +86,8 @@
           if (existing) pins = pins.filter((pin) => pin.id !== message.id);
           return;
         }
-        // An update's reactions are not this viewer's, so keep the ones we have.
-        const next = existing ? { ...message, reactions: existing.reactions } : message;
+        // An update's reactions and saved flag are not this viewer's, so keep the ones we have.
+        const next = existing ? { ...message, reactions: existing.reactions, saved: existing.saved } : message;
         pins = [...pins.filter((pin) => pin.id !== message.id), next].sort(byPinTime);
       } else if (frame.t === 'MESSAGE_DELETE') {
         const payload = frame.d as MessageDeletePayload;

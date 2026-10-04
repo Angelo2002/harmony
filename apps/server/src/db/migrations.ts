@@ -621,4 +621,16 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 30,
+    name: 'message_embeds_hidden',
+    up(db) {
+      /*
+       * Set when a message's author (or a moderator) removed its embeds. The
+       * link resolver skips a hidden message for good, edits included, so the
+       * preview or fetched picture does not come back with the next edit.
+       */
+      db.exec(`ALTER TABLE messages ADD COLUMN embeds_hidden INTEGER NOT NULL DEFAULT 0`);
+    },
+  },
 ];

@@ -17,7 +17,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import sharp from 'sharp';
-import { listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
+import { Permission, listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
 import { isDiscordAttachment, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
 import { isKlipyAddress, klipySearchUrl, normalizeKlipySearch } from '../src/gifs/klipy.ts';
@@ -31,6 +31,7 @@ import { createDiscordOAuthService } from '../src/auth/discord-oauth.ts';
 import { insertChannel } from '../src/db/channels.ts';
 import { insertMessage } from '../src/db/messages.ts';
 import { listLinkedAttachments } from '../src/db/attachments.ts';
+import { createEmbedService } from '../src/embeds/service.ts';
 import { createAttachmentService } from '../src/attachments/service.ts';
 import { createSettingsService } from '../src/settings/service.ts';
 import { createUserService } from '../src/users/service.ts';
@@ -1121,6 +1122,38 @@ try {
     privateHistory.json?.messages?.[0]?.id === privateLink.json?.id && privateHistory.json?.messages?.[0]?.embed === null,
   );
 
+  // --- Removing embeds over HTTP: who may, and that nothing else changes ---
+  const quietLink = await req(`/channels/${general.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: 'plain <https://example.com/quiet> link' },
+  });
+  await sleep(200);
+  check(
+    'an angle-bracket link is stored as written and gets no embed',
+    quietLink.json?.content === 'plain <https://example.com/quiet> link' &&
+      (await req(`/channels/${general.id}/messages?limit=1`, { token: ownerToken })).json?.messages?.[0]?.embed === null,
+  );
+  check(
+    'another member cannot remove embeds from it (403)',
+    (await req(`/messages/${quietLink.json?.id}/embeds`, { method: 'DELETE', token: bobToken })).status === 403,
+  );
+  check(
+    'a message that does not exist is 404',
+    (await req('/messages/nope/embeds', { method: 'DELETE', token: ownerToken })).status === 404,
+  );
+  const removed = await req(`/messages/${quietLink.json?.id}/embeds`, { method: 'DELETE', token: ownerToken });
+  check(
+    'the author can; the message comes back with no embed and the same text',
+    removed.status === 200 && removed.json?.embed === null && removed.json?.content === 'plain <https://example.com/quiet> link',
+  );
+  const editedQuiet = await req(`/messages/${quietLink.json?.id}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { content: 'edited <https://example.com/quiet> link' },
+  });
+  check('and the message can still be edited', editedQuiet.status === 200 && editedQuiet.json?.embed === null);
+
   // --- Pictures fetched out of a message's own text ---
   // Driven in process with a throwaway database, because the whole point of this
   // path is a fetch, and a fetch to somewhere the guard allows is a fetch to the
@@ -1230,6 +1263,51 @@ try {
     check(
       'and the second message can find it too',
       listLinkedAttachments(pictureDb.sqlite, 'm2').length === 1,
+    );
+
+    // --- Removing a message's embeds by hand ---
+    const sent = [];
+    const embedsHere = createEmbedService({
+      sqlite: pictureDb.sqlite,
+      settings: pictureSettings,
+      hub: { dispatch: (event, payload) => sent.push({ event, payload }) },
+      attachments: pictures,
+      renderMessage: (id) => ({ id, channelId: 'c1', author: { id: 'u1' }, attachments: [] }),
+    });
+    const owner = { user: { id: 'u1' }, permissions: 0n };
+    const stranger = { user: { id: 'u2' }, permissions: 0n };
+    insertUser(pictureDb.sqlite, { id: 'u2', username: 'other', passwordHash: 'x', isOwner: false });
+
+    let strangerRefused = false;
+    try {
+      await embedsHere.suppress(stranger, 'm1');
+    } catch (cause) {
+      strangerRefused = cause?.statusCode === 403;
+    }
+    check('someone else cannot remove a message\'s embeds', strangerRefused && listLinkedAttachments(pictureDb.sqlite, 'm1').length > 0);
+    check(
+      'a moderator with Manage Messages can',
+      (await embedsHere.suppress({ user: { id: 'u2' }, permissions: Permission.ManageMessages }, 'm2'))?.id === 'm2' &&
+        listLinkedAttachments(pictureDb.sqlite, 'm2').length === 0,
+    );
+    await embedsHere.suppress(owner, 'm1');
+    check(
+      'the author removes the pictures fetched from their links',
+      listLinkedAttachments(pictureDb.sqlite, 'm1').length === 0,
+    );
+    check(
+      'and clients are told',
+      sent.filter((entry) => entry.event === 'MESSAGE_UPDATE').length === 2,
+    );
+    check(
+      'the message is flagged so it stays that way',
+      pictureDb.sqlite.prepare('SELECT embeds_hidden FROM messages WHERE id = ?').get('m1')?.embeds_hidden === 1,
+    );
+    embedsHere.resolve('m1', 'https://example.com/cat.gif');
+    await sleep(100);
+    check(
+      'a later resolution (an edit) does not bring them back',
+      listLinkedAttachments(pictureDb.sqlite, 'm1').length === 0,
     );
 
     pictureDb.close();

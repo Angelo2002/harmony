@@ -487,6 +487,15 @@ differ only in access — Tenor serves its pages to anyone, while Klipy puts the
 challenge and hands them over to a recognized crawler name alone. That is precisely what the opt-in
 `previewUserAgent` setting is for, and why Klipy page links preview only once it is set.
 
+A link in angle brackets (`<https://example.com>`) is suppressed, as on Discord. The shared
+`listEmbeddableUrls` skips it, so the resolver finds nothing, and the client's parser draws it as a
+plain link without the brackets. The bridge used to strip the brackets from incoming Discord text so
+the link would unfurl here; it now keeps them, which is also what makes a suppressed link round-trip
+(Harmony sends the text to Discord as written, and Discord's own edits come back the same way). The
+manual counterpart, Remove embeds, sets `messages.embeds_hidden` (migration 30), which the resolver
+checks before doing anything, so the flag outlives edits. It drops the card and any fetched picture,
+and is not mirrored to Discord.
+
 A Discord attachment link needs a different trick again, because the address itself is the problem:
 Discord signs it and the signature expires, so a link copied out of the client usually arrives already
 dead. Discord has an endpoint of its own for exactly this — the one its clients call to renew an

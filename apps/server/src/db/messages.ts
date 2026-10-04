@@ -25,6 +25,8 @@ export interface MessageRow {
   pinned_at: string | null;
   /** Who pinned it, or NULL when unpinned or once that account is gone. */
   pinned_by: string | null;
+  /** 1 once the embeds were removed by hand; the link resolver then skips the message. */
+  embeds_hidden: number;
 }
 
 /** Reads the stored embed JSON back into a preview, ignoring anything malformed. */
@@ -192,6 +194,12 @@ export function updateMessageContent(sqlite: DatabaseSync, id: string, content: 
 /** Stores a message's unfurled preview JSON, or clears it when given null. */
 export function setMessageEmbed(sqlite: DatabaseSync, id: string, embed: string | null): boolean {
   const result = sqlite.prepare('UPDATE messages SET embed = ? WHERE id = ?').run(embed, id);
+  return Number(result.changes) > 0;
+}
+
+/** Marks a message's embeds as removed by hand, for good. */
+export function setMessageEmbedsHidden(sqlite: DatabaseSync, id: string): boolean {
+  const result = sqlite.prepare('UPDATE messages SET embeds_hidden = 1 WHERE id = ?').run(id);
   return Number(result.changes) > 0;
 }
 

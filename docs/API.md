@@ -917,6 +917,23 @@ Cloudflare, and so Klipy, among others — refuse that name and the preview neve
 logs `link preview refused` when that happens. Setting `previewUserAgent` to a name such sites allow
 is the only way to preview them.
 
+#### Suppressing previews
+
+Wrapping a link in angle brackets, `<https://example.com>`, as on Discord, asks for no preview: the
+text is stored exactly as written, nothing is resolved, and clients draw an ordinary link without the
+brackets. The Discord bridge keeps the brackets in both directions, so a link suppressed on one side
+is suppressed on the other. Editing re-evaluates: adding the brackets drops the existing preview, and
+removing them lets the link resolve again.
+
+#### `DELETE /api/v1/messages/:id/embeds` — auth (author or `ManageMessages`)
+
+Removes every embed of a message for good: the preview card and any picture the server fetched from a
+link in the text (an upload is not an embed and stays). The message is flagged, so editing it later
+does not bring a preview back. Returns the updated message and fires `MESSAGE_UPDATE`. `403` for
+anyone else, `404` for a missing or deleted message or one in a channel the caller cannot see.
+There is no inverse; sending the link again resolves it normally. The removal is not mirrored to
+Discord, where the unfurl stays.
+
 #### `GET /api/v1/embeds/media` — `ViewChannels`
 
 Serves a preview image for a card, given the embed's `imageUrl` as a `url` query parameter. A client

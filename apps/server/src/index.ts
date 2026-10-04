@@ -236,7 +236,7 @@ registerMentionRoutes(app, { service: messageService });
 registerPinRoutes(app, { service: pinService });
 registerSavedRoutes(app, { service: savedService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
-registerEmbedRoutes(app, { settings: settingsService });
+registerEmbedRoutes(app, { settings: settingsService, service: embedService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
 registerGifRoutes(app, { service: gifService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });

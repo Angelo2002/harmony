@@ -777,6 +777,36 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('pills cap at 99+', pillCount(5) === '5' && pillCount(99) === '99' && pillCount(100) === '99+');
 }
 
+// --- Suppressed links: <url> shows a plain link and asks for no preview ---
+{
+  const angle = inline('see <https://example.com/a?b=1> now');
+  check(
+    'an angle link is drawn without its brackets',
+    plain('see <https://example.com/a?b=1> now') === 'see https://example.com/a?b=1 now',
+  );
+  check(
+    'and links to the bare address',
+    angle.some((s) => s.type === 'link' && s.href === 'https://example.com/a?b=1' && s.noEmbed === true),
+  );
+  check('so nothing in it is offered for a preview', listEmbeddableUrls('see <https://example.com/a?b=1> now').length === 0);
+  check(
+    'a bare link beside an angle link is still the only one offered',
+    listEmbeddableUrls('<https://example.com/a> and https://example.com/b').join() === 'https://example.com/b',
+  );
+  check(
+    'trailing punctuation outside the brackets stays text',
+    plain('<https://example.com/a>.') === 'https://example.com/a.',
+  );
+  check(
+    'inside code the brackets are literal',
+    plain('`<https://example.com/a>`') === '<https://example.com/a>' && listEmbeddableUrls('`<https://example.com/a>`').length === 0,
+  );
+  check(
+    'an edit that removes the brackets makes the link embeddable again',
+    listEmbeddableUrls('<https://example.com/a>').length === 0 && listEmbeddableUrls('https://example.com/a').length === 1,
+  );
+}
+
 // --- Slash helpers ---
 {
   const SHRUG = '¯\\_(ツ)_/¯';

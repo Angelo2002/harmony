@@ -18,6 +18,7 @@
   import MemberBadge from './MemberBadge.svelte';
   import MessageContent from './MessageContent.svelte';
   import PinAction from './PinAction.svelte';
+  import RemoveEmbedsAction from './RemoveEmbedsAction.svelte';
   import SaveAction from './SaveAction.svelte';
 
   /** Opens the profile card for an author, when there is one to show. */
@@ -719,6 +720,7 @@
           </button>
           <PinAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
           <SaveAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
+          <RemoveEmbedsAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
           {#if canEdit(message)}
             <button
               type="button"

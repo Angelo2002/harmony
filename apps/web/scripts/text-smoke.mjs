@@ -19,6 +19,17 @@ import {
   rewriteChannelMentions,
 } from '@harmony/shared';
 import { HIGHLIGHT_LANGUAGES, highlight } from '../src/lib/highlighter.ts';
+import { isJumbo, unicodeEmojiIn } from '../src/lib/jumbo-emoji.ts';
+import {
+  USAGE_CAP,
+  USAGE_HALF_LIFE_MS,
+  emojiInContent,
+  parseUsage,
+  rankEntries,
+  recordUsage,
+  resolveUsage,
+  scoreAt,
+} from '../src/lib/emoji-usage.ts';
 import { inlineSegmentsOf, parseMessage } from '../src/lib/message-text.ts';
 import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
 import {
@@ -774,6 +785,67 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('one message is singular', newMessagesLabel(1, false, at(1), clock) === '1 new message since 12:01');
   check('a partial count gets a plus', newMessagesLabel(50, true, at(1), clock) === '50+ new messages since 12:01');
   check('pills cap at 99+', pillCount(5) === '5' && pillCount(99) === '99' && pillCount(100) === '99+');
+}
+
+// ---- Jumbo emoji and frequently used emoji ----
+{
+  console.log('\nJumbo emoji');
+  const lookup = new Map([
+    ['party', { id: 'e-party', name: 'party', hash: 'h', animated: false }],
+    ['cat', { id: 'e-cat', name: 'cat', hash: 'h', animated: false }],
+  ]);
+  const jumbo = (text) => isJumbo(parseMessage(text, lookup, () => undefined));
+  check('one custom emoji is jumbo', jumbo(':party:'));
+  check('one unicode emoji is jumbo', jumbo('😀'));
+  check('mixed custom and unicode, spaced, is jumbo', jumbo(':party: 😀  :cat:\n🎉'));
+  check('unicode emoji with no spaces between is jumbo', jumbo('😀😀😀'));
+  check('text makes it ordinary', !jumbo('hi 😀') && !jumbo(':party: lol'));
+  check('an unknown shortcode is not jumbo', !jumbo(':nope:') && !jumbo(':party: :nope:'));
+  check('the empty message is not jumbo', !jumbo('') && !jumbo('   '));
+  check('27 emoji are jumbo, 28 are not', jumbo('😀'.repeat(27)) && !jumbo('😀'.repeat(28)));
+  check('the cap counts custom and unicode together', jumbo(':party:' + ' 😀'.repeat(26)) && !jumbo(':party: ' + '😀 '.repeat(27)));
+  check('skin tones are one emoji', jumbo('👍🏽') && unicodeEmojiIn('👍🏽').length === 1);
+  check('ZWJ sequences are one emoji', jumbo('👩‍👩‍👧‍👦') && unicodeEmojiIn('👩‍👩‍👧‍👦').length === 1);
+  check('a ZWJ sequence with a skin tone is one emoji', unicodeEmojiIn('🧑🏽‍🚀').length === 1);
+  check('flags are one emoji', jumbo('🇯🇵 🇺🇸') && unicodeEmojiIn('🇯🇵').length === 1);
+  check('a lone regional indicator is not an emoji', !jumbo('🇯'));
+  check('a subdivision flag is one emoji', jumbo('🏴󠁧󠁢󠁥󠁮󠁧󠁿'));
+  check('a keycap is an emoji', jumbo('1️⃣') && jumbo('#️⃣'));
+  check('plain digits, # and * are not emoji', !jumbo('1') && !jumbo('#') && !jumbo('*') && !jumbo('123'));
+  check('a text-style copyright sign is not an emoji', !jumbo('©') && jumbo('©️'));
+  check('a heart with a variation selector is an emoji', jumbo('❤️') && jumbo('❤'));
+  check('emoji inside code are not jumbo', !jumbo('`😀`') && !jumbo('```\n😀\n```'));
+  check('a quote of emoji is not jumbo', !jumbo('> 😀') && !jumbo('> :party:'));
+  check('a list of emoji is not jumbo', !jumbo('- 😀') && !jumbo('1. :party:'));
+  check('a header of emoji is not jumbo', !jumbo('# 😀'));
+  check('blank lines between emoji keep it jumbo', jumbo('😀\n\n😀'));
+  check('a link is not jumbo', !jumbo('https://example.com'));
+  check('bold emoji still count', jumbo('**😀**'));
+
+  console.log('\nEmoji usage');
+  const DAY = 24 * 60 * 60 * 1000;
+  const t0 = 1_700_000_000_000;
+  const use = (emoji, emojiId = null) => ({ emoji, emojiId });
+  let entries = recordUsage([], [use('😀'), use(':party:', 'e-party'), use('😀')], t0);
+  check('uses are counted', entries.length === 2 && entries[0].emoji === '😀' && entries[0].score === 2);
+  check('scores halve every half-life', Math.abs(scoreAt(entries[0], t0 + USAGE_HALF_LIFE_MS) - 1) < 1e-9);
+  const later = t0 + 60 * DAY;
+  entries = recordUsage(entries, [use(':party:', 'e-party')], later);
+  check('recent use outranks a stale favourite', rankEntries(entries, later)[0].emojiId === 'e-party');
+  check('a custom emoji is keyed by id, so a rename merges', recordUsage(entries, [use(':fiesta:', 'e-party')], later).length === 2);
+  const many = Array.from({ length: USAGE_CAP + 10 }, (_, i) => use(String.fromCodePoint(0x1f600 + i)));
+  check('usage is capped', recordUsage([], many, t0).length === USAGE_CAP);
+  const kept = recordUsage(recordUsage([], [use('😀'), use('😀'), use('😀')], t0), many.slice(1), t0);
+  check('the cap drops the lowest scores, not the favourites', kept.some((e) => e.emoji === '😀'));
+  const live = new Map([['e-party', { id: 'e-party', name: 'party2' }]]);
+  const resolved = resolveUsage(entries, live, later);
+  check('deleted custom emoji are dropped and renamed ones take the new name', resolved.length === 2 && resolved[0].emoji === ':party2:');
+  check('with no custom emoji left only unicode remains', resolveUsage(entries, new Map(), later).every((e) => e.emojiId === null));
+  const sent = emojiInContent('hi :party: 😀 `:cat:` 👍🏽 :nope:', lookup);
+  check('sent content yields its resolvable emoji, outside code', sent.length === 3 && sent[0].emojiId === 'e-party' && sent[1].emoji === '😀' && sent[2].emoji === '👍🏽');
+  check('stored usage round-trips', parseUsage(JSON.stringify(entries)).length === 2);
+  check('malformed storage reads as empty', parseUsage('nope').length === 0 && parseUsage('{}').length === 0 && parseUsage(null).length === 0);
+  check('malformed entries are skipped', parseUsage(JSON.stringify([{ emoji: 1 }, null, { emoji: 'x', emojiId: null, score: 1, last: 1 }])).length === 1);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

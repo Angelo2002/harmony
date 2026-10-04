@@ -14,6 +14,7 @@
   import { chat } from '../lib/chat.svelte';
   import { drafts, type Draft } from '../lib/drafts.svelte';
   import { emojis } from '../lib/emojis.svelte';
+  import { emojiUsage } from '../lib/emoji-usage.svelte';
   import { mediaFilesFrom } from '../lib/files';
   import { members } from '../lib/members.svelte';
   import { meta } from '../lib/meta.svelte';
@@ -496,7 +497,38 @@
             }))
         : [];
 
-      return [...server, ...unicode].slice(0, maxSuggestions);
+      // Emoji this member uses a lot rise: a bare `:` offers their top few, and
+      // a typed query keeps its order except that used matches go first (the
+      // sort is stable, so equal scores keep custom ahead of unicode).
+      const scores = emojiUsage.scores;
+      const scoreOf = (suggestion: Suggestion): number => scores.get(suggestion.key.replace(/^(?:emoji|unicode):/, '')) ?? 0;
+      const used: Suggestion[] = needle
+        ? []
+        : emojiUsage.ranked.slice(0, 6).map((entry) =>
+            entry.emojiId
+              ? {
+                  key: `emoji:${entry.emojiId}`,
+                  label: entry.emoji,
+                  detail: null,
+                  imageUrl: `/api/v1/emojis/${entry.emojiId}`,
+                  initial: null,
+                  icon: null,
+                  insert: `${entry.emoji} `,
+                }
+              : {
+                  key: `unicode:${entry.emoji}`,
+                  label: unicodeEmoji.find((e) => e.emoji === entry.emoji)?.name ?? entry.emoji,
+                  detail: null,
+                  imageUrl: null,
+                  initial: null,
+                  emoji: entry.emoji,
+                  icon: null,
+                  insert: `${entry.emoji} `,
+                },
+          );
+      const seen = new Set(used.map((suggestion) => suggestion.key));
+      const merged = [...used, ...[...server, ...unicode].filter((suggestion) => !seen.has(suggestion.key))];
+      return (needle ? merged.sort((a, b) => scoreOf(b) - scoreOf(a)) : merged).slice(0, maxSuggestions);
     }
 
     if (trigger.kind === 'channel') {

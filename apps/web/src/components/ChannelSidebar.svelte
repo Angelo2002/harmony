@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { permissionsFromString, type Channel } from '@harmony/shared';
+  import { permissionsFromString, type Category, type Channel } from '@harmony/shared';
   import { api } from '../lib/api';
   import { avatarUrl, initial } from '../lib/avatar';
+  import { channelSettings } from '../lib/channel-settings.svelte';
   import { chat } from '../lib/chat.svelte';
   import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
   import { ui } from '../lib/ui.svelte';
   import { canOpenAdminPanel } from '../lib/admin';
+  import { muteLabel, pillCount } from '../lib/unread';
+  import ChannelMenu from './ChannelMenu.svelte';
   import Icon from './Icon.svelte';
 
   const permissions = $derived(permissionsFromString(session.permissions || '0'));
@@ -42,7 +45,161 @@
     chat.selectChannel(id);
     ui.closeDrawers();
   }
+
+  /*
+   * Collapsed categories, remembered per browser. It is only a matter of how
+   * this one viewer likes their sidebar, so it never goes near the server, and
+   * storage that refuses (a private window, blocked site data) just means the
+   * sidebar starts expanded.
+   */
+  const collapsedKey = 'harmony.collapsedCategories';
+  let collapsed = $state<Set<string>>(readCollapsed());
+
+  function readCollapsed(): Set<string> {
+    try {
+      const parsed: unknown = JSON.parse(localStorage.getItem(collapsedKey) ?? '[]');
+      return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  function toggleCategory(id: string): void {
+    const next = new Set(collapsed);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    collapsed = next;
+    try {
+      localStorage.setItem(collapsedKey, JSON.stringify([...next]));
+    } catch {
+      // Remembered for this visit only.
+    }
+  }
+
+  /**
+   * What a category shows of itself. A collapsed one still lists the open
+   * channel and anything unread in it, as Discord's does, so news is never
+   * folded away out of sight; whatever is folded away still adds its mentions
+   * to the number on the category itself.
+   */
+  function categoryView(category: Category): { channels: Channel[]; hiddenMentions: number } {
+    const channels = chat.channelsIn(category.id);
+    if (!collapsed.has(category.id)) return { channels, hiddenMentions: 0 };
+    const shown: Channel[] = [];
+    let hiddenMentions = 0;
+    for (const channel of channels) {
+      if (channel.id === chat.activeChannelId || chat.unreadShown(channel)) shown.push(channel);
+      else hiddenMentions += chat.mentionsShown(channel);
+    }
+    return { channels: shown, hiddenMentions };
+  }
+
+  /** The open context menu, and where it was asked for. */
+  let menu = $state<{
+    target: { kind: 'channel'; channel: Channel } | { kind: 'category'; category: Category };
+    x: number;
+    y: number;
+  } | null>(null);
+
+  function openChannelMenu(channel: Channel, x: number, y: number): void {
+    menu = { target: { kind: 'channel', channel }, x, y };
+  }
+
+  function openCategoryMenu(category: Category, x: number, y: number): void {
+    menu = { target: { kind: 'category', category }, x, y };
+  }
+
+  /** The "…" button opens the menu just below itself. */
+  function fromButton(event: MouseEvent): [number, number] {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return [rect.left, rect.bottom + 4];
+  }
+
+  /*
+   * A long press opens the menu on touch screens. Android reports one as a
+   * context menu event anyway, which the handler above already takes; this is
+   * for the browsers that do not (iOS Safari), and the click that ends a long
+   * press is swallowed so it does not also open the channel.
+   */
+  const longPressMs = 500;
+  let pressTimer: ReturnType<typeof setTimeout> | null = null;
+  let pressedLong = false;
+
+  function startPress(event: PointerEvent, open: (x: number, y: number) => void): void {
+    pressedLong = false;
+    if (event.pointerType !== 'touch') return;
+    const { clientX, clientY } = event;
+    cancelPress();
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      pressedLong = true;
+      if (!menu) open(clientX, clientY);
+    }, longPressMs);
+  }
+
+  function cancelPress(): void {
+    if (pressTimer) clearTimeout(pressTimer);
+    pressTimer = null;
+  }
+
+  /** Whether a click is the tail end of a long press, and so should do nothing. */
+  function swallowLongPress(event: MouseEvent): boolean {
+    if (!pressedLong) return false;
+    pressedLong = false;
+    event.preventDefault();
+    return true;
+  }
 </script>
+
+{#snippet channelRow(channel: Channel)}
+  {@const settings = channelSettings.resolve(channel)}
+  {@const mentions = chat.mentionsShown(channel)}
+  <div class="channel-item" class:active={channel.id === chat.activeChannelId}>
+    <button
+      class="channel"
+      class:active={channel.id === chat.activeChannelId}
+      class:unread={chat.unreadShown(channel)}
+      class:muted={settings.muted}
+      type="button"
+      title={settings.muted ? muteLabel(settings.muteEndsAt, channelSettings.now) : undefined}
+      onclick={(event) => swallowLongPress(event) || selectChannel(channel.id)}
+      oncontextmenu={(event) => {
+        event.preventDefault();
+        cancelPress();
+        openChannelMenu(channel, event.clientX, event.clientY);
+      }}
+      onpointerdown={(event) => startPress(event, (x, y) => openChannelMenu(channel, x, y))}
+      onpointerup={cancelPress}
+      onpointercancel={cancelPress}
+      onpointerleave={cancelPress}
+    >
+      <span class="hash">
+        {#if channel.discordChannelId}<Icon name="link" size={15} />{:else}#{/if}
+      </span><span class="channel-label">{channel.name}</span>
+      <span class="tail">
+        {#if mentions > 0}
+          <span class="mention-pill" title={mentions === 1 ? '1 unread mention' : `${mentions} unread mentions`}>
+            {pillCount(mentions)}
+          </span>
+        {/if}
+        {#if isLocked(channel)}
+          <span class="lock" title="Only members with a certain role can see this">
+            <Icon name="lock" size={13} />
+          </span>
+        {/if}
+      </span>
+    </button>
+    <button
+      class="channel-more"
+      type="button"
+      aria-label={`Options for #${channel.name}`}
+      title="More options"
+      onclick={(event) => openChannelMenu(channel, ...fromButton(event))}
+    >
+      <Icon name="more" size={16} />
+    </button>
+  </div>
+{/snippet}
 
 <aside class="sidebar" class:open={ui.sidebarOpen}>
   <button class="server-name" type="button" title="About this instance" onclick={() => ui.openAbout()}>
@@ -52,56 +209,50 @@
 
   <nav class="channels">
     {#each chat.categories as category (category.id)}
-      <div class="category">
-        <span class="category-name">{category.name}</span>
-        {#each chat.channelsIn(category.id) as channel (channel.id)}
+      {@const view = categoryView(category)}
+      {@const categoryMute = channelSettings.resolveCategory(category.id)}
+      <div class="category" class:collapsed={collapsed.has(category.id)}>
+        <div class="category-header" class:muted={categoryMute.muted}>
           <button
-            class="channel"
-            class:active={channel.id === chat.activeChannelId}
-            class:unread={chat.unread.has(channel.id)}
+            class="category-name"
             type="button"
-            onclick={() => selectChannel(channel.id)}
+            aria-expanded={!collapsed.has(category.id)}
+            title={categoryMute.muted ? muteLabel(categoryMute.muteEndsAt, channelSettings.now) : undefined}
+            onclick={(event) => swallowLongPress(event) || toggleCategory(category.id)}
+            oncontextmenu={(event) => {
+              event.preventDefault();
+              cancelPress();
+              openCategoryMenu(category, event.clientX, event.clientY);
+            }}
+            onpointerdown={(event) => startPress(event, (x, y) => openCategoryMenu(category, x, y))}
+            onpointerup={cancelPress}
+            onpointercancel={cancelPress}
+            onpointerleave={cancelPress}
           >
-            <span class="hash">
-              {#if channel.discordChannelId}<Icon name="link" size={15} />{:else}#{/if}
-            </span>{channel.name}
-            <span class="tail">
-              {#if chat.mention.has(channel.id)}
-                <span class="mention-dot" title="You were mentioned"></span>
-              {/if}
-              {#if isLocked(channel)}
-                <span class="lock" title="Only members with a certain role can see this">
-                  <Icon name="lock" size={13} />
-                </span>
-              {/if}
-            </span>
+            <span class="chevron"><Icon name="chevron-down" size={12} /></span>
+            <span class="category-label">{category.name}</span>
+            {#if view.hiddenMentions > 0}
+              <span class="mention-pill">{pillCount(view.hiddenMentions)}</span>
+            {/if}
           </button>
+          <button
+            class="channel-more"
+            type="button"
+            aria-label={`Options for ${category.name}`}
+            title="More options"
+            onclick={(event) => openCategoryMenu(category, ...fromButton(event))}
+          >
+            <Icon name="more" size={16} />
+          </button>
+        </div>
+        {#each view.channels as channel (channel.id)}
+          {@render channelRow(channel)}
         {/each}
       </div>
     {/each}
 
     {#each chat.channelsIn(null) as channel (channel.id)}
-      <button
-        class="channel"
-        class:active={channel.id === chat.activeChannelId}
-        class:unread={chat.unread.has(channel.id)}
-        type="button"
-        onclick={() => selectChannel(channel.id)}
-      >
-        <span class="hash">
-          {#if channel.discordChannelId}<Icon name="link" size={15} />{:else}#{/if}
-        </span>{channel.name}
-        <span class="tail">
-          {#if chat.mention.has(channel.id)}
-            <span class="mention-dot" title="You were mentioned"></span>
-          {/if}
-          {#if isLocked(channel)}
-            <span class="lock" title="Only members with a certain role can see this">
-              <Icon name="lock" size={13} />
-            </span>
-          {/if}
-        </span>
-      </button>
+      {@render channelRow(channel)}
     {/each}
   </nav>
 
@@ -125,3 +276,11 @@
     </div>
   </footer>
 </aside>
+
+<!--
+  Outside the sidebar on purpose: on a phone the sidebar is a sliding drawer,
+  and its transform would otherwise become what the menu is positioned against.
+-->
+{#if menu}
+  <ChannelMenu target={menu.target} x={menu.x} y={menu.y} onclose={() => (menu = null)} />
+{/if}

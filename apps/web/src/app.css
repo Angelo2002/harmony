@@ -622,14 +622,140 @@ button.server-name:hover:not(:disabled) {
   margin-bottom: 1.25rem;
 }
 
+.category-header {
+  display: flex;
+  position: relative;
+  align-items: center;
+  padding-bottom: 0.4rem;
+}
+
 .category-name {
-  display: block;
-  padding: 0 0.6rem 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.6rem 0 0.2rem;
+  border-radius: var(--h-radius-xs);
+  background: none;
   color: var(--h-text-faint);
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.08em;
+  text-align: left;
   text-transform: uppercase;
+}
+
+.category-name:hover:not(:disabled) {
+  background: none;
+  box-shadow: none;
+  color: var(--h-text-muted);
+}
+
+.category-name:active:not(:disabled) {
+  transform: none;
+}
+
+.category-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-name .chevron {
+  display: inline-flex;
+  transition: transform var(--h-duration) var(--h-ease);
+}
+
+.category.collapsed .category-name .chevron {
+  transform: rotate(-90deg);
+}
+
+/* A muted category or channel recedes, as on Discord: still there, just quieter. */
+.category-header.muted .category-name,
+.channel.muted {
+  opacity: 0.45;
+}
+
+.channel.muted:hover,
+.channel.muted.active {
+  opacity: 0.7;
+}
+
+.channel-item {
+  position: relative;
+}
+
+/* The "…" that opens a channel's or category's menu, shown on hover and focus. */
+.channel-more {
+  display: none;
+  position: absolute;
+  top: 50%;
+  right: 0.3rem;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: var(--h-radius-xs);
+  background: none;
+  color: var(--h-text-muted);
+  transform: translateY(-50%);
+}
+
+.category-header .channel-more {
+  top: calc(50% - 0.2rem);
+  right: 0.1rem;
+}
+
+.channel-more:hover:not(:disabled) {
+  background: var(--h-hover);
+  box-shadow: none;
+  color: var(--h-text);
+}
+
+.channel-more:active:not(:disabled) {
+  transform: translateY(-50%);
+}
+
+.channel-item:hover .channel-more,
+.channel-item:focus-within .channel-more,
+.channel-item.active .channel-more,
+.category-header:hover .channel-more,
+.category-header:focus-within .channel-more {
+  display: inline-flex;
+}
+
+.channel-item:hover .channel .tail,
+.channel-item:focus-within .channel .tail,
+.channel-item.active .channel .tail {
+  margin-right: 1.5rem;
+}
+
+.channel .channel-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The red number of unread mentions, on a channel or a collapsed category. */
+.mention-pill {
+  flex: none;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.3rem;
+  border-radius: var(--h-radius-full);
+  background: var(--h-error);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1rem;
+  text-align: center;
+}
+
+.category-name .mention-pill {
+  margin-left: auto;
 }
 
 .channel {
@@ -699,15 +825,6 @@ button.server-name:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   opacity: 0.6;
-}
-
-.channel .mention-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: var(--h-radius-full);
-  background: var(--h-error);
-  box-shadow: 0 0 0 2px var(--h-bg-elevated);
 }
 
 .channel.unread {

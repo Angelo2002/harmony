@@ -5,6 +5,7 @@
   import { chat } from '../lib/chat.svelte';
   import { avatarUrl, initial } from '../lib/avatar';
   import { inlineSegmentsOf, parseMessage } from '../lib/message-text';
+  import { firstUnreadIndex, newMessageCount, newMessagesLabel } from '../lib/unread';
   import { emojis } from '../lib/emojis.svelte';
   import { gifs } from '../lib/gifs.svelte';
   import { members } from '../lib/members.svelte';
@@ -71,9 +72,66 @@
   const rows = $derived.by(() =>
     chat.messages.map((message, index) => ({
       message,
-      grouped: isGrouped(index > 0 ? chat.messages[index - 1] : undefined, message),
+      // The first new message starts afresh under the "new" line, header and all.
+      grouped: message.id !== newDividerId && isGrouped(index > 0 ? chat.messages[index - 1] : undefined, message),
     })),
   );
+
+  // ---- The "new" line and the bar that points up at it ----
+
+  /** The message the red "new" line sits above, or null when there is none to draw. */
+  const newDividerId = $derived.by(() => {
+    const index = firstUnreadIndex(chat.messages, chat.newSince, myId, !chat.hasMore);
+    return index === -1 ? null : (chat.messages[index]?.id ?? null);
+  });
+  const newCount = $derived(newMessageCount(chat.messages, chat.newSince, myId, !chat.hasMore));
+  let newDivider = $state<HTMLDivElement | null>(null);
+  /**
+   * Whether the first new message has been scrolled into view since the channel
+   * was opened. Once it has, the bar has done its job and stays gone, as
+   * Discord's does, even if the reader scrolls back down past it.
+   */
+  let newSeen = $state(false);
+  let newSeenFor: string | null = null;
+  $effect(() => {
+    const key = `${chat.activeChannelId}:${chat.newSince}`;
+    if (key !== newSeenFor) {
+      newSeenFor = key;
+      newSeen = false;
+    }
+  });
+  const showNewBar = $derived(chat.newSince !== null && newCount.count > 0 && !newSeen && !chat.loading);
+
+  /** Notes when the "new" line has come into view, from the scroll position. */
+  function checkNewSeen(): void {
+    const element = scroller;
+    if (newSeen || !element || !newDivider) return;
+    // In view, or anywhere below the top edge of the list, counts as seen.
+    if (newDivider.getBoundingClientRect().top >= element.getBoundingClientRect().top) newSeen = true;
+  }
+
+  // A channel opened with its first new message already on screen needs no bar.
+  $effect(() => {
+    void newDividerId;
+    void chat.messages.length;
+    void tick().then(checkNewSeen);
+  });
+
+  /** Loads back to the first new message if need be, then brings it into view. */
+  async function jumpToNew(): Promise<void> {
+    await chat.loadToFirstUnread();
+    await tick();
+    newDivider?.scrollIntoView({ block: 'start' });
+    newSeen = true;
+  }
+
+  function formatSince(iso: string): string {
+    const time = new Date(iso);
+    const clock = formatTime(iso);
+    return time.toDateString() === new Date().toDateString()
+      ? clock
+      : `${time.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${clock}`;
+  }
 
   function formatTime(iso: string): string {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -191,6 +249,7 @@
     const element = scroller;
     if (!element) return;
     atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 60;
+    checkNewSeen();
     if (element.scrollTop < 80) void loadOlder();
   }
 
@@ -342,6 +401,20 @@
 {/snippet}
 
 <div class="messages" bind:this={scroller} use:trackSize onscroll={onScroll}>
+  <!--
+    New messages above the view: how many and since when, a way up to the first
+    of them, and a way to say they have been seen. It sits at the top so it never
+    meets the "Jump to present" bar at the bottom.
+  -->
+  {#if showNewBar && chat.newSince}
+    <div class="new-bar" role="status">
+      <button type="button" class="new-bar-jump" onclick={() => void jumpToNew()}>
+        {newMessagesLabel(newCount.count, newCount.more, chat.newSince, formatSince)}
+      </button>
+      <button type="button" class="new-bar-read" onclick={() => chat.dismissNew()}>Mark as read</button>
+    </div>
+  {/if}
+
   {#if actionError}
     <p class="form-error pad">{actionError}</p>
   {/if}
@@ -372,6 +445,11 @@
         (segment) => segment.type === 'mention' && segment.user.id === myId,
       )}
       {@const picture = avatarUrl(message.author)}
+      {#if message.id === newDividerId}
+        <div class="new-divider" role="separator" aria-label="New messages" bind:this={newDivider}>
+          <span>New</span>
+        </div>
+      {/if}
       <!--
         The tap handler is a touch-only shortcut for opening the actions; it is
         inert wherever hover exists, and keyboard users reveal the same actions
@@ -677,5 +755,73 @@
 
   .present-bar button {
     flex-shrink: 0;
+  }
+
+  .new-bar {
+    /* Flush with the top edge of the list, over its padding, as Discord's is. */
+    position: sticky;
+    top: -1rem;
+    z-index: 2;
+    display: flex;
+    align-items: stretch;
+    margin: -1rem -0.6rem 0.5rem;
+    border-radius: 0 0 var(--h-radius-sm) var(--h-radius-sm);
+    background: var(--h-accent);
+    color: var(--h-on-accent);
+    font-size: 0.8rem;
+    font-weight: 600;
+    box-shadow: var(--h-shadow-sm);
+  }
+
+  .new-bar button {
+    padding: 0.35rem 0.75rem;
+    border-radius: 0;
+    background: none;
+    color: inherit;
+    font-size: inherit;
+  }
+
+  .new-bar button:hover:not(:disabled) {
+    background: rgb(0 0 0 / 12%);
+    box-shadow: none;
+  }
+
+  .new-bar button:active:not(:disabled) {
+    transform: none;
+  }
+
+  .new-bar-jump {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .new-bar-read {
+    flex: none;
+  }
+
+  .new-divider {
+    display: flex;
+    align-items: center;
+    margin: 0.6rem 0 0.2rem;
+    border-top: 1px solid var(--h-error);
+    height: 0;
+  }
+
+  .new-divider span {
+    margin-left: auto;
+    padding: 0 0.3rem;
+    border-radius: var(--h-radius-xs);
+    background: var(--h-error);
+    color: #fff;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    line-height: 1rem;
+    text-transform: uppercase;
+    transform: translateY(-50%);
   }
 </style>

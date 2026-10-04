@@ -220,13 +220,47 @@ export function rankSwitcher<C extends ChannelLike, M extends MemberLike>(
     .map((entry) => entry.row);
 }
 
+/** How one channel's mute and notification level affect what it adds to the totals. */
+interface NotifyLike {
+  muted: boolean;
+  level: string;
+}
+
+/**
+ * What the tab title and app badge count, once mutes are taken into account,
+ * the way Discord counts them: every unread mention, except in a channel set to
+ * notify about nothing at all, and every channel with something unread, except
+ * muted ones. A muted channel still counts when it holds a mention, since being
+ * named is the one thing a mute lets through.
+ *
+ * Counted over the channels actually listed, so a stale id the server still
+ * remembers for a channel this member can no longer see cannot keep the tab
+ * marked with nothing in the sidebar to explain it.
+ */
+export function unreadSummary<C extends { id: string }>(
+  channels: readonly C[],
+  unread: ReadonlySet<string>,
+  mentionCounts: Readonly<Record<string, number>>,
+  settingsFor: (channel: C) => NotifyLike,
+): { mentions: number; unread: number } {
+  let mentions = 0;
+  let unreadChannels = 0;
+  for (const channel of channels) {
+    const settings = settingsFor(channel);
+    const mentioned = settings.level === 'nothing' ? 0 : (mentionCounts[channel.id] ?? 0);
+    mentions += mentioned;
+    if (mentioned > 0 || (unread.has(channel.id) && !settings.muted)) unreadChannels++;
+  }
+  return { mentions, unread: unreadChannels };
+}
+
 /**
  * The tab title for a server, marked the way Discord marks its own: the number
- * of channels holding a mention in brackets, or a dot when there is only
- * ordinary unread chatter, and the plain name when everything has been read.
+ * of unread mentions in brackets, or a dot when there is only ordinary unread
+ * chatter, and the plain name when everything has been read.
  */
-export function unreadTitle(serverName: string, mentionChannels: number, unreadChannels: number): string {
-  if (mentionChannels > 0) return `(${mentionChannels}) ${serverName}`;
+export function unreadTitle(serverName: string, mentions: number, unreadChannels: number): string {
+  if (mentions > 0) return `(${mentions}) ${serverName}`;
   if (unreadChannels > 0) return `• ${serverName}`;
   return serverName;
 }
@@ -235,8 +269,8 @@ export function unreadTitle(serverName: string, mentionChannels: number, unreadC
  * What the installed app's icon badge should show for the same counts: a
  * number for mentions, a bare dot for anything else unread, or nothing.
  */
-export function unreadBadge(mentionChannels: number, unreadChannels: number): number | 'dot' | null {
-  if (mentionChannels > 0) return mentionChannels;
+export function unreadBadge(mentions: number, unreadChannels: number): number | 'dot' | null {
+  if (mentions > 0) return mentions;
   if (unreadChannels > 0) return 'dot';
   return null;
 }

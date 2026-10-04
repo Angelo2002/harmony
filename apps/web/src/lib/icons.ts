@@ -18,4 +18,6 @@ export type IconName =
   | 'heart-filled'
   | 'crown'
   | 'sword'
-  | 'shield';
+  | 'shield'
+  | 'chevron-down'
+  | 'more';

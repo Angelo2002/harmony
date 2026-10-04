@@ -444,6 +444,17 @@ without a marker continues the item above it. Headers, subtext, lists and code m
 quote; quotes do not nest. Mentions, channel references, emoji and links work everywhere except
 inside code.
 
+Timestamps need not be written by hand. In the web client, `@` followed by a time offers each style
+with a preview, and picking one writes the tag; the clock button next to the emoji button does the
+same from a date and time field. The expressions read are `now`, `5pm`, `5:30pm`, `17:30`, `noon`,
+`midnight`; a day (`today`, `tomorrow`, a weekday such as `monday` or `mon`, `2025-12-24`, or `24/12`
+and `24/12/2025` read in the browser locale's day/month order) optionally followed by a time, as in
+`tomorrow 18:00` or `monday at 9am`; and `in 2h`, `in 30 minutes`, `in 3 days`. A time without a day
+is its next occurrence, a day without a time keeps the current time of day, and everything is read in
+the writer's own time zone. When the text after `@` is also the start of a member's name, members are
+listed first and the timestamps after them. The tag is all that is stored, so readers see it in their
+own zone as above.
+
 ## REST reference
 
 Unless stated otherwise, request bodies are JSON with `Content-Type: application/json`, and

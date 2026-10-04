@@ -104,7 +104,7 @@
             type="button"
             class="roster-member profile-trigger"
             class:offline={!entry.online}
-            onmouseenter={(event) => profileCard.show(entry.user, event.currentTarget)}
+            onmouseenter={(event) => profileCard.scheduleShow(entry.user, event.currentTarget)}
             onmouseleave={() => profileCard.scheduleHide()}
             onfocus={(event) => profileCard.show(entry.user, event.currentTarget)}
             onblur={() => profileCard.scheduleHide()}

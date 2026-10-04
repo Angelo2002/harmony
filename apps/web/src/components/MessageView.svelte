@@ -25,6 +25,11 @@
     if (user) profileCard.show(user, element);
   }
 
+  /** Opens it after the pointer rests, for the hover triggers. */
+  function restCard(user: User | null | undefined, element: HTMLElement): void {
+    if (user) profileCard.scheduleShow(user, element);
+  }
+
   let scroller = $state<HTMLDivElement | null>(null);
   /** Whether the view is still pinned to the newest message. */
   let atBottom = $state(true);
@@ -484,7 +489,7 @@
             src={picture}
             alt=""
             loading="lazy"
-            onmouseenter={(event) => openCard(message.author, event.currentTarget)}
+            onmouseenter={(event) => restCard(message.author, event.currentTarget)}
             onmouseleave={() => profileCard.scheduleHide()}
           />
         {:else}
@@ -492,7 +497,7 @@
             type="button"
             class="avatar fallback profile-trigger"
             aria-label={authorName(message)}
-            onmouseenter={(event) => openCard(message.author, event.currentTarget)}
+            onmouseenter={(event) => restCard(message.author, event.currentTarget)}
             onmouseleave={() => profileCard.scheduleHide()}
             onfocus={(event) => openCard(message.author, event.currentTarget)}
             onblur={() => profileCard.scheduleHide()}
@@ -517,7 +522,7 @@
                 type="button"
                 class="author profile-trigger"
                 style={authorColor ? `color: ${authorColor}` : ''}
-                onmouseenter={(event) => openCard(message.author, event.currentTarget)}
+                onmouseenter={(event) => restCard(message.author, event.currentTarget)}
                 onmouseleave={() => profileCard.scheduleHide()}
                 onfocus={(event) => openCard(message.author, event.currentTarget)}
                 onblur={() => profileCard.scheduleHide()}

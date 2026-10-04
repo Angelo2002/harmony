@@ -79,10 +79,29 @@
   --h-glass-blur:    16px;
 
   /* ---- Motion ---- */
-  --h-ease:          cubic-bezier(0.4, 0, 0.2, 1);
-  --h-ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
-  --h-duration:      160ms;
-  --h-duration-slow: 260ms;
+  --h-ease:            cubic-bezier(0.4, 0, 0.2, 1);
+  --h-ease-out:        cubic-bezier(0.16, 1, 0.3, 1);
+  --h-ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+  --h-ease-bounce:     cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --h-ease-snappy:     cubic-bezier(0.22, 0.68, 0, 1);
+  --h-duration:        160ms;
+  --h-duration-fast:   120ms;
+  --h-duration-slow:   260ms;
+  --h-duration-slower: 420ms;
+
+  /* Spring easings as CSS linear() approximations: a near-critically-damped
+     spring with a little overshoot, which reads as physical rather than eased.
+     Browsers without linear() fall back to the default easing. */
+  --h-spring:        linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%,
+                     0.723 12.9%, 0.938 16.7%, 1.017, 1.077,
+                     1.121, 1.149 24.3%, 1.159, 1.163, 1.161,
+                     1.154, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%,
+                     0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%,
+                     0.997 69.8%, 1.003 76.9%, 1);
+  --h-spring-gentle: linear(0, 0.006, 0.025, 0.101 6.1%, 0.539 18.9%,
+                     0.721 25.3%, 0.849 31.5%, 0.937 38.1%, 0.968 41.8%,
+                     0.991 45.7%, 1.006 50.1%, 1.015 55%, 1.017 63.9%,
+                     1.001 85.7%, 1);
 
   /* ---- Typography ---- */
   --h-font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -97,10 +116,27 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Opacity-only fades still aid comprehension; movement is what to avoid. */
+  .message,
+  .notice,
+  .audit-entry {
+    animation: h-fade-in 0.15s ease both !important;
+  }
+
+  button:hover,
+  .channel:hover,
+  .message:hover,
+  .reaction:hover {
+    transform: none !important;
   }
 }
 
@@ -4240,4 +4276,529 @@ button.roster-member:hover {
 .lightbox-close:hover:not(:disabled) {
   background: rgb(0 0 0 / 78%);
   box-shadow: none;
+}
+
+/* ============================================================
+   MOTION SYSTEM — experimental try-out (not committed)
+   ============================================================
+   A motion pass integrated on top of the sheet. Additive, and last in the
+   file so it wins ties against the rules above.
+
+   Deliberate deviations from the original proposal, for the real markup and
+   for safety:
+   - Movement is transform-only, so the compositor stays in charge.
+   - The full-screen backdrops are buttons; the new global button hover must
+     not lift or ring them, so they are pinned off it below (this is the bug
+     fixed for the switcher and lightbox, kept fixed).
+   - overflow/position are scoped to the primary buttons carrying the shine
+     sweep, not every button, and the broad will-change is dropped — a layer
+     per button is a real memory cost.
+   - The message entrance uses backwards fill, not both, so the retained end
+     transform does not cancel the hover shift.
+   - Omitted: scroll-driven timelines (they fight autoscroll-to-bottom), View
+     Transitions (inert without a JS call), the ambient body glow (it fights
+     the canvas background), and the channel-more opacity fade (the existing
+     rule toggles display, so an opacity fade would simply hide it).
+   ============================================================ */
+
+/* ---- Keyframes ---- */
+
+@keyframes h-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes h-fade-up {
+  from { opacity: 0; translate: 0 12px; }
+  to   { opacity: 1; translate: 0 0; }
+}
+
+@keyframes h-fade-down {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes h-scale-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes h-pop-in {
+  0%   { opacity: 0; transform: scale(0.8); }
+  60%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* For elements centered with translateY(-50%): the translate is part of the
+   transform, so it has to be carried through the entrance or the element drops
+   out of line. */
+@keyframes h-bar-in {
+  from { opacity: 0; transform: translateY(-50%) scaleY(0.35); }
+  to   { opacity: 1; transform: translateY(-50%) scaleY(1); }
+}
+
+@keyframes h-slide-left {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes h-slide-right {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes h-shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position: 200% 0; }
+}
+
+@keyframes h-glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--h-accent-glow); }
+  50%      { box-shadow: 0 0 0 8px transparent; }
+}
+
+@keyframes h-shimmer {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-4px); }
+  40%      { transform: translateX(4px); }
+  60%      { transform: translateX(-3px); }
+  80%      { transform: translateX(3px); }
+}
+
+@keyframes h-typing-dots {
+  0%, 20%   { opacity: 0.3; }
+  40%       { opacity: 0.9; }
+  60%, 100% { opacity: 0.3; }
+}
+
+/* ---- Buttons ---- */
+
+button {
+  transition:
+    background var(--h-duration) var(--h-ease),
+    transform var(--h-duration-fast) var(--h-ease-spring),
+    box-shadow var(--h-duration) var(--h-ease),
+    filter var(--h-duration) var(--h-ease);
+}
+
+/*
+ * :where() keeps this at the weight of a class hover, so the more specific
+ * per-element hover transforms below (a channel's slide, an emoji's scale) win
+ * rather than being replaced by this generic lift.
+ */
+:where(button):hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 3px var(--h-accent-glow),
+    0 4px 12px color-mix(in srgb, var(--h-accent) 20%, transparent);
+}
+
+:where(button):active:not(:disabled) {
+  transform: translateY(0) scale(0.96);
+  transition-duration: 60ms;
+}
+
+/* The backdrops are full-screen buttons; the lift and ring above must not
+   touch them, or the scrim flashes accent again. */
+.drawer-backdrop:hover:not(:disabled),
+.drawer-backdrop:active:not(:disabled),
+.composer-actions-backdrop:hover:not(:disabled),
+.composer-actions-backdrop:active:not(:disabled),
+.lightbox-backdrop:hover:not(:disabled),
+.lightbox-backdrop:active:not(:disabled),
+.qs-backdrop:hover,
+.qs-backdrop:active {
+  box-shadow: none;
+  transform: none;
+}
+
+/* The shine sweep needs clipping, so it is scoped to the primary buttons. */
+button.primary,
+button[type='submit'] {
+  position: relative;
+  overflow: hidden;
+  background-size: 200% 200%;
+  background-position: 0% 50%;
+  transition:
+    background-position var(--h-duration-slower) var(--h-ease),
+    transform var(--h-duration-fast) var(--h-ease-spring),
+    box-shadow var(--h-duration) var(--h-ease);
+}
+
+button.primary:hover:not(:disabled),
+button[type='submit']:hover:not(:disabled) {
+  background-position: 100% 50%;
+  box-shadow:
+    0 0 0 3px var(--h-accent-glow),
+    0 8px 32px color-mix(in srgb, var(--h-accent) 35%, transparent);
+}
+
+button.primary::after,
+button[type='submit']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgb(255 255 255 / 18%) 50%, transparent 60%);
+  background-size: 200% 100%;
+  background-position: 200% 0;
+  pointer-events: none;
+  transition: background-position var(--h-duration-slower) var(--h-ease);
+}
+
+button.primary:hover:not(:disabled)::after,
+button[type='submit']:hover:not(:disabled)::after {
+  background-position: -200% 0;
+}
+
+button.ghost:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+}
+
+button.danger:hover:not(:disabled) {
+  animation: h-glow-pulse 1.4s var(--h-ease) infinite;
+}
+
+/* ---- Messages ---- */
+
+.message {
+  animation: h-fade-up var(--h-duration-slow) var(--h-ease-out) backwards;
+  /* Firefox does not composite the hover nudge on its own, so it repaints the
+     row (and re-snaps its text) every frame; the promotion keeps the move on
+     the compositor, where Chrome already runs it. */
+  will-change: transform;
+  transition:
+    background var(--h-duration) var(--h-ease),
+    box-shadow var(--h-duration) var(--h-ease),
+    transform var(--h-duration) var(--h-ease-spring);
+}
+
+/* A short stagger as a channel opens. Capped so a long channel does not
+   accumulate a huge total delay. */
+.messages > .message:nth-child(1)  { animation-delay: 0ms; }
+.messages > .message:nth-child(2)  { animation-delay: 30ms; }
+.messages > .message:nth-child(3)  { animation-delay: 60ms; }
+.messages > .message:nth-child(4)  { animation-delay: 90ms; }
+.messages > .message:nth-child(5)  { animation-delay: 120ms; }
+.messages > .message:nth-child(6)  { animation-delay: 150ms; }
+.messages > .message:nth-child(7)  { animation-delay: 180ms; }
+.messages > .message:nth-child(8)  { animation-delay: 210ms; }
+.messages > .message:nth-child(9)  { animation-delay: 240ms; }
+.messages > .message:nth-child(10) { animation-delay: 270ms; }
+.messages > .message:nth-child(11) { animation-delay: 300ms; }
+.messages > .message:nth-child(n+12) { animation-delay: 330ms; }
+
+.message:hover {
+  transform: translateX(2px);
+}
+
+.message.mentions-me {
+  animation: h-fade-up var(--h-duration-slow) var(--h-ease-out) backwards,
+             h-glow-pulse 2s var(--h-ease) 400ms 1;
+}
+
+.message:hover .avatar,
+.roster-member:hover .avatar {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 2px var(--h-accent-subtle);
+}
+
+/* ---- Sidebar ---- */
+
+/*
+ * The whole row slides as one unit. The move lives on the wrapper (a plain
+ * div), not on the button, so nothing inside the row — the "#"/link icon, the
+ * label, the tail — can pick up a movement of its own. It is written with the
+ * transform property and promoted with will-change so Firefox rasterises the
+ * row once and slides that, instead of re-rasterising the text at a new
+ * sub-pixel offset on every hover (which reads as the icon drifting).
+ */
+.channel-item {
+  transition: transform var(--h-duration-fast) var(--h-ease-out);
+  will-change: transform;
+}
+
+.channel-item:hover,
+.channel-item.active {
+  transform: translateX(3px);
+}
+
+/*
+ * The generic "every button lifts and gains an accent ring" hover fires on the
+ * sidebar rows too, and there it reads as a jump: the ring is a box-shadow,
+ * which the rows do not transition, so it snaps; a category header is a button
+ * with no hover transform, so it bobs a whole pixel; and the channel's own
+ * lift/scale would fight the row's slide. The rows below own their hover (a
+ * colour change, the wrapper's slide), so all of that is switched off for them.
+ */
+.channel:hover:not(:disabled),
+.channel:active:not(:disabled),
+.channel-more:hover:not(:disabled),
+.channel-more:active:not(:disabled),
+.category-name:hover:not(:disabled),
+.category-name:active:not(:disabled) {
+  box-shadow: none;
+}
+
+/* The button itself never transforms: the row carries the move. */
+.channel:hover:not(:disabled),
+.channel:active:not(:disabled),
+.category-name:hover:not(:disabled) {
+  transform: none;
+}
+
+/*
+ * The active and unread bars are centered with translateY(-50%). Their entrance
+ * keeps that translate (h-bar-in), rather than a plain scale that would drop them
+ * half a bar out of line. The easing is a plain ease-out, not the overshooting
+ * spring: a spring on scaleY makes the bar grow past its height and settle back,
+ * which is movement on the vertical axis and is exactly what should not happen.
+ */
+.channel.active::before {
+  animation: h-bar-in var(--h-duration-slow) var(--h-ease-out) both;
+  transform-origin: center;
+}
+
+.channel.unread::before {
+  animation: h-bar-in var(--h-duration-slow) var(--h-ease-out) both;
+  transform-origin: center;
+}
+
+/*
+ * The "…" button is centered with translateY(-50%) too; the generic hover lift
+ * would replace that and make it jump when the pointer leaves, so it is pinned.
+ */
+.channel-more:hover:not(:disabled) {
+  transform: translateY(-50%);
+}
+
+/* ---- Glass surfaces ---- */
+
+.notice,
+.message-actions,
+.profile-card,
+.emoji-picker,
+.gif-picker,
+.autocomplete,
+.timestamp-picker {
+  transition:
+    -webkit-backdrop-filter var(--h-duration-slow) var(--h-ease),
+    backdrop-filter var(--h-duration-slow) var(--h-ease),
+    box-shadow var(--h-duration-slow) var(--h-ease),
+    transform var(--h-duration-slow) var(--h-ease-spring),
+    border-color var(--h-duration-slow) var(--h-ease);
+}
+
+.profile-card:hover,
+.emoji-picker:hover,
+.gif-picker:hover {
+  -webkit-backdrop-filter: blur(calc(var(--h-glass-blur) + 8px)) saturate(1.4);
+  backdrop-filter: blur(calc(var(--h-glass-blur) + 8px)) saturate(1.4);
+  border-color: var(--h-border-strong);
+}
+
+.message-actions {
+  transform: translateY(8px) scale(0.96);
+}
+
+.message:hover .message-actions,
+.message:has(:focus-visible) .message-actions,
+.message-actions.open {
+  transform: translateY(0) scale(1);
+}
+
+.admin-overlay {
+  animation: h-fade-in var(--h-duration-slow) var(--h-ease) both;
+}
+
+.admin {
+  animation: h-scale-in var(--h-duration-slow) var(--h-ease-spring) both;
+  animation-delay: 40ms;
+}
+
+.admin-body {
+  animation: h-fade-up var(--h-duration-slow) var(--h-ease-out) backwards;
+  animation-delay: 100ms;
+}
+
+/* ---- Inputs ---- */
+
+input,
+textarea,
+select {
+  transition:
+    border-color var(--h-duration) var(--h-ease),
+    box-shadow var(--h-duration-slow) var(--h-ease),
+    background var(--h-duration) var(--h-ease),
+    transform var(--h-duration-fast) var(--h-ease-spring);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 3px var(--h-accent-subtle),
+    0 0 24px color-mix(in srgb, var(--h-accent) 12%, transparent);
+}
+
+/* ---- Reactions ---- */
+
+.reaction {
+  transition:
+    border-color var(--h-duration) var(--h-ease),
+    background var(--h-duration) var(--h-ease),
+    color var(--h-duration) var(--h-ease),
+    transform var(--h-duration-fast) var(--h-ease-spring),
+    box-shadow var(--h-duration) var(--h-ease);
+}
+
+.reaction:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 25%);
+}
+
+.reaction:active:not(:disabled) {
+  transform: translateY(0) scale(0.95);
+}
+
+.reaction.me {
+  animation: h-pop-in var(--h-duration-slow) var(--h-ease-spring) both;
+}
+
+.emoji-option {
+  transition:
+    background var(--h-duration) var(--h-ease),
+    transform var(--h-duration-fast) var(--h-ease-spring);
+}
+
+.emoji-option:hover {
+  transform: scale(1.15);
+}
+
+.emoji-option:active {
+  transform: scale(0.9);
+}
+
+/* ---- Notices and reminders ---- */
+
+.notice {
+  animation: h-fade-down var(--h-duration-slow) var(--h-ease-spring) both;
+}
+
+.reminder-notice {
+  animation: h-slide-left var(--h-duration-slow) var(--h-ease-spring) both;
+  transition: transform var(--h-duration) var(--h-ease), box-shadow var(--h-duration) var(--h-ease);
+}
+
+.reminder-notice:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--h-shadow-xl);
+}
+
+/* ---- Typing dots ---- */
+
+.typing::before {
+  animation: h-typing-dots 1.4s var(--h-ease) infinite;
+}
+
+/* ---- Rows ---- */
+
+.row {
+  transition:
+    background var(--h-duration) var(--h-ease),
+    border-color var(--h-duration) var(--h-ease),
+    transform var(--h-duration-fast) var(--h-ease-spring),
+    box-shadow var(--h-duration) var(--h-ease);
+}
+
+.row:hover {
+  transform: translateX(2px);
+  border-color: var(--h-border-strong);
+  box-shadow: 0 2px 12px rgb(0 0 0 / 15%);
+}
+
+.audit-entry {
+  transition:
+    background var(--h-duration) var(--h-ease),
+    border-color var(--h-duration) var(--h-ease),
+    transform var(--h-duration) var(--h-ease-spring);
+  animation: h-fade-up var(--h-duration-slow) var(--h-ease-out) backwards;
+}
+
+.audit-entry:nth-child(1) { animation-delay: 0ms; }
+.audit-entry:nth-child(2) { animation-delay: 40ms; }
+.audit-entry:nth-child(3) { animation-delay: 80ms; }
+.audit-entry:nth-child(4) { animation-delay: 120ms; }
+.audit-entry:nth-child(5) { animation-delay: 160ms; }
+.audit-entry:nth-child(n+6) { animation-delay: 200ms; }
+
+.audit-entry:hover {
+  transform: translateX(3px);
+  border-color: var(--h-border-strong);
+}
+
+/* ---- Icons and avatars ---- */
+
+.server-icon,
+.avatar {
+  transition:
+    transform var(--h-duration) var(--h-ease-spring),
+    box-shadow var(--h-duration) var(--h-ease),
+    border-radius var(--h-duration-slow) var(--h-ease-spring);
+}
+
+.server-icon:hover {
+  transform: scale(1.1);
+  border-radius: var(--h-radius);
+  box-shadow: 0 0 0 3px var(--h-accent-glow);
+}
+
+.server-icon.large:hover {
+  transform: scale(1.05) rotate(-2deg);
+}
+
+/*
+ * The profile-card avatar deliberately has no idle float. It sits inside
+ * .profile-card, which carries the glass backdrop-filter, and Firefox cannot
+ * composite an animation inside a backdrop-filtered subtree: a continuously
+ * animated child forces it to re-rasterise the whole blurred card every frame
+ * (measured at ~3-6 fps against smooth in Chrome). Promotion did not lift it,
+ * so the motion is gone rather than costing frames on every open profile card.
+ */
+
+.member-badge {
+  /*
+   * A fade, not a scale-pop. The pop left a retained transform on the tiny SVG
+   * (both fill mode), and once the surrounding card/row settled the badge
+   * re-rendered at its untransformed size, which reads as the badge changing
+   * size a moment after it appears. A fade has no transform to leave behind.
+   */
+  animation: h-fade-in var(--h-duration-slow) var(--h-ease-out) both;
+}
+
+/* ---- Loading shimmer (helpers, wired up later if wanted) ---- */
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--h-bg-elevated) 25%,
+    var(--h-bg-raised) 50%,
+    var(--h-bg-elevated) 75%
+  );
+  background-size: 200% 100%;
+  animation: h-shimmer 1.6s var(--h-ease) infinite;
+  border-radius: var(--h-radius-sm);
+}
+
+.shimmer-text {
+  height: 0.9em;
+  width: 60%;
+  margin: 0.2rem 0;
+}
+
+.shimmer-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
 }

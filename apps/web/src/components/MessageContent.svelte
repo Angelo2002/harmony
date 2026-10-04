@@ -58,7 +58,7 @@
           type="button"
           class="mention profile-trigger"
           title={`@${segment.user.username}`}
-          onmouseenter={(event) => openCard(segment.user, event.currentTarget)}
+          onmouseenter={(event) => profileCard.scheduleShow(segment.user, event.currentTarget)}
           onmouseleave={() => profileCard.scheduleHide()}
           onfocus={(event) => openCard(segment.user, event.currentTarget)}
           onblur={() => profileCard.scheduleHide()}

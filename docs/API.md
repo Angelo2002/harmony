@@ -950,10 +950,20 @@ is one they can already read.
 | `authorId` | string | — | Narrow to one author |
 | `before` | ISO 8601 string | — | Return matches older than this timestamp |
 | `beforeId` | string | — | Id of the match `before` came from |
+| `from` | string ≤64, repeatable (up to 10) | — | Author username or display name, case-insensitive. Several values mean any of them; a name nobody has matches nothing |
+| `mentions` | string ≤64, repeatable | — | Messages whose text names `@username`, for any of the given members. A substring match on the literal `@name` |
+| `in` | string ≤64, repeatable | — | Channel name, case-insensitive, leading `#` ignored. Several mean any of them. A channel that is unknown **or hidden from the caller** returns `404 no_such_channel` |
+| `has` | `image` `video` `gif` `file` `link` `embed` `sticker` `pin`, repeatable | — | Every listed trait must hold. `image` includes gifs, `file` is any attachment, `link` is an `http(s)://` address in the text, `embed` a resolved link preview, `pin` a pinned message. Anything else is `400` |
+| `sentAfter` | integer, epoch ms | — | Only messages sent at or after this instant |
+| `sentBefore` | integer, epoch ms | — | Only messages sent before this instant |
 
-At least one of `q`, `channelId` or `authorId` is required; a filter on its own is a valid search,
-which is how a client lists everything one member said or everything in one channel. Asking for none
-of them returns `400 validation_error`.
+Repeat a parameter to give several values (`?from=ann&from=bob`). Dates are bounds in epoch
+milliseconds, so the client works out what "on 2024-05-01" means in the member's own time zone.
+
+At least one of `q`, `channelId`, `authorId` or a filter above is required; a filter on its own is a
+valid search, which is how a client lists everything one member said, everything in one channel or
+everything pinned. Asking for none of them returns `400 validation_error`. Filters only ever narrow
+the channels the caller can already see, so none of them can reveal a hidden channel's messages.
 
 `%` and `_` in `q` are literal characters, not wildcards. Deleted messages are never returned, and
 an edited message is found by its current text only. Paging works exactly like

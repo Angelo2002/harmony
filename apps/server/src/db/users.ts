@@ -58,6 +58,29 @@ export function findUserByUsername(sqlite: DatabaseSync, username: string): User
   return (sqlite.prepare('SELECT * FROM users WHERE username = ?').get(username) as UserRow | undefined) ?? null;
 }
 
+/** Just enough of a user to resolve a typed name to an account. */
+export interface PersonName {
+  id: string;
+  username: string;
+  displayName: string | null;
+}
+
+/** Everyone who has an account, banned or not: their old messages are still searchable. */
+export function listAllUserNames(sqlite: DatabaseSync): PersonName[] {
+  const rows = sqlite.prepare('SELECT id, username, display_name FROM users').all() as unknown as Array<{
+    id: string;
+    username: string;
+    display_name: string | null;
+  }>;
+  return rows.map((row) => ({ id: row.id, username: row.username, displayName: row.display_name }));
+}
+
+/** Whether a typed name (a leading @ is ignored) is this person's username or display name, ignoring case. */
+export function matchesPerson(person: PersonName, name: string): boolean {
+  const wanted = name.replace(/^@/, '').toLowerCase();
+  return person.username.toLowerCase() === wanted || (person.displayName?.toLowerCase() ?? null) === wanted;
+}
+
 export function listUsers(sqlite: DatabaseSync): UserRow[] {
   // Banned users are no longer members, so they are left out of every roster.
   return sqlite

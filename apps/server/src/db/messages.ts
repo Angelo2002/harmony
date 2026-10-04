@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { EmbedPlayer, LinkEmbed } from '@harmony/shared';
+import type { EmbedPlayer, LinkEmbed, SearchHas } from '@harmony/shared';
 
 /** YouTube video ids are 11 URL-safe characters; anything else is not offered. */
 function parsePlayer(value: unknown): EmbedPlayer | null {
@@ -75,6 +75,15 @@ export interface SearchOptions {
   /** Channel ids the searcher may see; an empty list finds nothing. */
   channelIds: string[];
   authorId?: string | undefined;
+  /** Authors, any of which matches. An empty list matches nothing; omitted means anyone. */
+  authorIds?: string[] | undefined;
+  /** Usernames the text must name (as @name), any of which matches. An empty list matches nothing. */
+  mentionedUsernames?: string[] | undefined;
+  /** Traits the message must all have. */
+  has?: SearchHas[] | undefined;
+  /** Sent at or after / before these ISO timestamps. */
+  sentAfter?: string | undefined;
+  sentBefore?: string | undefined;
   limit: number;
   before?: string | undefined;
   beforeId?: string | undefined;
@@ -86,6 +95,21 @@ function likePattern(query: string): string {
 }
 
 /**
+ * The SQL for each has: trait. These are fixed strings with no caller input in
+ * them. file is any attachment at all and image includes gifs, as on Discord.
+ */
+const HAS_CONDITIONS: Record<SearchHas, string> = {
+  image: "EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = messages.id AND a.content_type LIKE 'image/%')",
+  video: "EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = messages.id AND a.content_type LIKE 'video/%')",
+  gif: "EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = messages.id AND a.content_type = 'image/gif')",
+  file: 'EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = messages.id)',
+  link: "(content LIKE '%http://%' OR content LIKE '%https://%')",
+  embed: 'embed IS NOT NULL',
+  sticker: 'EXISTS (SELECT 1 FROM message_stickers ms WHERE ms.message_id = messages.id)',
+  pin: 'pinned_at IS NOT NULL',
+};
+
+/**
  * Case-insensitive substring search over message text, newest first. With no term
  * the filters alone decide what comes back, e.g. everything one member said.
  * Deleted messages are left out, and a caller must pass the channels the searcher
@@ -94,7 +118,8 @@ function likePattern(query: string): string {
  * burst of messages can share a millisecond.
  */
 export function searchMessages(sqlite: DatabaseSync, options: SearchOptions): MessageRow[] {
-  const { query, channelIds, authorId, limit, before, beforeId } = options;
+  const { query, channelIds, authorId, authorIds, mentionedUsernames, has, sentAfter, sentBefore, limit, before, beforeId } =
+    options;
   if (channelIds.length === 0) return [];
 
   const conditions = ['deleted_at IS NULL'];
@@ -111,6 +136,26 @@ export function searchMessages(sqlite: DatabaseSync, options: SearchOptions): Me
   if (authorId !== undefined) {
     conditions.push('author_id = ?');
     values.push(authorId);
+  }
+  if (authorIds !== undefined) {
+    if (authorIds.length === 0) return [];
+    conditions.push(`author_id IN (${authorIds.map(() => '?').join(', ')})`);
+    values.push(...authorIds);
+  }
+  if (mentionedUsernames !== undefined) {
+    if (mentionedUsernames.length === 0) return [];
+    // A mention is the literal text @name, so the filter is a substring match on it.
+    conditions.push(`(${mentionedUsernames.map(() => "content LIKE ? ESCAPE '\\'").join(' OR ')})`);
+    values.push(...mentionedUsernames.map((name) => likePattern(`@${name}`)));
+  }
+  for (const trait of new Set(has ?? [])) conditions.push(HAS_CONDITIONS[trait]);
+  if (sentAfter !== undefined) {
+    conditions.push('created_at >= ?');
+    values.push(sentAfter);
+  }
+  if (sentBefore !== undefined) {
+    conditions.push('created_at < ?');
+    values.push(sentBefore);
   }
   if (before !== undefined && beforeId !== undefined) {
     conditions.push('(created_at < ? OR (created_at = ? AND rowid < (SELECT rowid FROM messages WHERE id = ?)))');

@@ -3623,6 +3623,66 @@ button.roster-member:hover {
   list-style: none;
 }
 
+.search-box {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 140px;
+}
+
+.search-box input {
+  width: 100%;
+}
+
+.search-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+}
+
+.search-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.2rem 0.15rem 0.6rem;
+  border: 1px solid var(--h-border-strong);
+  border-radius: 999px;
+  background: var(--h-accent-subtle);
+  color: var(--h-text);
+  font-size: 0.82rem;
+}
+
+.search-chip button {
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--h-text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search-chip button:hover {
+  background: var(--h-active);
+  color: var(--h-text);
+}
+
 .search-result {
   display: block;
   width: 100%;

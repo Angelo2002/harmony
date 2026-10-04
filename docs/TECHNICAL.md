@@ -133,6 +133,24 @@ retention pruning — at the cost of a scan that is imperceptible at the message
 produces. The channels a searcher may see are resolved first and passed into the query, so a locked
 channel cannot leak through a result.
 
+### Filters
+
+Discord-style filters narrow the same scan: `from`, `mentions`, `in`, `has`, and a sent-after /
+sent-before time range. They are plain `AND` conditions in `searchMessages` (`db/messages.ts`) with
+every value bound as a parameter; the `has` traits map to fixed SQL strings, never to caller input.
+Names are resolved in `MessageService.search`, and the order matters for safety: `in` is matched only
+against the channels the caller can already see, so a hidden channel and a channel that does not exist
+both answer `404 no_such_channel`, and every other filter is applied inside that visible set. `from`
+and `mentions` resolve names to accounts case-insensitively (username or display name); a name that
+matches nobody simply matches no messages. `mentions` is a substring match on the literal `@username`
+text rather than the `mentions` table, because that table skips self-mentions, bots and Discord
+stand-ins. Dates are sent as epoch milliseconds: the client turns a local calendar day into bounds so
+the server never needs to know the member's time zone.
+
+On the client, `lib/search-query.ts` is the pure half: it tokenizes the box (quotes keep a name with a
+space whole), turns finished `key:value` tokens into chips, builds the request, and ranks the
+suggestions for the token under the caret. `SearchPanel.svelte` only wires it to the DOM.
+
 If a very large instance ever needed ranking or word matching, SQLite's FTS5 is available in the
 bundled build and would slot in behind the same endpoint.
 

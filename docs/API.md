@@ -825,7 +825,9 @@ If the channel has a [slowmode](#slowmode) and you posted here too recently, thi
 ```
 
 Only the author may edit; anyone else, including administrators, gets `403 forbidden`. Returns the
-updated `Message` (with `editedAt` set) and fires `MESSAGE_UPDATE`.
+updated `Message` (with `editedAt` set) and fires `MESSAGE_UPDATE`. The [inbox](#mentions-and-replies)
+follows the new text: someone named by the edit finds the message there, someone no longer named does
+not, and a reply stays a reply. Naming someone by editing does not make the channel unread for them.
 
 #### `DELETE /api/v1/messages/:id` — auth (author or `ManageMessages`)
 
@@ -1101,7 +1103,9 @@ An emoji is either a unicode character (send it verbatim, e.g. `"👍"`) or a cu
 ```
 
 Toggles your own reaction: adds it if absent, removes it if present. Returns the updated `Message`
-and fires `MESSAGE_REACTION_ADD` or `MESSAGE_REACTION_REMOVE`.
+and fires `MESSAGE_REACTION_ADD` or `MESSAGE_REACTION_REMOVE`. A reaction whose custom emoji has
+since been deleted can still be removed (and cleared below) by the `emoji` and `emojiId` it carries;
+adding one fails with `400 invalid_emoji`.
 
 #### `DELETE /api/v1/messages/:id/reactions` — `ManageMessages`
 
@@ -1936,6 +1940,13 @@ message or reaction that carried one. The instance's own emoji are never touched
 
 [Stickers](#stickers) learned from Discord are aged out by `stickerRetentionDays` the same way,
 counted from the last bridged message that carried one.
+
+`storageLimitBytes` caps everything stored on disk, which includes saved gifs, emoji, stickers,
+avatars and the instance icon. Once it is exceeded, the pruner removes the oldest attachments until
+usage is back under `storageTargetBytes` (or the limit, if no target is set). Attachments are the
+only thing it removes for space: it never deletes messages, and it stops as soon as a round of
+removals frees nothing, so a cap that the exempt content alone exceeds is left over rather than
+chased by deleting more.
 
 ```ts
 type RetentionSettings = {

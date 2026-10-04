@@ -27,6 +27,14 @@ export function insertMention(
 }
 
 /**
+ * Forgets who a message names, for an edit to record afresh. Reply rows are
+ * kept: an edit cannot change which message a reply answers.
+ */
+export function deleteNameMentions(sqlite: DatabaseSync, messageId: string): void {
+  sqlite.prepare(`DELETE FROM mentions WHERE message_id = ? AND kind = 'mention'`).run(messageId);
+}
+
+/**
  * How many mentions and replies this member has not read in each channel, which
  * is the number drawn beside it. Channels with none are left out. A mention
  * counts as read exactly when the channel does, so the same cursor that clears

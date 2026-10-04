@@ -2,7 +2,8 @@
 
 The internals, the development setup and the full reference for the Discord
 bridge. For running a real instance, see [DEPLOYMENT.md](DEPLOYMENT.md); for the
-API, see [API.md](API.md). The friendly overview lives in the
+API, see [API.md](API.md); for the planned system push notifications, see
+[PUSH.md](PUSH.md). The friendly overview lives in the
 [README](../README.md).
 
 ## How it is built
@@ -35,6 +36,7 @@ packages/
 docs/
   API.md          HTTP and gateway reference for custom clients and bots
   DEPLOYMENT.md   Running a real instance: TLS, settings, backups
+  PUSH.md         Design for OS push notifications (proposed, not built)
   TECHNICAL.md    This file
 ```
 

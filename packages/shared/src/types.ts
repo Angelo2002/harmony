@@ -201,7 +201,10 @@ export type AuditKind =
   | 'server_gif_hide'
   | 'server_gif_unhide'
   | 'gif_archive'
-  | 'gif_free';
+  | 'gif_free'
+  | 'event_create'
+  | 'event_edit'
+  | 'event_cancel';
 
 /**
  * The kind-specific fields of an audit entry. Every field is optional because
@@ -218,6 +221,7 @@ export type AuditKind =
  *   message's author.
  * - `backup_download`: `filename`. `channel_export`: `channelName` and `filename`.
  * - `server_gif_*`: `filename`, and `gifName` for a curated gif's display name.
+ * - `event_create` / `event_edit` / `event_cancel`: `eventTitle`, and `channelName` for a channel event.
  *
  * `actorName` and `targetName` are snapshots taken when the entry was written,
  * so it stays readable after a rename or a deletion.
@@ -228,6 +232,8 @@ export interface AuditDetail {
   filename?: string;
   /** server_gif_add / server_gif_remove: the curated gif's display name. */
   gifName?: string;
+  /** event_*: the event's title as it read at the time. */
+  eventTitle?: string;
   actorName?: string;
   targetName?: string;
   before?: string;

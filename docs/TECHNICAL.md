@@ -602,6 +602,38 @@ text smoke test. The composer opens `SchedulePicker` from the chevron by Send, t
 Ctrl+Shift+Enter, and `ScheduledPanel` (header clock button, with a count badge) lists, edits, sends
 and deletes entries, failed ones included.
 
+## Events
+
+Server events live in `events` and `event_rsvps` (migration 33). Times are epoch milliseconds. A channel
+event cascades away with its channel (an orphan would have no channel left to decide who may see it);
+the creator is nulled when their account goes, and `mergeUsers` re-owns events and keeps one interest per
+person. `events/service.ts` does the work and `routes/events.ts` is the thin HTTP layer.
+
+Visibility is one rule applied everywhere: an external event is visible to all, a channel event to those
+who can open the channel (`canAccessChannel`). The list, detail, RSVP, interested names and the gateway all
+use it, and an invisible event is reported as missing. `EVENT_UPDATE` goes through `hub.dispatch` with the
+channel as its visibility for a channel event and to everybody otherwise. The broadcast carries no viewer
+perspective (`interested: false` plus, for an RSVP, whose interest changed), the same idea as reactions'
+`me`, so each client keeps its own flag.
+
+A sweep (`HARMONY_EVENT_SWEEP_MS`, default 15 s) starts events at `starts_at`, ends active ones at `ends_at`
+or after the default duration (4 h, `HARMONY_EVENT_DEFAULT_DURATION_MS`) and sends reminders. A reminder is
+due once a still-`scheduled` event is within the lead (15 min, `HARMONY_EVENT_REMINDER_LEAD_MS`) of its start
+and `reminded_at` is null; the stamp is written before the dispatch so a failure skips rather than doubles,
+and survives restarts. It is delivered with `hub.dispatchToUsers` to the interested members who can still see
+the event, as `EVENT_REMINDER`. Nothing is queued for a member who is offline. An edit that moves the start
+clears the stamp.
+
+Creating needs the `ManageEvents` bit (17). The migration adds it to roles that already had `ManageServer`
+so existing moderators keep their reach; the role editor lists permissions from the shared bitfield, so no
+UI work was needed for the bit. The creator may always edit or cancel their own event.
+
+On the client `lib/events.svelte.ts` mirrors the list, follows `EVENT_UPDATE` and shows `EVENT_REMINDER` as a
+notice (with the mention sound when enabled) the way a due saved-message reminder is. The pure parts
+(grouping into Now / Upcoming / Past, labels, the form's draft handling) are in `packages/shared/src/events.ts`
+and `lib/event-form.ts` and covered by the text smoke test. Not included: recurring events and bridging to
+Discord scheduled events.
+
 ## Notification sounds
 
 Two sounds ship with the client, in `apps/web/public/sounds`: a louder one for a

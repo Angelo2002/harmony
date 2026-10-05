@@ -31,6 +31,9 @@
     server_gif_unhide: 'server gif',
     gif_archive: 'gifs',
     gif_free: 'gifs',
+    event_create: 'event',
+    event_edit: 'event edit',
+    event_cancel: 'event canceled',
   };
 
   let entries = $state<AuditEntry[]>([]);
@@ -147,6 +150,12 @@
         return `copied ${entry.detail.count ?? 0} linked gif${entry.detail.count === 1 ? '' : 's'} onto this server`;
       case 'gif_free':
         return `released the stored copies of ${entry.detail.count ?? 0} linked gif${entry.detail.count === 1 ? '' : 's'}`;
+      case 'event_create':
+        return `created the event "${entry.detail.eventTitle ?? 'untitled'}"`;
+      case 'event_edit':
+        return `edited the event "${entry.detail.eventTitle ?? 'untitled'}"`;
+      case 'event_cancel':
+        return `canceled the event "${entry.detail.eventTitle ?? 'untitled'}"`;
     }
   }
 </script>

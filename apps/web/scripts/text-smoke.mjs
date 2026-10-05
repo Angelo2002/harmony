@@ -28,6 +28,19 @@ import {
   pollPercent,
   pollTimeLeft,
 } from '@harmony/shared';
+import { createEventSchema, eventGroup, groupEvents, interestedLabel, updateEventSchema } from '@harmony/shared';
+import {
+  applyEventUpdate,
+  describeEventTime,
+  draftFromEvent,
+  eventDraftProblem,
+  eventStatusLabel,
+  newEventDraft,
+  removeEvent,
+  reminderText,
+  toCreateEventBody,
+  toUpdateEventBody,
+} from '../src/lib/event-form.ts';
 import { HIGHLIGHT_LANGUAGES, highlight } from '../src/lib/highlighter.ts';
 import { MAX_TAGS, formatTags, matchesServerGif, moveInOrder, orderCurated, parseTags, serverGifUrl } from '../src/lib/server-gifs.ts';
 import { addServerGifSchema, updateServerGifSchema } from '@harmony/shared';
@@ -1269,6 +1282,104 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('before the instance settings are known nothing is loaded', unknown.primary === null && unknown.fallback === null);
 }
 
+
+// ---- Server events: grouping, labels and the form ----
+{
+  const evNow = Date.UTC(2025, 11, 24, 15, 0, 0);
+  const hour = 3_600_000;
+  const ev = (id, status, startsAt, endsAt = null) => ({
+    id,
+    status,
+    startsAt,
+    endsAt,
+    title: id,
+    description: '',
+    locationKind: 'external',
+    channelId: null,
+    locationText: 'Park',
+    interestedCount: 0,
+    interested: false,
+  });
+
+  const grouped = groupEvents([
+    ev('later', 'scheduled', evNow + 5 * hour),
+    ev('soon', 'scheduled', evNow + hour),
+    ev('live-b', 'active', evNow - hour),
+    ev('live-a', 'active', evNow - 2 * hour),
+    ev('old', 'ended', evNow - 30 * hour, evNow - 28 * hour),
+    ev('older', 'canceled', evNow - 60 * hour),
+    ev('newest-past', 'ended', evNow - 5 * hour, evNow - 3 * hour),
+  ]);
+  check('events are grouped into now, upcoming and past', grouped.now.length === 2 && grouped.upcoming.length === 2 && grouped.past.length === 3);
+  check('now and upcoming are soonest first', grouped.now.map((e) => e.id).join() === 'live-a,live-b' && grouped.upcoming.map((e) => e.id).join() === 'soon,later');
+  check('past is most recent first', grouped.past.map((e) => e.id).join() === 'newest-past,old,older');
+  check('a canceled event is past', eventGroup({ status: 'canceled' }) === 'past');
+  check('the interested label reads naturally', interestedLabel(0) === 'No one yet' && interestedLabel(1) === '1 interested' && interestedLabel(12) === '12 interested');
+  check('the status pill is a word', eventStatusLabel('active') === 'Happening now' && eventStatusLabel('canceled') === 'Canceled');
+
+  // Applying a broadcast keeps the viewer's own interest unless it was theirs that changed.
+  const held = [{ ...ev('x', 'scheduled', evNow + hour), interested: true, interestedCount: 1 }];
+  const others = applyEventUpdate(held, { event: { ...ev('x', 'scheduled', evNow + hour), interestedCount: 2 }, rsvpUserId: 'someone', rsvpInterested: true }, 'me');
+  check('someone else\'s RSVP updates the count and keeps my flag', others[0].interestedCount === 2 && others[0].interested === true);
+  const mine = applyEventUpdate(others, { event: { ...ev('x', 'scheduled', evNow + hour), interestedCount: 1 }, rsvpUserId: 'me', rsvpInterested: false }, 'me');
+  check('my own RSVP from another session flips my flag', mine[0].interested === false && mine[0].interestedCount === 1);
+  const fresh = applyEventUpdate([], { event: ev('new', 'scheduled', evNow + hour), rsvpUserId: null, rsvpInterested: null }, 'me');
+  check('an unknown event is added, not interested', fresh.length === 1 && fresh[0].interested === false);
+  check('an event can be removed', removeEvent(fresh, 'new').length === 0);
+
+  // Describing the time in the reader's zone.
+  const zone = { now: evNow, locale: 'en-US', timeZone: 'UTC' };
+  check('a start today reads as today with the zone', describeEventTime({ startsAt: evNow + 2 * hour, endsAt: null }, zone) === 'Today at 5:00 PM (UTC)');
+  check('a same-day end adds only the clock time', describeEventTime({ startsAt: evNow + 2 * hour, endsAt: evNow + 4 * hour }, zone) === 'Today at 5:00 PM (UTC) to 7:00 PM');
+  check('an end on another day spells that day out', describeEventTime({ startsAt: evNow + 2 * hour, endsAt: evNow + 30 * hour }, zone) === 'Today at 5:00 PM (UTC) to Tomorrow at 9:00 PM (UTC)');
+  check('the same instant reads differently per zone', describeEventTime({ startsAt: evNow, endsAt: null }, { ...zone, timeZone: 'Asia/Tokyo' }).includes('Tokyo') && describeEventTime({ startsAt: evNow, endsAt: null }, { ...zone, timeZone: 'Asia/Tokyo' }).includes('12:00 AM'));
+  check('a reminder says how long is left', reminderText({ title: 'Game night', startsAt: evNow + 15 * 60_000 }, evNow) === 'Game night starts in 15 minutes.');
+  check('a reminder under a minute still says one minute', reminderText({ title: 'Game night', startsAt: evNow + 10_000 }, evNow) === 'Game night starts in 1 minute.');
+  check('a reminder after the start says it is starting', reminderText({ title: 'Game night', startsAt: evNow - 1000 }, evNow) === 'Game night is starting now.');
+
+  // The form.
+  let draft = newEventDraft(evNow);
+  check('a new draft starts about an hour out, on a five-minute mark', draft.startsAt === evNow + hour && draft.locationKind === 'external');
+  check('a new draft asks for a title first', eventDraftProblem(draft, evNow) === 'Give the event a title.');
+  draft.title = '  Game night ';
+  check('then for a place', eventDraftProblem(draft, evNow) === 'Say where it takes place.');
+  draft.locationText = ' The park ';
+  check('a complete draft can be sent', eventDraftProblem(draft, evNow) === null);
+  check('the create request is trimmed and passes the server schema', (() => {
+    const body = toCreateEventBody(draft);
+    return body.title === 'Game night' && body.locationText === 'The park' && body.channelId === null && createEventSchema.safeParse(body).success;
+  })());
+  draft.startsAt = evNow - 1000;
+  check('a start in the past is a problem when creating', eventDraftProblem(draft, evNow) === 'The start has to be in the future.');
+  check('but not when editing an event already under way', eventDraftProblem(draft, evNow, true) === null);
+  draft.startsAt = evNow + hour;
+  draft.endsAt = evNow + hour;
+  check('an end at or before the start is a problem', eventDraftProblem(draft, evNow) === 'The end has to come after the start.');
+  draft.endsAt = evNow + hour + 40 * 86_400_000;
+  check('an end over 30 days after the start is a problem', eventDraftProblem(draft, evNow) === 'Events can run for up to 30 days.');
+  draft.endsAt = null;
+  draft.startsAt = evNow + 400 * 86_400_000;
+  check('a start over a year ahead is a problem', eventDraftProblem(draft, evNow) === 'Events can start up to a year ahead.');
+  draft.startsAt = null;
+  check('an incomplete start is a problem', eventDraftProblem(draft, evNow) === 'Pick a start date and time.');
+  const channelDraft = { ...newEventDraft(evNow, 'chan-1'), title: 'In channel' };
+  check('a channel draft sends its channel and no place', (() => {
+    const body = toCreateEventBody(channelDraft);
+    return body.locationKind === 'channel' && body.channelId === 'chan-1' && body.locationText === '' && createEventSchema.safeParse(body).success;
+  })());
+  check('a channel draft without a channel is a problem', eventDraftProblem({ ...channelDraft, channelId: null }, evNow) === 'Pick a channel.');
+
+  const original = { ...ev('e1', 'scheduled', evNow + hour), title: 'Old title', description: 'Old', locationText: 'Park' };
+  const same = draftFromEvent(original);
+  check('an untouched edit sends nothing', Object.keys(toUpdateEventBody(same, original)).length === 0);
+  const changed = { ...same, title: 'New title', endsAt: evNow + 3 * hour };
+  const patch = toUpdateEventBody(changed, original);
+  check('an edit sends only what changed', patch.title === 'New title' && patch.endsAt === evNow + 3 * hour && patch.description === undefined && patch.startsAt === undefined && patch.locationKind === undefined);
+  check('clearing the end is sent as null', toUpdateEventBody({ ...same, endsAt: null }, { ...original, endsAt: evNow + 3 * hour }).endsAt === null);
+  const moved = toUpdateEventBody({ ...same, locationKind: 'channel', channelId: 'c9' }, original);
+  check('changing the place kind sends the new place', moved.locationKind === 'channel' && moved.channelId === 'c9' && moved.locationText === undefined && updateEventSchema.safeParse(moved).success);
+  check('an edit request passes the server schema', updateEventSchema.safeParse(patch).success);
+}
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

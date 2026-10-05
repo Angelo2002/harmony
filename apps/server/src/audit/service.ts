@@ -60,6 +60,8 @@ export interface AuditService {
   gifsArchived(actorId: string, count: number): void;
   /** Records an administrator releasing the stored copies of gifs that are still linked. */
   gifsFreed(actorId: string, count: number, bytes: number): void;
+  /** Records an event being created, edited or canceled. */
+  eventChange(kind: 'event_create' | 'event_edit' | 'event_cancel', actorId: string, channelId: string | null, title: string): void;
   list(query: AuditQuery): AuditListResponse;
   /** Empties the log, returning how many entries were removed. */
   clear(): number;
@@ -204,6 +206,14 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
 
     gifsFreed(actorId, count, bytes) {
       write('gif_free', actorId, null, null, { count, bytes, actorName: userName(actorId) });
+    },
+
+    eventChange(kind, actorId, channelId, title) {
+      write(kind, actorId, null, channelId, {
+        channelName: channelId ? findChannel(sqlite, channelId)?.name : undefined,
+        eventTitle: title,
+        actorName: userName(actorId),
+      });
     },
 
     list(query) {

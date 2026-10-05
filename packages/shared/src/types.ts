@@ -195,7 +195,11 @@ export type AuditKind =
   | 'message_pin'
   | 'message_unpin'
   | 'backup_download'
-  | 'channel_export';
+  | 'channel_export'
+  | 'server_gif_add'
+  | 'server_gif_remove'
+  | 'server_gif_hide'
+  | 'server_gif_unhide';
 
 /**
  * The kind-specific fields of an audit entry. Every field is optional because
@@ -211,6 +215,7 @@ export type AuditKind =
  *   message text as it read when it was pinned or unpinned. The target is the
  *   message's author.
  * - `backup_download`: `filename`. `channel_export`: `channelName` and `filename`.
+ * - `server_gif_*`: `filename`, and `gifName` for a curated gif's display name.
  *
  * `actorName` and `targetName` are snapshots taken when the entry was written,
  * so it stays readable after a rename or a deletion.
@@ -219,6 +224,8 @@ export interface AuditDetail {
   channelName?: string;
   roleName?: string;
   filename?: string;
+  /** server_gif_add / server_gif_remove: the curated gif's display name. */
+  gifName?: string;
   actorName?: string;
   targetName?: string;
   before?: string;

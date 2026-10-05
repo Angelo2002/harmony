@@ -25,6 +25,10 @@
     message_unpin: 'unpin',
     backup_download: 'backup',
     channel_export: 'export',
+    server_gif_add: 'server gif',
+    server_gif_remove: 'server gif',
+    server_gif_hide: 'server gif',
+    server_gif_unhide: 'server gif',
   };
 
   let entries = $state<AuditEntry[]>([]);
@@ -129,6 +133,14 @@
         return 'downloaded a full backup';
       case 'channel_export':
         return `exported #${entry.detail.channelName ?? 'a channel'} as ${entry.detail.filename?.endsWith('.html') ? 'HTML' : 'JSON'}`;
+      case 'server_gif_add':
+        return `added "${entry.detail.gifName ?? entry.detail.filename ?? 'a gif'}" to the server gifs`;
+      case 'server_gif_remove':
+        return `removed "${entry.detail.gifName ?? entry.detail.filename ?? 'a gif'}" from the server gifs`;
+      case 'server_gif_hide':
+        return `hid ${entry.detail.filename ?? 'a gif'} from the server gifs`;
+      case 'server_gif_unhide':
+        return `restored ${entry.detail.filename ?? 'a gif'} to the server gifs`;
     }
   }
 </script>

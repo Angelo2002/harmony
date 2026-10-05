@@ -23,6 +23,7 @@
   import RemoveEmbedsAction from './RemoveEmbedsAction.svelte';
   import PollView from './PollView.svelte';
   import SaveAction from './SaveAction.svelte';
+  import ServerGifAction from './ServerGifAction.svelte';
 
   /** Opens the profile card for an author, when there is one to show. */
   function openCard(user: User | null | undefined, element: HTMLElement): void {
@@ -752,6 +753,7 @@
           </button>
           <PinAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
           <SaveAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
+          <ServerGifAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
           <RemoveEmbedsAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
           {#if canEdit(message)}
             <button

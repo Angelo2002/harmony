@@ -91,6 +91,23 @@ export interface MessageListResponse {
   messages: Message[];
 }
 
+/** One earlier version of an edited message. */
+export interface MessageEdit {
+  id: string;
+  /** The text before the edit. */
+  content: string;
+  /** When the edit that replaced this text happened. */
+  editedAt: string;
+  /** Who made that edit, or null when the account is gone. */
+  editor: User | null;
+  source: 'harmony' | 'discord';
+}
+
+/** Response for `GET /api/v1/messages/:id/edits`: previous versions, newest first. */
+export interface MessageEditListResponse {
+  edits: MessageEdit[];
+}
+
 /** Response for `GET /api/v1/channels/:id/pins`: the channel's pins, newest pin first. */
 export interface PinListResponse {
   messages: Message[];

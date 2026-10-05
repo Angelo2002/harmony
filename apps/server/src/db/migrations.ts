@@ -738,4 +738,26 @@ export const migrations: Migration[] = [
       db.exec(`ALTER TABLE messages ADD COLUMN embeds_hidden INTEGER NOT NULL DEFAULT 0`);
     },
   },
+  {
+    version: 34,
+    name: 'message_edits',
+    up(db) {
+      /*
+       * The text a message had before each edit. editor_id is who made the edit
+       * (null once that account is deleted); source says whether the edit came
+       * from Harmony or from Discord. Rows go with their message via the cascade.
+       */
+      db.exec(`
+        CREATE TABLE message_edits (
+          id         TEXT PRIMARY KEY,
+          message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+          editor_id  TEXT REFERENCES users(id) ON DELETE SET NULL,
+          content    TEXT NOT NULL,
+          edited_at  TEXT NOT NULL,
+          source     TEXT NOT NULL DEFAULT 'harmony'
+        );
+        CREATE INDEX idx_message_edits_message ON message_edits(message_id, edited_at);
+      `);
+    },
+  },
 ];

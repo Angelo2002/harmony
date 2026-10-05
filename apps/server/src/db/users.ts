@@ -127,6 +127,7 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
     sqlite.prepare('UPDATE invites SET created_by = ? WHERE created_by = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE bans SET banned_by = ? WHERE banned_by = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE sessions SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE message_edits SET editor_id = ? WHERE editor_id = ?').run(intoId, fromId);
 
     // Composite keys: drop the outgoing rows the survivor already shadows.
     sqlite

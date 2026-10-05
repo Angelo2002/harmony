@@ -376,7 +376,8 @@ type AuditKind =
   | 'role_add' | 'role_remove'
   | 'member_update' | 'password_reset'
   | 'message_pin' | 'message_unpin'
-  | 'backup_download' | 'channel_export';
+  | 'backup_download' | 'channel_export'
+  | 'gif_archive' | 'gif_free';
 
 type AuditDetail = {
   channelName?: string;   // message and media kinds
@@ -388,6 +389,8 @@ type AuditDetail = {
   reason?: string | null;
   roleName?: string;
   fields?: string[];       // member_update: the account fields that changed
+  count?: number;          // gif_archive / gif_free: gifs copied or released
+  bytes?: number;          // gif_free: bytes of copies released
   actorName?: string;     // snapshots, so an entry stays readable after a rename
   targetName?: string;
 };
@@ -1515,7 +1518,8 @@ check: allowlisted host, resolves to a public address, **no redirects followed**
 instance's image or video limit (by `Content-Length`, or by reading up to the limit when none is
 declared). Failing any of that, the gif is stored by the ordinary path instead. A copy this instance
 already holds is reused rather than linked past. A client draws `embed.url` directly (`<img>` or a
-muted looping `<video>`) only while `gifStorage` is `"link"` and the address is on the allowlist;
+muted looping `<video>`) while `gifStorage` is `"link"` and the address is on the allowlist, and
+from `GET /api/v1/gifs/copy?url=` (below) while it is `"store"` or when the remote fails to load;
 `width` and `height` are `null` because gif services do not tell the server.
 
 While the mode is on, the built-in `Content-Security-Policy` opens `img-src` and `media-src` to those
@@ -1530,6 +1534,38 @@ Body `{ "url": string }`. Checks a hosted gif's address as above and returns
 allowlist, `415 invalid_gif` when the host did not serve a gif of a sensible size. Nothing is stored.
 Saved (favorite) gifs, the This server tab and `POST /api/v1/gifs/pick` are unchanged: they are
 stored bytes. Saving a hosted gif to favorites still keeps a copy.
+
+#### `GET /api/v1/gifs/copy?url=` — `ViewChannels`
+
+The copy this server holds of a linked gif, by the address the message links to (percent-encode it,
+query string included). Answers with the gif bytes, or `404 gif_not_found`. The address must be on the
+gif-host allowlist and already recorded in `gif_sources` (migration 31). While `gifStorage` is
+`"store"` a recorded address with no copy yet is fetched once through the SSRF-guarded downloader,
+within the upload size limit; after three failed fetches it is marked dead and the route answers 404.
+While `"link"` it serves only a copy that already exists and never fetches.
+
+#### `GET /api/v1/gifs/sources` — `ManageServer`
+
+```json
+{ "total": 12, "linked": 4, "archived": 7, "dead": 1, "archivedBytes": 1048576 }
+```
+
+`linked` counts recorded addresses with no copy that are not dead, `archived` those with a copy,
+`dead` those given up on.
+
+#### `POST /api/v1/gifs/sources/archive` — `ManageServer`
+
+Copies up to 20 recorded gifs that have no copy, from allowlisted hosts only, within the upload size
+limit. Returns `{ "attempted", "copied", "failed", "markedDead", "more", "stats" }`; call again while
+`more` is true. `409 archive_running` if another run is in progress, `429` past 30 calls a minute.
+Audit kind `gif_archive` (detail `count`).
+
+#### `POST /api/v1/gifs/sources/free` — `ManageServer`
+
+Releases the copies made for gif sources whose gifs are still linked and that nothing else keeps (no
+attachment, favorite or curated server gif). Returns `{ "released", "freedBytes", "stats" }`; the
+addresses stay recorded. `409 gif_free_needs_link` while `gifStorage` is `"store"`. Audit kind
+`gif_free` (detail `count`, `bytes`).
 
 ### Custom emoji
 

@@ -2617,6 +2617,82 @@ button.roster-member:hover {
   }
 }
 
+/* Server gifs: the admin grid of curated, collected and hidden gifs. */
+.sg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.6rem;
+  margin: 0.6rem 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.sg-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border-radius: var(--h-radius-sm);
+  background: var(--h-bg-deep);
+  border: 1px solid var(--h-border);
+  min-width: 0;
+}
+
+.sg-card.pinned {
+  border-color: var(--h-accent);
+}
+
+.sg-card.sg-hidden img {
+  opacity: 0.55;
+}
+
+.sg-card img {
+  display: block;
+  width: 100%;
+  height: 7rem;
+  object-fit: contain;
+  border-radius: var(--h-radius-sm);
+  background: var(--h-bg);
+}
+
+.sg-card input {
+  width: 100%;
+  min-width: 0;
+}
+
+.sg-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.sg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.sg-actions button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.gif-tile.pinned .gif-send::after {
+  content: '';
+  position: absolute;
+  left: 0.3rem;
+  top: 0.3rem;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--h-accent);
+}
+
+.gif-tile.pinned .gif-send {
+  position: relative;
+}
+
 /* ============================================================
    AUTOCOMPLETE
    ============================================================ */

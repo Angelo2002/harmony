@@ -29,6 +29,8 @@ import {
   pollTimeLeft,
 } from '@harmony/shared';
 import { HIGHLIGHT_LANGUAGES, highlight } from '../src/lib/highlighter.ts';
+import { MAX_TAGS, formatTags, matchesServerGif, moveInOrder, orderCurated, parseTags, serverGifUrl } from '../src/lib/server-gifs.ts';
+import { addServerGifSchema, updateServerGifSchema } from '@harmony/shared';
 import { isJumbo, unicodeEmojiIn } from '../src/lib/jumbo-emoji.ts';
 import {
   USAGE_CAP,
@@ -1175,6 +1177,44 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('no expiry is sent as null and accepted', toCreatePollBody(noExpiry).durationHours === null && createPollSchema.safeParse(toCreatePollBody(noExpiry)).success);
 }
 
+
+// --- Server gifs: tags, search, ordering and reordering ---
+{
+  check('tags split on commas and spaces, lower-cased', JSON.stringify(parseTags('Hello, wave  HELLO,Dance')) === JSON.stringify(['hello', 'wave', 'dance']));
+  check('blank tag input is no tags', parseTags('  , ,').length === 0);
+  check('tags stop at the limit the server enforces', parseTags(Array.from({ length: 30 }, (_, i) => 't' + i).join(' ')).length === MAX_TAGS);
+  check('a long tag is cut to the server limit', parseTags('x'.repeat(80))[0]?.length === 30);
+  check('tags round-trip through the text field', JSON.stringify(parseTags(formatTags(['a', 'b c']))) === JSON.stringify(['a', 'b', 'c']));
+  check('parsed tags satisfy the shared schema', addServerGifSchema.safeParse({ url: 'https://static.klipy.com/x.gif', tags: parseTags('A, b'), name: 'x' }).success);
+
+  const gif = { name: 'Cat Dance', tags: ['feline', 'funny'], filename: 'tmp-123.gif' };
+  check('search matches the name', matchesServerGif(gif, 'cat'));
+  check('search matches a tag', matchesServerGif(gif, 'FELI'));
+  check('search matches the filename', matchesServerGif(gif, 'tmp-12'));
+  check('search ignores surrounding spaces', matchesServerGif(gif, '  dance '));
+  check('an empty search matches everything', matchesServerGif(gif, '   '));
+  check('a non-matching search does not match', !matchesServerGif(gif, 'dog'));
+
+  const list = [
+    { id: 'a', pinned: false, position: 1 },
+    { id: 'b', pinned: false, position: 0 },
+    { id: 'c', pinned: true, position: 5 },
+    { id: 'd', pinned: true, position: 2 },
+  ];
+  check('pinned gifs lead, each run by position', orderCurated(list).map((g) => g.id).join('') === 'dcba');
+  check('ordering does not mutate its input', list[0].id === 'a');
+  const ordered = orderCurated(list);
+  check('a gif moves up one place', moveInOrder(ordered, 'a', -1).join('') === 'dcab');
+  check('a gif moves down one place', moveInOrder(ordered, 'd', 1).join('') === 'cdba');
+  check('the first gif cannot move up', moveInOrder(ordered, 'd', -1).join('') === 'dcba');
+  check('the last gif cannot move down', moveInOrder(ordered, 'a', 1).join('') === 'dcba');
+  check('a gif never crosses from pinned to unpinned by moving', moveInOrder(ordered, 'c', 1).join('') === 'dcba');
+  check('an unknown id changes nothing', moveInOrder(ordered, 'zz', 1).join('') === 'dcba');
+  check('a reorder body is accepted by the shared schema', updateServerGifSchema.safeParse({ position: 3 }).success && !updateServerGifSchema.safeParse({}).success);
+
+  check('a curated tile loads the stored copy', serverGifUrl({ id: 'g1', source: 'curated' }) === '/api/v1/gifs/server/g1/image');
+  check('an auto tile loads its attachment', serverGifUrl({ id: 'at1', source: 'auto' }) === '/api/v1/attachments/at1');
+}
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

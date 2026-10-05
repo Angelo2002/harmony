@@ -14,6 +14,7 @@
   import { profileCard } from '../lib/profile-card.svelte';
   import { session } from '../lib/session.svelte';
   import EmojiPicker from './EmojiPicker.svelte';
+  import EditHistory from './EditHistory.svelte';
   import EmbedVideo from './EmbedVideo.svelte';
   import Icon from './Icon.svelte';
   import MemberBadge from './MemberBadge.svelte';
@@ -546,11 +547,11 @@
                 <MemberBadge badge={message.author.badge} />
               {/if}
               <time>{formatTime(message.createdAt)}</time>
-              {#if message.editedAt}<span class="edited">(edited)</span>{/if}
+              {#if message.editedAt}<EditHistory {message} />{/if}
               {#if message.pinnedAt}<span class="pin-marker" title="Pinned"><Icon name="pin" size={13} /></span>{/if}
             </div>
           {:else if message.editedAt}
-            <span class="edited">(edited)</span>
+            <EditHistory {message} />
           {/if}
           {#if grouped && message.pinnedAt}<span class="pin-marker grouped" title="Pinned"><Icon name="pin" size={13} /></span>{/if}
 

@@ -834,6 +834,24 @@ updated `Message` (with `editedAt` set) and fires `MESSAGE_UPDATE`. The [inbox](
 follows the new text: someone named by the edit finds the message there, someone no longer named does
 not, and a reply stays a reply. Naming someone by editing does not make the channel unread for them.
 
+#### `GET /api/v1/messages/:id/edits` — auth (author or `ManageMessages`)
+
+The earlier versions of an edited message, newest first:
+
+```json
+{ "edits": [ { "id": "...", "content": "text before the edit", "editedAt": "2026-10-04T10:00:00.000Z",
+               "editor": { "id": "...", "username": "bob" }, "source": "harmony" } ] }
+```
+
+`editedAt` is when the edit replaced that text, `editor` is who made it (`null` once the account is
+deleted) and `source` is `harmony` or `discord`. The current text is the message itself and is not
+repeated. At most 20 versions are kept per message; the oldest are dropped. Only the author and members
+with `ManageMessages` (administrators included) may read it. For anyone else, and for a deleted or
+missing message or a channel the caller cannot see, the answer is the same `404 message_not_found`, so
+the endpoint cannot be used to probe. An edit arriving from Discord is recorded too; a Discord update
+that leaves the text unchanged (a link unfurl) is not an edit and records nothing. There is no gateway
+event: clients fetch the list when the user opens it.
+
 #### `DELETE /api/v1/messages/:id` — auth (author or `ManageMessages`)
 
 Returns `204` and fires `MESSAGE_DELETE`. Deletion is a soft delete: replies to the message keep a

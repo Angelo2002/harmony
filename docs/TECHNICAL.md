@@ -541,6 +541,30 @@ rule: bridged votes and closes go through `voteBridged` / `closeBridged`, which 
 checks and notify no listener, and only a local early end notifies the bridge. The poll's Discord
 message is also recorded in the permanent seen-set, like any other mirrored message.
 
+## Edit history
+
+Every edit saves the text it replaces in `message_edits` (migration 34): `message_id` (cascades),
+`editor_id` (set null when an account is deleted, re-owned by `mergeUsers`), `content`, `edited_at`
+and `source` (`harmony` or `discord`). `recordMessageEdit` in `db/message_edits.ts` inserts the row
+and trims the message to its newest 20 versions. It is called from both `edit` and `editBridged` in
+the message service, right before `updateMessageContent`; `editBridged` still returns early for
+unchanged text, polls and gone messages, so unfurl updates write nothing. Re-resolving an embed after
+an edit does not go through this path and is never recorded.
+
+`editHistory` answers `GET /messages/:id/edits`. It throws one and the same 404 for a missing or
+deleted message, a channel the caller cannot access, and a caller who is neither the author nor
+holds Manage Messages, so the endpoint cannot be used to learn anything. Soft-deleted messages keep
+their rows but are never exposed; retention and any hard delete remove them through the foreign key.
+
+The client shows `(edited)` as a button only to the author and Manage Messages holders
+(`EditHistory.svelte`); it fetches on open and renders a word diff per edit from `lib/text-diff.ts`,
+which is capped (text over 8000 characters is cut, and a differing middle too large for the
+comparison is shown as one removal and one addition) so it cannot freeze the page.
+
+Privacy trade-off: the old text of an edited message stays on the server, readable by its author
+and moderators, until the message is deleted or pruned. Someone who edits a message to remove a
+mistake or sensitive text has not erased it from the database or from backups.
+
 ## Saved messages
 
 A save is one member's bookmark, so it lives in a table keyed by member and message rather than on

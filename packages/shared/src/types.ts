@@ -195,7 +195,9 @@ export type AuditKind =
   | 'message_pin'
   | 'message_unpin'
   | 'backup_download'
-  | 'channel_export';
+  | 'channel_export'
+  | 'gif_archive'
+  | 'gif_free';
 
 /**
  * The kind-specific fields of an audit entry. Every field is optional because
@@ -225,6 +227,10 @@ export interface AuditDetail {
   after?: string;
   durationMinutes?: number;
   reason?: string | null;
+  /** gif_archive / gif_free: how many gifs the action copied or released. */
+  count?: number;
+  /** gif_free: how many bytes of stored copies were released. */
+  bytes?: number;
   /** member_update: the account fields that were changed, by name. */
   fields?: string[];
   /** Images that went with a deleted message, so the log can still show them. */

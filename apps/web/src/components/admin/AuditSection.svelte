@@ -25,6 +25,8 @@
     message_unpin: 'unpin',
     backup_download: 'backup',
     channel_export: 'export',
+    gif_archive: 'gifs',
+    gif_free: 'gifs',
   };
 
   let entries = $state<AuditEntry[]>([]);
@@ -129,6 +131,10 @@
         return 'downloaded a full backup';
       case 'channel_export':
         return `exported #${entry.detail.channelName ?? 'a channel'} as ${entry.detail.filename?.endsWith('.html') ? 'HTML' : 'JSON'}`;
+      case 'gif_archive':
+        return `copied ${entry.detail.count ?? 0} linked gif${entry.detail.count === 1 ? '' : 's'} onto this server`;
+      case 'gif_free':
+        return `released the stored copies of ${entry.detail.count ?? 0} linked gif${entry.detail.count === 1 ? '' : 's'}`;
     }
   }
 </script>

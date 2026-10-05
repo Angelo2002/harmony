@@ -37,6 +37,7 @@ import { createEmbedService } from './embeds/service.ts';
 import { createModerationService } from './moderation/service.ts';
 import { createMediaService } from './media/service.ts';
 import { createGifService } from './gifs/service.ts';
+import { createGifSourceService } from './gifs/sources.ts';
 import { registerErrorHandler } from './http/errors.ts';
 import { registerSecurityHeaders, warnAboutExposure } from './http/security.ts';
 import { registerWebClient, webClientIndex } from './http/webclient.ts';
@@ -119,9 +120,11 @@ const pollService = createPollService(db.sqlite, hub, messageService, {
 });
 const moderationService = createModerationService({ sqlite: db.sqlite, hub, audit: auditService });
 const mediaService = createMediaService(db.sqlite, config);
+const gifSources = createGifSourceService(db.sqlite, config, { attachments: attachmentService });
 const gifService = createGifService(db.sqlite, config, {
   attachments: attachmentService,
   settings: settingsService,
+  sources: gifSources,
 });
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
@@ -147,6 +150,7 @@ const embedService = createEmbedService({
   settings: settingsService,
   hub,
   attachments: attachmentService,
+  sources: gifSources,
   renderMessage: (messageId) => messageService.byId(messageId),
   refreshDiscordAttachment: (url) => refreshDiscordAttachment?.(url) ?? Promise.resolve(null),
   log: (message, detail) => app.log.debug(detail ?? {}, message),
@@ -258,7 +262,7 @@ registerPollRoutes(app, { service: pollService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
 registerEmbedRoutes(app, { settings: settingsService, service: embedService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
-registerGifRoutes(app, { service: gifService });
+registerGifRoutes(app, { service: gifService, sources: gifSources, settings: settingsService, audit: auditService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
 registerStickerRoutes(app, { service: stickerService });
 registerUserRoutes(app, { db, users: userService, hub });

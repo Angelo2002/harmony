@@ -442,6 +442,47 @@ export interface GifLinkResponse {
   contentType: string;
 }
 
+/**
+ * How the recorded gif sources stand (`GET /api/v1/gifs/sources`). A source is a
+ * remote gif address paired with the copy this server may hold of it.
+ */
+export interface GifSourceStats {
+  /** Every address recorded. */
+  total: number;
+  /** Recorded addresses with no copy here yet (and not dead): what an archive run would fetch. */
+  linked: number;
+  /** Addresses with a copy stored here. */
+  archived: number;
+  /** Addresses given up on after repeated failed fetches. */
+  dead: number;
+  /** Bytes held by the copies. */
+  archivedBytes: number;
+}
+
+/** Response for `POST /api/v1/gifs/sources/archive`: one bounded batch. */
+export interface GifArchiveResponse {
+  /** Addresses looked at in this batch. */
+  attempted: number;
+  /** Copies made. */
+  copied: number;
+  /** Fetches that failed (the address stays recorded and is retried later). */
+  failed: number;
+  /** Addresses given up on in this batch. */
+  markedDead: number;
+  /** Whether more addresses are waiting; run it again to continue. */
+  more: boolean;
+  stats: GifSourceStats;
+}
+
+/** Response for `POST /api/v1/gifs/sources/free`. */
+export interface GifFreeResponse {
+  /** Copies released (the address stays recorded and can be copied again). */
+  released: number;
+  /** Bytes of stored files removed because nothing else refers to them any more. */
+  freedBytes: number;
+  stats: GifSourceStats;
+}
+
 export interface GifSearchResponse {
   gifs: GifSearchResult[];
 }

@@ -25,6 +25,9 @@
     message_unpin: 'unpin',
     backup_download: 'backup',
     channel_export: 'export',
+    event_create: 'event',
+    event_edit: 'event edit',
+    event_cancel: 'event canceled',
   };
 
   let entries = $state<AuditEntry[]>([]);
@@ -129,6 +132,12 @@
         return 'downloaded a full backup';
       case 'channel_export':
         return `exported #${entry.detail.channelName ?? 'a channel'} as ${entry.detail.filename?.endsWith('.html') ? 'HTML' : 'JSON'}`;
+      case 'event_create':
+        return `created the event "${entry.detail.eventTitle ?? 'untitled'}"`;
+      case 'event_edit':
+        return `edited the event "${entry.detail.eventTitle ?? 'untitled'}"`;
+      case 'event_cancel':
+        return `canceled the event "${entry.detail.eventTitle ?? 'untitled'}"`;
     }
   }
 </script>

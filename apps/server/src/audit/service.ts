@@ -49,6 +49,8 @@ export interface AuditService {
   backupDownloaded(actorId: string, filename: string): void;
   /** Records a channel's history being exported to a file. */
   channelExported(actorId: string, channelId: string, filename: string): void;
+  /** Records an event being created, edited or canceled. */
+  eventChange(kind: 'event_create' | 'event_edit' | 'event_cancel', actorId: string, channelId: string | null, title: string): void;
   list(query: AuditQuery): AuditListResponse;
   /** Empties the log, returning how many entries were removed. */
   clear(): number;
@@ -179,6 +181,14 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
       write('channel_export', actorId, null, channelId, {
         channelName: findChannel(sqlite, channelId)?.name,
         filename,
+        actorName: userName(actorId),
+      });
+    },
+
+    eventChange(kind, actorId, channelId, title) {
+      write(kind, actorId, null, channelId, {
+        channelName: channelId ? findChannel(sqlite, channelId)?.name : undefined,
+        eventTitle: title,
         actorName: userName(actorId),
       });
     },

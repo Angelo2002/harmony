@@ -28,6 +28,7 @@ import { createPinService } from './pins/service.ts';
 import { createSavedMessageService } from './saved/service.ts';
 import { createScheduledMessageService } from './scheduled/service.ts';
 import { createPollService } from './polls/service.ts';
+import { createEventService } from './events/service.ts';
 import { GatewayHub } from './realtime/hub.ts';
 import { createPruner } from './retention/pruner.ts';
 import { createBridgeService } from './bridge/service.ts';
@@ -58,6 +59,7 @@ import { registerPinRoutes } from './routes/pins.ts';
 import { registerSavedRoutes } from './routes/saved.ts';
 import { registerScheduledRoutes } from './routes/scheduled.ts';
 import { registerPollRoutes } from './routes/polls.ts';
+import { registerEventRoutes } from './routes/events.ts';
 import { registerAttachmentRoutes } from './routes/attachments.ts';
 import { registerEmbedRoutes } from './routes/embeds.ts';
 import { registerEmojiRoutes } from './routes/emojis.ts';
@@ -116,6 +118,14 @@ const scheduledService = createScheduledMessageService({
 const pollService = createPollService(db.sqlite, hub, messageService, {
   // A test hook: the smoke test shortens the wait for the expiry sweep.
   sweepMs: Number(process.env.HARMONY_POLL_SWEEP_MS) || undefined,
+});
+const eventService = createEventService(db.sqlite, hub, messageService, auditService, {
+  // Test hooks: the smoke test shortens the sweep, the reminder lead and the default length.
+  sweepMs: Number(process.env.HARMONY_EVENT_SWEEP_MS) || undefined,
+  reminderLeadMs: process.env.HARMONY_EVENT_REMINDER_LEAD_MS
+    ? Number(process.env.HARMONY_EVENT_REMINDER_LEAD_MS)
+    : undefined,
+  defaultDurationMs: Number(process.env.HARMONY_EVENT_DEFAULT_DURATION_MS) || undefined,
 });
 const moderationService = createModerationService({ sqlite: db.sqlite, hub, audit: auditService });
 const mediaService = createMediaService(db.sqlite, config);
@@ -255,6 +265,7 @@ registerPinRoutes(app, { service: pinService });
 registerSavedRoutes(app, { service: savedService });
 registerScheduledRoutes(app, { service: scheduledService });
 registerPollRoutes(app, { service: pollService });
+registerEventRoutes(app, { service: eventService });
 registerAttachmentRoutes(app, { service: attachmentService, settings: settingsService });
 registerEmbedRoutes(app, { settings: settingsService, service: embedService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
@@ -274,6 +285,7 @@ app.addHook('onClose', async () => {
   pruner.stop();
   scheduledService.stop();
   pollService.stop();
+  eventService.stop();
   await bridge.shutdown();
   db.close();
 });
@@ -304,6 +316,7 @@ try {
 // Pruning runs once at startup, then on the configured interval.
 pruner.start();
 pollService.start();
+eventService.start();
 
 // Deliver anything that came due while the server was down, then keep watching the clock.
 scheduledService.start();

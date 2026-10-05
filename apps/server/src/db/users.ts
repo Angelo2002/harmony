@@ -227,6 +227,18 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
       .run(fromId, intoId, intoId);
     sqlite.prepare('UPDATE poll_votes SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
 
+    // Event interest is one per person: a person interested under both accounts
+    // keeps the survivor's. Events the outgoing account created change hands.
+    sqlite
+      .prepare(
+        `DELETE FROM event_rsvps
+          WHERE user_id = ?
+            AND EXISTS (SELECT 1 FROM event_rsvps r WHERE r.user_id = ? AND r.event_id = event_rsvps.event_id)`,
+      )
+      .run(fromId, intoId);
+    sqlite.prepare('UPDATE event_rsvps SET user_id = ? WHERE user_id = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE events SET creator_id = ? WHERE creator_id = ?').run(intoId, fromId);
+
     sqlite.prepare('DELETE FROM users WHERE id = ?').run(fromId);
     sqlite.exec('COMMIT');
   } catch (error) {

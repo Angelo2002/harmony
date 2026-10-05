@@ -738,4 +738,65 @@ export const migrations: Migration[] = [
       db.exec(`ALTER TABLE messages ADD COLUMN embeds_hidden INTEGER NOT NULL DEFAULT 0`);
     },
   },
+  {
+    version: 33,
+    name: 'server_events',
+    up(db) {
+      /*
+       * Server events with an "Interested" RSVP. Times are epoch milliseconds, which
+       * is what the clients format and what the sweep compares.
+       *
+       * A channel event is deleted with its channel (CASCADE) rather than
+       * orphaned: an orphan would have no channel left to decide who may see it,
+       * and one that was private would turn public. The creator is kept as null
+       * once their account goes, so the event outlives them.
+       *
+       * `reminded_at` is stamped when the pre-start reminder has gone out, so it
+       * fires once even across a restart; moving the start time clears it. The
+       * partial index serves the sweep and stays as small as the set of events
+       * still open.
+       */
+      db.exec(`
+        CREATE TABLE events (
+          id                   TEXT PRIMARY KEY,
+          title                TEXT NOT NULL,
+          description          TEXT NOT NULL DEFAULT '',
+          location_kind        TEXT NOT NULL CHECK (location_kind IN ('channel', 'external')),
+          channel_id           TEXT REFERENCES channels(id) ON DELETE CASCADE,
+          location_text        TEXT NOT NULL DEFAULT '',
+          starts_at            INTEGER NOT NULL,
+          ends_at              INTEGER,
+          creator_id           TEXT REFERENCES users(id) ON DELETE SET NULL,
+          status               TEXT NOT NULL DEFAULT 'scheduled'
+                                 CHECK (status IN ('scheduled', 'active', 'ended', 'canceled')),
+          created_at           TEXT NOT NULL,
+          updated_at           TEXT NOT NULL,
+          announced_message_id TEXT,
+          reminded_at          INTEGER
+        );
+        CREATE INDEX idx_events_open ON events(starts_at) WHERE status IN ('scheduled', 'active');
+        CREATE INDEX idx_events_channel ON events(channel_id);
+
+        CREATE TABLE event_rsvps (
+          event_id   TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (event_id, user_id)
+        );
+        CREATE INDEX idx_event_rsvps_user ON event_rsvps(user_id);
+      `);
+
+      /*
+       * ManageEvents is bit 17 (131072). Roles that could already run the server
+       * (ManageServer, bit 9 = 512) keep that reach by getting the new bit;
+       * administrators have every bit implicitly and the owner holds them all.
+       */
+      db.exec(`
+        UPDATE roles
+           SET permissions = CAST((CAST(permissions AS INTEGER) | 131072) AS TEXT)
+         WHERE (CAST(permissions AS INTEGER) & 512) != 0
+           AND (CAST(permissions AS INTEGER) & 131072) = 0
+      `);
+    },
+  },
 ];

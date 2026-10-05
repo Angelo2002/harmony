@@ -88,6 +88,10 @@ const server = spawn('node', ['src/index.ts'], {
     HARMONY_SCHEDULED_MIN_LEAD_MS: '1500',
     // Lets the poll sweep notice an expired poll within a moment.
     HARMONY_POLL_SWEEP_MS: '300',
+    // Server events: sweep often, remind 4s before the start, and end an event with no end time after 2s.
+    HARMONY_EVENT_SWEEP_MS: '250',
+    HARMONY_EVENT_REMINDER_LEAD_MS: '4000',
+    HARMONY_EVENT_DEFAULT_DURATION_MS: '2000',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -5603,6 +5607,457 @@ try {
     String(pollMergeError ?? JSON.stringify(mergedVotes)),
   );
   pollMergeStore.close();
+
+  // --- Server events ---
+  // The member registered for the poll checks above stands in for a second ordinary member.
+  const evCarolToken = carolToken;
+  const evCarolId = carolId;
+  const evRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Event runners' } });
+  const manageEvents = String(1n << 17n);
+  await req(`/roles/${evRole.json.id}`, { method: 'PATCH', token: ownerToken, body: { permissions: manageEvents } });
+  const evVisibleRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Event insiders' } });
+  const evSecret = (
+    await req('/channels', {
+      method: 'POST',
+      token: ownerToken,
+      body: { name: 'event-secret', requiredRoleId: evVisibleRole.json.id },
+    })
+  ).json;
+  const evOpen = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'event-open' } })).json;
+  const inMs = (ms) => Date.now() + ms;
+  const evBody = (overrides = {}) => ({
+    title: 'Game night',
+    description: 'Bring snacks',
+    locationKind: 'external',
+    locationText: 'The park',
+    startsAt: inMs(3_600_000),
+    endsAt: null,
+    ...overrides,
+  });
+  const makeEvent = (overrides = {}, token = ownerToken) =>
+    req('/events', { method: 'POST', token, body: evBody(overrides) });
+  const evStatus = async (overrides, token = ownerToken) => (await makeEvent(overrides, token)).status;
+  const evDb = new DatabaseSync(join(dataDir, 'harmony.db'));
+
+  check(
+    'the ManageEvents bit is bit 17',
+    Permission.ManageEvents === 1n << 17n && manageEvents === '131072',
+  );
+  check(
+    'the migration hands ManageEvents to roles that hold ManageServer and leaves others alone',
+    (() => {
+      const probe = new DatabaseSync(':memory:');
+      probe.exec('CREATE TABLE roles (permissions TEXT NOT NULL)');
+      probe.prepare('INSERT INTO roles VALUES (?), (?), (?)').run('512', '1', '131584');
+      probe.exec(
+        `UPDATE roles SET permissions = CAST((CAST(permissions AS INTEGER) | 131072) AS TEXT)
+          WHERE (CAST(permissions AS INTEGER) & 512) != 0 AND (CAST(permissions AS INTEGER) & 131072) = 0`,
+      );
+      const rows = probe.prepare('SELECT permissions FROM roles').all().map((r) => r.permissions);
+      return rows.join() === '131584,1,131584';
+    })(),
+  );
+
+  // Who may create.
+  check('an ordinary member cannot create an event (403)', (await evStatus({}, bobToken)) === 403);
+  await req(`/members/${evCarolId}/roles/${evRole.json.id}`, { method: 'PUT', token: ownerToken });
+  check('a member with Manage Events can create one', (await evStatus({ title: 'Carol event' }, evCarolToken)) === 200);
+
+  // Validation.
+  check('an event needs a title (400)', (await evStatus({ title: '   ' })) === 400);
+  check('a title over 100 characters is refused (400)', (await evStatus({ title: 'x'.repeat(101) })) === 400);
+  check('a description over 1000 characters is refused (400)', (await evStatus({ description: 'x'.repeat(1001) })) === 400);
+  check('a location over 100 characters is refused (400)', (await evStatus({ locationText: 'x'.repeat(101) })) === 400);
+  check('an external event needs a place (400)', (await evStatus({ locationText: '' })) === 400);
+  check('a channel event needs a channel (400)', (await evStatus({ locationKind: 'channel', channelId: null })) === 400);
+  check('an unknown channel is refused (404)', (await evStatus({ locationKind: 'channel', channelId: 'nope' })) === 404);
+  check('an event cannot start in the past (400)', (await evStatus({ startsAt: inMs(-60_000) })) === 400);
+  check('an event cannot start more than a year ahead (400)', (await evStatus({ startsAt: inMs(366 * 86_400_000) })) === 400);
+  check('an event must end after it starts (400)', (await evStatus({ endsAt: inMs(3_000_000) })) === 400);
+  check(
+    'an event cannot run for more than 30 days (400)',
+    (await evStatus({ endsAt: inMs(3_600_000 + 31 * 86_400_000) })) === 400,
+  );
+  check('a non-numeric start is refused (400)', (await evStatus({ startsAt: 'soon' })) === 400);
+
+  // The timed event: watchers first, so no broadcast is missed.
+  const evBob = await openGateway({ token: bobToken });
+  const evCarolGw = await openGateway({ token: evCarolToken });
+  const evOwnerGw = await openGateway({ token: ownerToken });
+  const remindersOf = (gw, id) => gw.events.filter((f) => f.t === 'EVENT_REMINDER' && f.d?.event?.id === id);
+  const updatesOf = (gw, id, reason) =>
+    gw.events.filter((f) => f.t === 'EVENT_UPDATE' && f.d?.event?.id === id && (!reason || f.d.reason === reason));
+
+  const timedStart = inMs(9_000);
+  const timed = await makeEvent({ title: 'Timed one', startsAt: timedStart, announceChannelId: evOpen.id });
+  const timedEvent = timed.json;
+  check(
+    'creating an event returns it with its fields, scheduled, nobody interested',
+    timed.status === 200 &&
+      timedEvent.title === 'Timed one' &&
+      timedEvent.status === 'scheduled' &&
+      timedEvent.startsAt === timedStart &&
+      timedEvent.endsAt === null &&
+      timedEvent.locationKind === 'external' &&
+      timedEvent.locationText === 'The park' &&
+      timedEvent.channelId === null &&
+      timedEvent.creator?.username === 'alice' &&
+      timedEvent.interestedCount === 0 &&
+      timedEvent.interested === false,
+    JSON.stringify(timed.json),
+  );
+  await sleep(200);
+  check(
+    'a new external event reaches every connected member',
+    updatesOf(evBob, timedEvent.id, 'created').length === 1 && updatesOf(evCarolGw, timedEvent.id, 'created').length === 1,
+  );
+  const evAnnouncement = (await req(`/channels/${evOpen.id}/messages?limit=10`, { token: bobToken })).json?.messages?.find(
+    (m) => m.id === timedEvent.announcedMessageId,
+  );
+  const unixStart = Math.floor(timedStart / 1000);
+  check(
+    'the announcement is an ordinary message by the creator with a timestamp pair',
+    Boolean(evAnnouncement) &&
+      evAnnouncement.author?.username === 'alice' &&
+      evAnnouncement.content.includes('Timed one') &&
+      evAnnouncement.content.includes(`<t:${unixStart}:F>`) &&
+      evAnnouncement.content.includes(`<t:${unixStart}:R>`),
+    JSON.stringify(evAnnouncement),
+  );
+  check(
+    'announcing in a channel the creator cannot see is refused (403)',
+    (await evStatus({ announceChannelId: evSecret.id }, evCarolToken)) === 403,
+  );
+  check(
+    'announcing in an unknown channel is refused (404)',
+    (await evStatus({ announceChannelId: 'nope' })) === 404,
+  );
+
+  // RSVP: idempotent, counted, live.
+  const rsvp = (id, token, method = 'PUT') => req(`/events/${id}/interested`, { method, token });
+  const firstRsvp = await rsvp(timedEvent.id, bobToken);
+  const againRsvp = await rsvp(timedEvent.id, bobToken);
+  check(
+    'marking interest counts once however often it is repeated',
+    firstRsvp.status === 200 &&
+      firstRsvp.json.interested === true &&
+      firstRsvp.json.interestedCount === 1 &&
+      againRsvp.json.interestedCount === 1,
+  );
+  await sleep(200);
+  const rsvpUpdates = updatesOf(evCarolGw, timedEvent.id, 'rsvp');
+  check(
+    'an RSVP is broadcast once, naming whose interest changed and without baking in a viewer',
+    rsvpUpdates.length === 1 &&
+      rsvpUpdates[0].d.rsvpUserId === bobId &&
+      rsvpUpdates[0].d.rsvpInterested === true &&
+      rsvpUpdates[0].d.event.interested === false &&
+      rsvpUpdates[0].d.event.interestedCount === 1,
+  );
+  const evCarolView = (await req(`/events/${timedEvent.id}`, { token: evCarolToken })).json;
+  const evBobView = (await req(`/events/${timedEvent.id}`, { token: bobToken })).json;
+  check(
+    'the viewer\'s own interest is reported per viewer',
+    evCarolView.interested === false && evBobView.interested === true && evCarolView.interestedCount === 1,
+  );
+  const whoList = await req(`/events/${timedEvent.id}/interested`, { token: evCarolToken });
+  check(
+    'the interested list names who is interested',
+    whoList.status === 200 && whoList.json.total === 1 && whoList.json.users.map((u) => u.id).join() === bobId,
+  );
+  check('a missing event is 404', (await req('/events/none', { token: bobToken })).status === 404);
+  check('events need a session (401)', (await req('/events')).status === 401);
+
+  // Cap on open events: fill up through the database, then try one more.
+  const openNow = evDb.prepare("SELECT COUNT(*) AS n FROM events WHERE status IN ('scheduled','active')").get().n;
+  for (let i = openNow; i < 50; i++) {
+    evDb
+      .prepare(
+        `INSERT INTO events (id, title, location_kind, location_text, starts_at, status, created_at, updated_at)
+         VALUES (?, 'filler', 'external', 'x', ?, 'scheduled', ?, ?)`,
+      )
+      .run(`filler-${i}`, inMs(86_400_000), new Date().toISOString(), new Date().toISOString());
+  }
+  check('at most 50 events can be open at once (409)', (await evStatus({})) === 409);
+  evDb.prepare("DELETE FROM events WHERE id LIKE 'filler-%'").run();
+
+  // Visibility by channel.
+  const secretEvent = (
+    await makeEvent({ title: 'Secret meet', locationKind: 'channel', channelId: evSecret.id, startsAt: inMs(7_200_000) })
+  ).json;
+  const openEvent = (
+    await makeEvent({ title: 'Open meet', locationKind: 'channel', channelId: evOpen.id, startsAt: inMs(7_200_000) })
+  ).json;
+  check('a channel event records its channel', secretEvent.locationKind === 'channel' && secretEvent.channelId === evSecret.id);
+  check(
+    'a member cannot place an event in a channel they cannot see (403)',
+    (await evStatus({ locationKind: 'channel', channelId: evSecret.id }, evCarolToken)) === 403,
+  );
+  await sleep(200);
+  check(
+    'a locked channel\'s event never reaches members who cannot see the channel',
+    updatesOf(evBob, secretEvent.id).length === 0 &&
+      updatesOf(evCarolGw, secretEvent.id).length === 0 &&
+      updatesOf(evOwnerGw, secretEvent.id, 'created').length === 1 &&
+      updatesOf(evBob, openEvent.id, 'created').length === 1,
+  );
+  const listFor = async (token) => (await req('/events', { token })).json?.events ?? [];
+  const evBobList = await listFor(bobToken);
+  check(
+    'the list leaves out events in channels the member cannot see',
+    !evBobList.some((e) => e.id === secretEvent.id) &&
+      evBobList.some((e) => e.id === openEvent.id) &&
+      evBobList.some((e) => e.id === timedEvent.id),
+  );
+  check(
+    'an invisible event is not found for detail, RSVP or the interested list (404)',
+    (await req(`/events/${secretEvent.id}`, { token: bobToken })).status === 404 &&
+      (await rsvp(secretEvent.id, bobToken)).status === 404 &&
+      (await rsvp(secretEvent.id, bobToken, 'DELETE')).status === 404 &&
+      (await req(`/events/${secretEvent.id}/interested`, { token: bobToken })).status === 404,
+  );
+  check(
+    'an invisible event cannot be edited or canceled by guessing its id',
+    (await req(`/events/${secretEvent.id}`, { method: 'PATCH', token: evCarolToken, body: { title: 'x' } })).status === 404 &&
+      (await req(`/events/${secretEvent.id}/cancel`, { method: 'POST', token: evCarolToken })).status === 404,
+  );
+  await req(`/members/${bobId}/roles/${evVisibleRole.json.id}`, { method: 'PUT', token: ownerToken });
+  const bobNowSees = await rsvp(secretEvent.id, bobToken);
+  check(
+    'a member given the role sees and can RSVP to the event',
+    bobNowSees.status === 200 &&
+      bobNowSees.json.interestedCount === 1 &&
+      (await listFor(bobToken)).some((e) => e.id === secretEvent.id),
+  );
+  const secretInterest = (await req(`/events/${secretEvent.id}/interested`, { token: bobToken })).json;
+  check('the interested list of a channel event names those who can see it', secretInterest.users.map((u) => u.id).join() === bobId);
+  await req(`/members/${bobId}/roles/${evVisibleRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  const secretInterestAfter = (await req(`/events/${secretEvent.id}/interested`, { token: ownerToken })).json;
+  check(
+    'a member who lost access is no longer named, though their interest is kept',
+    secretInterestAfter.total === 1 && secretInterestAfter.users.length === 0,
+  );
+
+  // Editing.
+  check(
+    'an ordinary member cannot edit someone else\'s event (403)',
+    (await req(`/events/${openEvent.id}`, { method: 'PATCH', token: bobToken, body: { title: 'Hijack' } })).status === 403,
+  );
+  check(
+    'an ordinary member cannot cancel someone else\'s event (403)',
+    (await req(`/events/${openEvent.id}/cancel`, { method: 'POST', token: bobToken })).status === 403,
+  );
+  check('an empty edit is refused (400)', (await req(`/events/${openEvent.id}`, { method: 'PATCH', token: ownerToken, body: {} })).status === 400);
+  const evEdited = await req(`/events/${openEvent.id}`, {
+    method: 'PATCH',
+    token: evCarolToken,
+    body: { title: 'Open meet (moved)', description: 'New text', startsAt: inMs(7_300_000) },
+  });
+  check(
+    'a member with Manage Events can edit any event',
+    evEdited.status === 200 && evEdited.json.title === 'Open meet (moved)' && evEdited.json.description === 'New text',
+  );
+  const carolOwn = (await makeEvent({ title: 'Carol own' }, evCarolToken)).json;
+  check(
+    'the creator can edit their own event',
+    (await req(`/events/${carolOwn.id}`, { method: 'PATCH', token: evCarolToken, body: { title: 'Carol own 2' } })).json?.title === 'Carol own 2',
+  );
+  // The creator keeps the right after the role is taken away.
+  await req(`/members/${evCarolId}/roles/${evRole.json.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'a creator without Manage Events can still edit and cancel their own event',
+    (await req(`/events/${carolOwn.id}`, { method: 'PATCH', token: evCarolToken, body: { description: 'still mine' } })).status === 200 &&
+      (await req(`/events/${carolOwn.id}/cancel`, { method: 'POST', token: evCarolToken })).json?.status === 'canceled',
+  );
+  check('but cannot create another (403)', (await evStatus({}, evCarolToken)) === 403);
+  check(
+    'moving an event to a past start is refused (400)',
+    (await req(`/events/${openEvent.id}`, { method: 'PATCH', token: ownerToken, body: { startsAt: inMs(-5000) } })).status === 400,
+  );
+  check(
+    'moving the end before the start is refused (400)',
+    (await req(`/events/${openEvent.id}`, { method: 'PATCH', token: ownerToken, body: { endsAt: inMs(1000) } })).status === 400,
+  );
+  const toExternal = await req(`/events/${openEvent.id}`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { locationKind: 'external', locationText: 'Online' },
+  });
+  check(
+    'an event can change from a channel to a place',
+    toExternal.status === 200 && toExternal.json.channelId === null && toExternal.json.locationText === 'Online',
+  );
+  check(
+    'switching to a place without saying where is refused (400)',
+    (await req(`/events/${secretEvent.id}`, { method: 'PATCH', token: ownerToken, body: { locationKind: 'external' } })).status === 400,
+  );
+
+  // Reminder, start and end by the clock.
+  check(
+    'nobody has been reminded before the lead window opens',
+    Date.now() > timedStart - 4000 || remindersOf(evBob, timedEvent.id).length === 0,
+  );
+  await sleep(Math.max(0, timedStart - 4000 - Date.now()) + 900);
+  check(
+    'the reminder goes to the interested member only',
+    remindersOf(evBob, timedEvent.id).length === 1 &&
+      remindersOf(evCarolGw, timedEvent.id).length === 0 &&
+      remindersOf(evOwnerGw, timedEvent.id).length === 0,
+    `${remindersOf(evBob, timedEvent.id).length} / ${remindersOf(evCarolGw, timedEvent.id).length} / ${remindersOf(evOwnerGw, timedEvent.id).length}`,
+  );
+  check(
+    'the reminder carries the event and is evStamped in the database',
+    remindersOf(evBob, timedEvent.id)[0]?.d?.event?.title === 'Timed one' &&
+      evDb.prepare('SELECT reminded_at FROM events WHERE id = ?').get(timedEvent.id).reminded_at !== null,
+  );
+  await sleep(900);
+  check('the reminder is not sent again on later sweeps', remindersOf(evBob, timedEvent.id).length === 1);
+  check(
+    'the event is still scheduled before its start',
+    (await req(`/events/${timedEvent.id}`, { token: bobToken })).json?.status === 'scheduled' && Date.now() < timedStart,
+  );
+  await sleep(Math.max(0, timedStart - Date.now()) + 900);
+  const startedView = (await req(`/events/${timedEvent.id}`, { token: bobToken })).json;
+  check(
+    'the event becomes active at its start and everyone is told',
+    startedView.status === 'active' && updatesOf(evCarolGw, timedEvent.id, 'started').length === 1,
+    startedView.status,
+  );
+  check(
+    'a started event keeps its text editable but its start fixed',
+    (await req(`/events/${timedEvent.id}`, { method: 'PATCH', token: ownerToken, body: { description: 'Now on' } })).json?.description === 'Now on' &&
+      (await req(`/events/${timedEvent.id}`, { method: 'PATCH', token: ownerToken, body: { startsAt: inMs(60_000) } })).status === 409,
+  );
+  check('an RSVP is still welcome while it runs', (await rsvp(timedEvent.id, evCarolToken)).json?.interestedCount === 2);
+  // No end time: ended after the default length (2s in this run).
+  await sleep(2_600);
+  const endedView = (await req(`/events/${timedEvent.id}`, { token: bobToken })).json;
+  check(
+    'with no end time the event ends after the default duration',
+    endedView.status === 'ended' && updatesOf(evBob, timedEvent.id, 'ended').length === 1,
+    endedView.status,
+  );
+  check(
+    'a finished event can no longer be changed, joined or canceled (409)',
+    (await req(`/events/${timedEvent.id}`, { method: 'PATCH', token: ownerToken, body: { title: 'late' } })).status === 409 &&
+      (await rsvp(timedEvent.id, ownerToken)).status === 409 &&
+      (await req(`/events/${timedEvent.id}/cancel`, { method: 'POST', token: ownerToken })).status === 409,
+  );
+  check(
+    'but interest can still be withdrawn from it',
+    (await rsvp(timedEvent.id, bobToken, 'DELETE')).json?.interestedCount === 1,
+  );
+  check(
+    'a finished event is listed in the past section',
+    (await listFor(bobToken)).some((e) => e.id === timedEvent.id && e.status === 'ended'),
+  );
+
+  // An explicit end time ends it on time.
+  const evEnding = (await makeEvent({ title: 'Short one', startsAt: inMs(1_200), endsAt: inMs(3_200) })).json;
+  await sleep(1_800);
+  check(
+    'an event with an end time is active between start and end',
+    (await req(`/events/${evEnding.id}`, { token: bobToken })).json?.status === 'active',
+  );
+  await sleep(1_800);
+  check('and ended after its end time', (await req(`/events/${evEnding.id}`, { token: bobToken })).json?.status === 'ended');
+
+  // A start moved later re-arms the reminder.
+  const evStamped = (await makeEvent({ title: 'Stamped', startsAt: inMs(5_500) })).json;
+  await rsvp(evStamped.id, bobToken);
+  await sleep(1_800);
+  check('a reminder fires once the start is inside the lead', remindersOf(evBob, evStamped.id).length === 1);
+  await req(`/events/${evStamped.id}`, { method: 'PATCH', token: ownerToken, body: { startsAt: inMs(60_000) } });
+  check(
+    'moving the start re-arms the reminder',
+    evDb.prepare('SELECT reminded_at FROM events WHERE id = ?').get(evStamped.id).reminded_at === null,
+  );
+
+  // Cancel.
+  const evCanceled = await req(`/events/${evStamped.id}/cancel`, { method: 'POST', token: ownerToken });
+  check('canceling marks the event canceled', evCanceled.status === 200 && evCanceled.json.status === 'canceled');
+  await sleep(200);
+  check(
+    'a cancellation is broadcast and repeating it is harmless',
+    updatesOf(evBob, evStamped.id, 'canceled').length === 1 &&
+      (await req(`/events/${evStamped.id}/cancel`, { method: 'POST', token: ownerToken })).status === 200 &&
+      (await sleep(150), updatesOf(evBob, evStamped.id, 'canceled').length === 1),
+  );
+  check('interest in a canceled event is refused (409)', (await rsvp(evStamped.id, evCarolToken)).status === 409);
+  check(
+    'a canceled event is listed with the past ones',
+    (await listFor(bobToken)).some((e) => e.id === evStamped.id && e.status === 'canceled'),
+  );
+
+  // Audit.
+  const evAudit = (await req('/audit?limit=100', { token: ownerToken })).json?.entries ?? [];
+  const evKinds = new Set(evAudit.filter((e) => e.detail?.eventTitle).map((e) => e.kind));
+  check(
+    'creating, editing and canceling events are audit-logged',
+    evKinds.has('event_create') && evKinds.has('event_edit') && evKinds.has('event_cancel'),
+    [...evKinds].join(),
+  );
+  check(
+    'an audit entry names the actor and the event',
+    evAudit.some((e) => e.kind === 'event_create' && e.detail.eventTitle === 'Timed one' && e.actor?.username === 'alice'),
+  );
+
+  // A channel's events go with the channel.
+  const goneChannel = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'event-gone' } })).json;
+  const goneEvent = (await makeEvent({ title: 'Goes away', locationKind: 'channel', channelId: goneChannel.id })).json;
+  await rsvp(goneEvent.id, bobToken);
+  await req(`/channels/${goneChannel.id}`, { method: 'DELETE', token: ownerToken });
+  check(
+    'deleting a channel deletes its events and their interest',
+    (await req(`/events/${goneEvent.id}`, { token: ownerToken })).status === 404 &&
+      evDb.prepare('SELECT COUNT(*) AS n FROM event_rsvps WHERE event_id = ?').get(goneEvent.id).n === 0,
+  );
+
+  evDb.close();
+  evBob.ws.close();
+  evCarolGw.ws.close();
+  evOwnerGw.ws.close();
+
+  // Merging accounts: one interest per person, events re-owned.
+  const evMergeDir = mkdtempSync(join(tmpdir(), 'harmony-event-merge-'));
+  const evMergeStore = new Database({
+    dataDir: evMergeDir,
+    dbFile: join(evMergeDir, 'harmony.db'),
+    uploadDir: join(evMergeDir, 'uploads'),
+  });
+  const evm = evMergeStore.sqlite;
+  insertUser(evm, { id: 'e-keeper', username: 'ekeeper', passwordHash: 'x', isOwner: false });
+  insertUser(evm, { id: 'e-leaver', username: 'eleaver', passwordHash: 'x', isOwner: false });
+  const evStamp = new Date().toISOString();
+  for (const id of ['e-both', 'e-only-leaver', 'e-only-keeper']) {
+    evm.prepare(
+      `INSERT INTO events (id, title, location_kind, location_text, starts_at, creator_id, created_at, updated_at)
+       VALUES (?, ?, 'external', 'x', ?, ?, ?, ?)`,
+    ).run(id, id, Date.now() + 100_000, id === 'e-only-keeper' ? 'e-keeper' : 'e-leaver', evStamp, evStamp);
+  }
+  const rsvpRow = (event, user) =>
+    evm.prepare('INSERT INTO event_rsvps (event_id, user_id, created_at) VALUES (?, ?, ?)').run(event, user, evStamp);
+  rsvpRow('e-both', 'e-keeper');
+  rsvpRow('e-both', 'e-leaver');
+  rsvpRow('e-only-leaver', 'e-leaver');
+  let evMergeError = null;
+  try {
+    mergeUsers(evm, 'e-leaver', 'e-keeper');
+  } catch (error) {
+    evMergeError = error;
+  }
+  const mergedRsvps = evm.prepare('SELECT event_id, user_id FROM event_rsvps ORDER BY event_id').all();
+  check(
+    'merging accounts keeps one interest per person and moves the rest across',
+    evMergeError === null &&
+      mergedRsvps.map((r) => `${r.event_id}:${r.user_id}`).join() === 'e-both:e-keeper,e-only-leaver:e-keeper',
+    String(evMergeError ?? JSON.stringify(mergedRsvps)),
+  );
+  check(
+    'merging accounts re-owns the events the outgoing account created',
+    evm.prepare("SELECT COUNT(*) AS n FROM events WHERE creator_id = 'e-keeper'").get().n === 3,
+  );
+  evMergeStore.close();
 
   // --- Admin media gallery ---
   const galleryPng = await sharp({

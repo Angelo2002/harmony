@@ -195,7 +195,10 @@ export type AuditKind =
   | 'message_pin'
   | 'message_unpin'
   | 'backup_download'
-  | 'channel_export';
+  | 'channel_export'
+  | 'event_create'
+  | 'event_edit'
+  | 'event_cancel';
 
 /**
  * The kind-specific fields of an audit entry. Every field is optional because
@@ -211,6 +214,7 @@ export type AuditKind =
  *   message text as it read when it was pinned or unpinned. The target is the
  *   message's author.
  * - `backup_download`: `filename`. `channel_export`: `channelName` and `filename`.
+ * - `event_create` / `event_edit` / `event_cancel`: `eventTitle`, and `channelName` for a channel event.
  *
  * `actorName` and `targetName` are snapshots taken when the entry was written,
  * so it stays readable after a rename or a deletion.
@@ -219,6 +223,8 @@ export interface AuditDetail {
   channelName?: string;
   roleName?: string;
   filename?: string;
+  /** event_*: the event's title as it read at the time. */
+  eventTitle?: string;
   actorName?: string;
   targetName?: string;
   before?: string;

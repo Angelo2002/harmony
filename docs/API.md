@@ -30,6 +30,7 @@ code wins — please open an issue.
   - [Pinned messages](#pinned-messages)
   - [Saved messages](#saved-messages)
   - [Scheduled messages](#scheduled-messages)
+  - [Events](#events)
   - [Reactions](#reactions)
   - [Attachments](#attachments)
   - [Media gallery](#media-gallery)
@@ -139,6 +140,7 @@ implicit `@everyone` role grants every member `ViewChannels`, `SendMessages`, `A
 | `Administrator` | `1 << 14` | Implies every flag above |
 | `ModerateMembers` | `1 << 15` | Putting members in a timeout |
 | `ManageMembers` | `1 << 16` | Editing members' usernames, display names, pictures and passwords |
+| `ManageEvents` | `1 << 17` | Creating, editing and canceling server events (a creator can always change their own) |
 
 Over the wire, permission bitfields are **decimal strings** (`"1"`, `"2081"`), never JSON numbers,
 because JSON cannot carry a 64-bit integer. `GET /api/v1/auth/me` returns your effective
@@ -1283,6 +1285,96 @@ Sends it now and returns the posted `Message`. The same checks as an ordinary se
 is returned as the error and the entry stays as it was. `404` if it was already sent or cancelled
 (concurrent calls deliver it exactly once).
 
+### Events
+
+Server events with an "Interested" RSVP, a simplified take on Discord's scheduled events. An event
+has a title, a description, a start (and optionally an end) and a place: either a **channel** of the
+server or a short free **text** such as a link or an address. There is no recurrence, and events are
+not mirrored to Discord's own scheduled events.
+
+```ts
+type ServerEvent = {
+  id: string;
+  title: string;                       // 1-100 characters
+  description: string;                 // up to 1000
+  locationKind: 'channel' | 'external';
+  channelId: string | null;            // for a channel event
+  locationText: string;                // for an external one, up to 100
+  startsAt: number;                    // epoch milliseconds
+  endsAt: number | null;
+  creator: User | null;                // null once that account is gone
+  status: 'scheduled' | 'active' | 'ended' | 'canceled';
+  createdAt: string;
+  updatedAt: string;
+  announcedMessageId: string | null;   // the announcement message, if one was posted
+  interestedCount: number;
+  interested: boolean;                 // the caller's own RSVP
+};
+```
+
+**Who sees what.** An event in a channel is visible only to members who can open that channel; an
+external event is visible to every member. This governs every surface: the list, one event, the RSVP,
+the counts, the names and the gateway. An event the caller cannot see is `404 event_not_found`, never
+`403`, so ids cannot be probed. A channel's events are deleted with the channel.
+
+**Permissions.** Creating needs `ManageEvents` (bit 17, `1 << 17`). Editing or canceling needs it too,
+except that the creator can always edit or cancel their own event. The migration gave `ManageEvents`
+to every existing role that already held `ManageServer`; administrators and the owner have it
+implicitly. Create, edit and cancel are audit-logged (`event_create`, `event_edit`, `event_cancel`).
+
+**Rules.** At most 50 events can be `scheduled` or `active` at once (`409 too_many_events`). A new
+event must start in the future and no more than a year ahead; an end must come after the start and
+within 30 days of it (`400 invalid_event_time`). The start of an event that has begun is fixed
+(`409 event_started`), though its text and end can still change; an `ended` or `canceled` event can
+no longer be edited, joined or canceled (`409 event_closed`).
+
+**Lifecycle.** A sweep (every 15 s; `HARMONY_EVENT_SWEEP_MS`) moves `scheduled` to `active` at the
+start time and `active` to `ended` at the end time, or **4 hours after the start** when no end was
+given (`HARMONY_EVENT_DEFAULT_DURATION_MS`). After downtime it catches up at the next start. About 15
+minutes before the start (`HARMONY_EVENT_REMINDER_LEAD_MS`) it sends `EVENT_REMINDER` to the sessions of
+each member who is interested, once per event; a stamp in the database keeps it from repeating across
+restarts, and moving the start re-arms it. A member who is offline at that moment is not reminded:
+nothing is stored for them.
+
+#### `GET /api/v1/events` — `ViewChannels`
+
+`{ "events": [ServerEvent] }`: every `scheduled` and `active` event the caller can see (soonest
+first), plus the events that `ended` or were `canceled` within the last 7 days, at most 20.
+
+#### `GET /api/v1/events/:id` — `ViewChannels`
+
+One `ServerEvent`.
+
+#### `POST /api/v1/events` — `ManageEvents`
+
+Body `{ title, description?, locationKind, channelId?, locationText?, startsAt, endsAt?,
+announceChannelId? }`. A channel event needs a `channelId` the caller can see; an external one needs a
+`locationText`. With `announceChannelId` the server also posts an ordinary message **as the caller**
+in that channel (they need to see it and hold `SendMessages`), containing the title and a
+`<t:UNIX:F> (<t:UNIX:R>)` pair so each reader sees their own zone; its id comes back as
+`announcedMessageId`. If posting fails the event is still created. Returns the event. Rate limited.
+
+#### `PATCH /api/v1/events/:id` — `ManageEvents` or the creator
+
+Any of `title`, `description`, `locationKind`, `channelId`, `locationText`, `startsAt`, `endsAt`
+(`null` clears the end), at least one. Returns the event.
+
+#### `POST /api/v1/events/:id/cancel` — `ManageEvents` or the creator
+
+Marks the event `canceled`. Canceling one already canceled changes nothing. Returns the event.
+
+#### `PUT /api/v1/events/:id/interested` and `DELETE /api/v1/events/:id/interested` — `ViewChannels`
+
+Marks or withdraws the caller's interest. Both are idempotent and return the event with the new
+count. Interest can only be added to a `scheduled` or `active` event (`409 event_closed`); it can
+always be withdrawn. Both are rate limited.
+
+#### `GET /api/v1/events/:id/interested` — `ViewChannels`
+
+`{ "total": number, "users": [User] }`: the names behind the count (up to 100, earliest first), left
+to members who can see the event. Someone who can no longer see a channel event is counted in `total`
+but not named.
+
 ### Reactions
 
 An emoji is either a unicode character (send it verbatim, e.g. `"👍"`) or a custom emoji shortcode
@@ -1938,7 +2030,7 @@ The audit log records what was done, by whom and to whom. An entry is logged whe
 either side of it; an image is **deleted from the media gallery**, naming the file; a member is
 **timed out** or the timeout is lifted; a member is **kicked**; a member is **banned** or unbanned;
 a member's **roles change**; a member's **account is edited**, naming the fields that changed; a
-member's **password is reset**; a message is **pinned** or **unpinned**, with its text and its
+member's **password is reset**; an **event** is created, edited or canceled; a message is **pinned** or **unpinned**, with its text and its
 author as the target; the owner **downloads a backup**; and a channel is **exported**.
 
 Entries are append-only and are never edited. Names and the channel are captured when the action
@@ -2431,6 +2523,8 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | `RETENTION_APPLIED` | `PruneSummary` |
 | `SAVED_MESSAGE_UPDATE` | `{ messageId, channelId, saved: SavedMessage \| null }`, to the saver's own sessions only |
 | `SCHEDULED_MESSAGE_UPDATE` | `{ id, scheduled: ScheduledMessage \| null, reason }`, reason one of created, updated, failed, sent, cancelled; to the owner's own sessions only |
+| `EVENT_UPDATE` | `{ event: ServerEvent, reason, rsvpUserId, rsvpInterested }`, reason one of created, updated, started, ended, canceled, rsvp; a channel event to members who can see the channel, an external one to everyone. `event.interested` is always false here: for `rsvp`, `rsvpUserId` says whose interest changed and what it became |
+| `EVENT_REMINDER` | `{ event: ServerEvent }`, shortly before an event starts, to the sessions of members who are interested in it only |
 | `CHANNEL_SETTINGS_UPDATE` | `ChannelNotificationSettings`, sent only to the member it belongs to |
 
 `MEMBER_UPDATE` fires for a member's own profile and avatar changes as well as administrator edits,

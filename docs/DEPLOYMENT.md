@@ -281,6 +281,13 @@ stopped. The uploaded blobs are content-addressed, so the database is the index:
 copy the two together and they stay consistent. Retention pruning removes blobs
 nothing references any more, so a backup is also a good time to let it run.
 
+Message edit history (the previous text of up to 20 edits per message) lives in the database, so it
+is part of every backup. It is removed together with its message, whether by deleting the message
+for good or by message retention pruning it; a message that is only soft-deleted keeps its history
+in the database, though nobody can read it. Editing a message therefore does not erase the old text
+from the database or from backups. It is only visible to the author and to members who can manage
+messages.
+
 ### From the admin panel
 
 The owner can also download a backup from **Admin → Backup** without shell

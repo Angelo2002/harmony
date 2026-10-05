@@ -1801,6 +1801,84 @@ try {
   check('registration opens when requireInvite is false', openReg.status === 200, `status ${openReg.status}`);
   await req('/settings', { method: 'PATCH', token: ownerToken, body: { requireInvite: true } });
 
+  // Edit history: the previous text is kept per edit; only the author and
+  // Manage Messages read it, and everyone else gets the same 404 as for a missing id.
+  {
+    const carolToken = openReg.json?.token;
+    const carolId = openReg.json?.user?.id;
+    const histChannel = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'edit-history' } })).json;
+    const histMsg = (
+      await req(`/channels/${histChannel.id}/messages`, { method: 'POST', token: bobToken, body: { content: 'v0' } })
+    ).json;
+    const edits = (id, token) => req(`/messages/${id}/edits`, { token });
+    check('an unedited message has an empty history', (await edits(histMsg.id, bobToken)).json?.edits?.length === 0);
+    await req(`/messages/${histMsg.id}`, { method: 'PATCH', token: bobToken, body: { content: 'v1' } });
+    await req(`/messages/${histMsg.id}`, { method: 'PATCH', token: bobToken, body: { content: 'v2' } });
+    const hist = await edits(histMsg.id, bobToken);
+    check(
+      'the author reads previous versions, newest first',
+      hist.status === 200 &&
+        hist.json?.edits?.map((e) => e.content).join(',') === 'v1,v0' &&
+        hist.json.edits[0].editor?.username === 'bob' &&
+        hist.json.edits[0].source === 'harmony',
+      JSON.stringify(hist.json),
+    );
+    check(
+      'the current text is not part of the history',
+      !hist.json?.edits?.some((e) => e.content === 'v2'),
+    );
+    const missing = await edits('no-such-message', carolToken);
+    const other = await edits(histMsg.id, carolToken);
+    check(
+      'another member gets the same 404 as for a missing message',
+      other.status === 404 && missing.status === 404 && JSON.stringify(other.json) === JSON.stringify(missing.json),
+      `${other.status} ${JSON.stringify(other.json)} vs ${JSON.stringify(missing.json)}`,
+    );
+    check('an unauthenticated request is refused', (await req(`/messages/${histMsg.id}/edits`)).status === 401);
+
+    const modRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'HistoryMod' } });
+    await req(`/roles/${modRole.json.id}`, {
+      method: 'PATCH',
+      token: ownerToken,
+      body: { permissions: String(1n << 2n) },
+    });
+    await req(`/members/${carolId}/roles/${modRole.json.id}`, { method: 'PUT', token: ownerToken });
+    check('a Manage Messages member reads the history', (await edits(histMsg.id, carolToken)).json?.edits?.length === 2);
+    check('an administrator reads the history', (await edits(histMsg.id, ownerToken)).json?.edits?.length === 2);
+
+    for (let i = 3; i <= 30; i += 1) {
+      await req(`/messages/${histMsg.id}`, { method: 'PATCH', token: bobToken, body: { content: `v${i}` } });
+    }
+    const capped = (await edits(histMsg.id, bobToken)).json?.edits ?? [];
+    check('history keeps at most 20 versions', capped.length === 20, `${capped.length}`);
+    check('the oldest versions are dropped first', capped[0].content === 'v29' && capped.at(-1).content === 'v10');
+
+    // A channel locked behind a role hides the history from a Manage Messages member too.
+    const lockRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'HistoryLock' } });
+    const lockChannel = (
+      await req('/channels', {
+        method: 'POST',
+        token: ownerToken,
+        body: { name: 'edit-history-locked', requiredRoleId: lockRole.json.id },
+      })
+    ).json;
+    const lockMsg = (
+      await req(`/channels/${lockChannel.id}/messages`, { method: 'POST', token: ownerToken, body: { content: 'a' } })
+    ).json;
+    await req(`/messages/${lockMsg.id}`, { method: 'PATCH', token: ownerToken, body: { content: 'b' } });
+    check('a locked channel hides the history (404)', (await edits(lockMsg.id, carolToken)).status === 404);
+    check('and the owner still reads it', (await edits(lockMsg.id, ownerToken)).json?.edits?.length === 1);
+
+    // A deleted message exposes nothing.
+    await req(`/messages/${histMsg.id}`, { method: 'DELETE', token: bobToken });
+    check('a deleted message has no readable history (404)', (await edits(histMsg.id, bobToken)).status === 404);
+
+    await req(`/roles/${modRole.json.id}`, { method: 'DELETE', token: ownerToken });
+    await req(`/roles/${lockRole.json.id}`, { method: 'DELETE', token: ownerToken });
+    await req(`/channels/${histChannel.id}`, { method: 'DELETE', token: ownerToken });
+    await req(`/channels/${lockChannel.id}`, { method: 'DELETE', token: ownerToken });
+  }
+
   const rolesRes = await req('/roles', { token: ownerToken });
   const everyoneRole = rolesRes.json?.roles?.find((role) => role.isDefault);
   check('roles list includes @everyone', Boolean(everyoneRole));

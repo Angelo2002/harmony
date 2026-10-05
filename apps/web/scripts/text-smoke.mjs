@@ -41,6 +41,7 @@ import {
   scoreAt,
 } from '../src/lib/emoji-usage.ts';
 import { inlineSegmentsOf, parseMessage } from '../src/lib/message-text.ts';
+import { MAX_DIFF_CHARS, diffWords } from '../src/lib/text-diff.ts';
 import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
 import { draftProblem, newPollDraft, toCreatePollBody, withAddedOption, withoutOption } from '../src/lib/poll-draft.ts';
 import {
@@ -1175,6 +1176,40 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('no expiry is sent as null and accepted', toCreatePollBody(noExpiry).durationHours === null && createPollSchema.safeParse(toCreatePollBody(noExpiry)).success);
 }
 
+// Edit history word diff.
+{
+  const side = (parts, kinds) => parts.filter((p) => kinds.includes(p.kind)).map((p) => p.text).join('');
+  const roundTrips = (a, b) => {
+    const parts = diffWords(a, b);
+    return side(parts, ['same', 'del']) === a && side(parts, ['same', 'add']) === b;
+  };
+  check('identical texts diff to one unchanged part', JSON.stringify(diffWords('same words', 'same words')) === '[{"kind":"same","text":"same words"}]');
+  const ins = diffWords('hello world', 'hello brave world');
+  check('an insertion is an add', ins.some((p) => p.kind === 'add' && p.text.includes('brave')) && !ins.some((p) => p.kind === 'del'));
+  const del = diffWords('hello brave world', 'hello world');
+  check('a deletion is a del', del.some((p) => p.kind === 'del' && p.text.includes('brave')) && !del.some((p) => p.kind === 'add'));
+  const swap = diffWords('the cat sat', 'the dog sat');
+  check('a replaced word is one del and one add', swap.filter((p) => p.kind === 'del').map((p) => p.text).join() === 'cat' && swap.filter((p) => p.kind === 'add').map((p) => p.text).join() === 'dog');
+  check('the empty text diffs to a full insertion', JSON.stringify(diffWords('', 'new')) === '[{"kind":"add","text":"new"}]');
+  check('a full deletion', JSON.stringify(diffWords('old', '')) === '[{"kind":"del","text":"old"}]');
+  check('both empty is empty', diffWords('', '').length === 0);
+  check('unicode and emoji survive', roundTrips('héllo 🎉 wörld 日本語', 'héllo 🎊 wörld 日本'));
+  check('emoji are not split into halves', diffWords('a 😀', 'a 😁').every((p) => !/[\uD800-\uDBFF]$|^[\uDC00-\uDFFF]/.test(p.text)));
+  check('markdown characters survive', roundTrips('**bold** and `code` > quote', '*bold* and `codes` > quote [x](y)'));
+  check('markup is only ever text in the parts', diffWords('<b>x</b>', '<i>x</i>').every((p) => typeof p.text === 'string'));
+  check('whitespace and newlines survive', roundTrips('a\n\nb  c', 'a\nb c\n'));
+  check('a repeated token still round trips', roundTrips('a a a a b', 'a a b b b'));
+  let big = '';
+  for (let i = 0; i < 6000; i += 1) big += `word${i} `;
+  let bigger = '';
+  for (let i = 0; i < 6000; i += 1) bigger += `term${i} `;
+  const started = Date.now();
+  const huge = diffWords(big, bigger);
+  check('a huge unrelated pair is bounded in time', Date.now() - started < 1500);
+  check('and falls back to one removal and one addition', huge.filter((p) => p.kind === 'del').length === 1 && huge.filter((p) => p.kind === 'add').length === 1);
+  const long = 'x'.repeat(MAX_DIFF_CHARS * 3);
+  check('over-long text is cut to the cap', side(diffWords(long, long + 'y'), ['same', 'del']).length <= MAX_DIFF_CHARS);
+}
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

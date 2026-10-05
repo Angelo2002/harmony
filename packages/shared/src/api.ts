@@ -426,6 +426,62 @@ export interface GifListResponse {
  * A gif offered by the hosted service the picker is configured with. Nothing is
  * stored until one is picked or saved; these are the service's own addresses.
  */
+/**
+ * A row of the server's gif list. `curated` is a gif an administrator chose to
+ * keep for everyone: its bytes are a stored copy, so it outlives the message it
+ * came from and any link rot. `hidden` is an administrator removing a gif from
+ * the auto-collected list, kept as a row so the choice survives; it holds no
+ * claim on the bytes, so retention treats it as nothing.
+ */
+export type ServerGifKind = 'curated' | 'hidden';
+
+export interface ServerGif {
+  id: string;
+  kind: ServerGifKind;
+  hash: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  /** A display name; the picker falls back to the filename when it is empty. */
+  name: string;
+  /** Search tags, already split and lower-cased. */
+  tags: string[];
+  position: number;
+  pinned: boolean;
+  addedBy: string | null;
+  createdAt: string;
+}
+
+/** One tile of the picker's Server tab: a curated gif or an auto-collected one. */
+export interface ServerGifItem {
+  /** Curated: the ServerGif id. Auto: the attachment id serving the bytes. */
+  id: string;
+  source: 'curated' | 'auto';
+  hash: string;
+  name: string;
+  tags: string[];
+  filename: string;
+  contentType: string;
+  width: number | null;
+  height: number | null;
+  pinned: boolean;
+  /** The caller's own saved copy of it, when they have one. */
+  favoriteId: string | null;
+}
+
+export interface ServerGifListResponse {
+  gifs: ServerGifItem[];
+}
+
+/** The admin view: curated gifs in display order, hidden ones, and the visible auto-collected rest. */
+export interface ServerGifManageResponse {
+  curated: ServerGif[];
+  hidden: ServerGif[];
+  auto: GifItem[];
+}
+
 export interface GifSearchResult {
   /** The gif itself, which is what gets fetched if this is picked or saved. */
   url: string;

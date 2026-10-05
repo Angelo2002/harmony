@@ -376,13 +376,15 @@ type AuditKind =
   | 'role_add' | 'role_remove'
   | 'member_update' | 'password_reset'
   | 'message_pin' | 'message_unpin'
-  | 'backup_download' | 'channel_export';
+  | 'backup_download' | 'channel_export'
+  | 'server_gif_add' | 'server_gif_remove' | 'server_gif_hide' | 'server_gif_unhide';
 
 type AuditDetail = {
   channelName?: string;   // message and media kinds
   before?: string;        // deleted text, an edit's old text, or the text pinned or unpinned
   after?: string;         // an edit's new text
-  filename?: string;      // media_delete: the file that was removed; backup_download / channel_export: the file produced
+  filename?: string;      // media_delete: the file that was removed; backup_download / channel_export: the file produced; server_gif_*: the gif's filename
+  gifName?: string;       // server_gif_add / server_gif_remove: the curated gif's display name
   attachments?: Array<{ id: string; filename: string }>;  // images a deleted message carried
   durationMinutes?: number;
   reason?: string | null;
@@ -1389,7 +1391,8 @@ downloaded to save one — the bytes are already stored, and a saved gif shares 
 attachment of the same picture.
 
 **This server** lists what the instance already holds, one entry per picture however many times it
-was sent, and only from channels the caller may see.
+was sent, and only from channels the caller may see. The client now shows it as the **Server** tab,
+which puts the administrators' curated gifs first (see [Server gifs](#server-gifs)).
 
 **Klipy** appears only when the instance has a key for it, and is answered entirely by the server so
 that key never reaches a browser. A gif saved or picked from there is downloaded and kept first, so
@@ -1484,6 +1487,80 @@ Forgets one of the caller's own saved gifs. `204` on success; `404` for anybody 
 
 Serves the saved gif's bytes. Only the owner may fetch it, and it is cached immutably by hash, like
 `/attachments/:id`.
+
+#### Server gifs
+
+The picker's **Server** tab (it replaces the old `This server` tab) is the community's own shelf:
+the administrators' **curated** gifs first, pinned ones on top and the rest in their set order, then
+the **auto-collected** gifs (the same list `GET /gifs/local` builds) minus any an administrator
+**hid**. Curating needs `ManageEmojis`, the permission that already governs custom emoji; reading
+needs only `ViewChannels`. Every change is audit-logged (`server_gif_add`, `server_gif_remove`,
+`server_gif_hide`, `server_gif_unhide`) and fires `SERVER_GIFS_UPDATE` so open pickers refresh.
+
+A curated gif is always a **stored copy** held by content hash, so it survives the message it was
+found in, a dead link, and every retention rule (image, video, message and the emergency storage
+limit): the pruner counts curated rows as references to their bytes. A hidden gif is only a note on a
+hash; it keeps nothing alive, and the auto list simply skips it. One row exists per picture (unique
+on the hash): hiding a gif that is curated answers `409 server_gif_curated`, and curating a hidden
+one promotes the row. At most 500 gifs can be curated (`409 server_gif_limit`).
+
+`GET /gifs/local` is deliberately unchanged and still returns hidden gifs; the Server tab
+(`GET /gifs/server`) is what honours the curation.
+
+##### `GET /api/v1/gifs/server` — `ViewChannels`
+
+Query: `q` (optional; matches a curated gif's name, tags and filename, and an auto gif's filename or
+source link) and `limit` (default 50, max 100, applied to the auto-collected part: every matching
+curated gif is always returned). Returns `{ "gifs": [ServerGifItem] }` where an item is
+`{ id, source: "curated" | "auto", hash, name, tags, filename, contentType, width, height, pinned,
+favoriteId }`. Load a curated tile from `GET /gifs/server/:id/image` and an auto tile from
+`/attachments/:id`. Auto gifs honour channel visibility exactly as `/gifs/local` does, so a gif in a
+[locked channel](#channel-locking) never reaches a member who cannot see that channel.
+
+##### `GET /api/v1/gifs/server/manage` — `ManageEmojis`
+
+The admin view: `{ "curated": [ServerGif], "hidden": [ServerGif], "auto": [GifItem] }`. `curated` is in
+display order (pinned first, then `position`); `auto` excludes hidden and curated pictures and is
+limited to what the caller can see.
+
+##### `POST /api/v1/gifs/server` — `ManageEmojis`
+
+Body: exactly one of `{ "attachmentId" }` (a gif the caller can see, or their own pending upload),
+`{ "favoriteId" }` (the caller's own favorite) or `{ "url" }` (a hosted-service address, fetched and
+stored through the same SSRF-guarded path as favorites; only the configured service's addresses are
+accepted, `400 invalid_gif_url` otherwise), plus optional `name` (up to 60), `tags` (up to 12 words)
+and `pinned`. Returns the `ServerGif`. `409 server_gif_exists` when the picture is already curated,
+`400 not_a_gif` for anything that is not a gif, `404 gif_not_found` for an attachment the caller
+cannot see. A new gif goes to the end of the list. To upload a new gif, `POST /attachments` it first
+and pass the returned id.
+
+##### `PATCH /api/v1/gifs/server/:id` — `ManageEmojis`
+
+Body: any of `name`, `tags`, `pinned`, `position`. Returns the `ServerGif`; `404` for an unknown or
+hidden row.
+
+##### `POST /api/v1/gifs/server/order` — `ManageEmojis`
+
+Body `{ "ids": [string] }`: the curated ids in their new order. Ids not listed follow in their old
+order. `204`.
+
+##### `POST /api/v1/gifs/server/hide` — `ManageEmojis`
+
+Body `{ "attachmentId" }`: removes that picture from the auto-collected list for everyone. Returns the
+`hidden` `ServerGif`. The caller must be able to see the attachment (`404` otherwise).
+
+##### `DELETE /api/v1/gifs/server/:id` — `ManageEmojis`
+
+Deletes a curated gif (its bytes go at the next retention sweep unless something else holds them) or
+un-hides a hidden one. `204`, or `404`.
+
+##### `POST /api/v1/gifs/server/:id/pick` — `AttachFiles`
+
+Like `POST /gifs/pick` for a curated gif: returns a pending `Attachment` to send with a message.
+
+##### `GET /api/v1/gifs/server/:id/image` — `ViewChannels`
+
+The bytes of a curated or hidden row, cached immutably by hash.
 
 #### `POST /api/v1/gifs/pick` — `AttachFiles`
 
@@ -2428,6 +2505,7 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 | `MEMBER_UPDATE` | `{ userId }` |
 | `EMOJI_CREATE` | `Emoji` |
 | `EMOJI_DELETE` | `{ id }` |
+| `SERVER_GIFS_UPDATE` | `{}`, to every connected member whenever the server gif list changes; refetch `GET /gifs/server` |
 | `RETENTION_APPLIED` | `PruneSummary` |
 | `SAVED_MESSAGE_UPDATE` | `{ messageId, channelId, saved: SavedMessage \| null }`, to the saver's own sessions only |
 | `SCHEDULED_MESSAGE_UPDATE` | `{ id, scheduled: ScheduledMessage \| null, reason }`, reason one of created, updated, failed, sent, cancelled; to the owner's own sessions only |

@@ -738,4 +738,46 @@ export const migrations: Migration[] = [
       db.exec(`ALTER TABLE messages ADD COLUMN embeds_hidden INTEGER NOT NULL DEFAULT 0`);
     },
   },
+  {
+    version: 32,
+    name: 'server_gifs',
+    up(db) {
+      /*
+       * The administrators' say over the picker's Server tab, one row per picture
+       * (unique on the content hash, so the same bytes are never listed twice).
+       *
+       * kind 'curated' is a gif an administrator chose to keep for everyone. It is
+       * held by hash, like a favorite, so it outlives the message it was found in;
+       * the bytes are always a copy stored here, never a link, so it survives link
+       * rot. The blob is protected from retention by listReferencedHashes, which
+       * counts curated rows (and only those). position orders the curated list and
+       * pinned lifts a gif above the rest.
+       *
+       * kind 'hidden' is an administrator removing a gif from the auto-collected
+       * list (recent gif attachments). It carries the same descriptive columns so
+       * the admin can see and restore it, but it makes no claim on the bytes: if
+       * the last message holding them is pruned, the blob goes and the row is just
+       * a stale note.
+       */
+      db.exec(`
+        CREATE TABLE server_gifs (
+          id           TEXT PRIMARY KEY,
+          kind         TEXT NOT NULL CHECK (kind IN ('curated', 'hidden')),
+          hash         TEXT NOT NULL UNIQUE,
+          filename     TEXT NOT NULL,
+          content_type TEXT NOT NULL,
+          size         INTEGER NOT NULL,
+          width        INTEGER,
+          height       INTEGER,
+          name         TEXT NOT NULL DEFAULT '',
+          tags         TEXT NOT NULL DEFAULT '',
+          position     INTEGER NOT NULL DEFAULT 0,
+          pinned       INTEGER NOT NULL DEFAULT 0,
+          added_by     TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at   TEXT NOT NULL
+        );
+        CREATE INDEX idx_server_gifs_kind ON server_gifs(kind, pinned DESC, position, created_at);
+      `);
+    },
+  },
 ];

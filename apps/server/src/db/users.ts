@@ -124,6 +124,7 @@ export function mergeUsers(sqlite: DatabaseSync, fromId: string, intoId: string)
     sqlite.prepare('UPDATE audit_log SET actor_id = ? WHERE actor_id = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE audit_log SET target_id = ? WHERE target_id = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE emojis SET created_by = ? WHERE created_by = ?').run(intoId, fromId);
+    sqlite.prepare('UPDATE server_gifs SET added_by = ? WHERE added_by = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE invites SET created_by = ? WHERE created_by = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE bans SET banned_by = ? WHERE banned_by = ?').run(intoId, fromId);
     sqlite.prepare('UPDATE sessions SET user_id = ? WHERE user_id = ?').run(intoId, fromId);

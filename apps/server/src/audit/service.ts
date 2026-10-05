@@ -49,6 +49,13 @@ export interface AuditService {
   backupDownloaded(actorId: string, filename: string): void;
   /** Records a channel's history being exported to a file. */
   channelExported(actorId: string, channelId: string, filename: string): void;
+  /** Records the server gif list changing: a gif added or removed, or an auto-collected one hidden or restored. */
+  serverGif(
+    kind: 'server_gif_add' | 'server_gif_remove' | 'server_gif_hide' | 'server_gif_unhide',
+    actorId: string,
+    filename: string,
+    gifName?: string,
+  ): void;
   list(query: AuditQuery): AuditListResponse;
   /** Empties the log, returning how many entries were removed. */
   clear(): number;
@@ -181,6 +188,10 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
         filename,
         actorName: userName(actorId),
       });
+    },
+
+    serverGif(kind, actorId, filename, gifName) {
+      write(kind, actorId, null, null, { filename, gifName, actorName: userName(actorId) });
     },
 
     list(query) {

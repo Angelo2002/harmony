@@ -21,6 +21,7 @@ import { Permission, listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, rel
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
 import { isDiscordAttachment, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
 import { isKlipyAddress, klipySearchUrl, normalizeKlipySearch } from '../src/gifs/klipy.ts';
+import { createServerGifService } from '../src/gifs/server-gifs.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
 import { insertGhostUser, insertUser, mergeUsers } from '../src/db/users.ts';
@@ -2726,6 +2727,377 @@ try {
     (await req('/gifs/favorites', { token: ownerToken })).json?.favorites?.length === 0,
   );
   await req('/retention', { method: 'PATCH', token: ownerToken, body: { favoriteRetentionDays: null } });
+
+  // --- Server gifs: the administrators' curated list on the picker's Server tab ---
+  {
+    const bobMe = await req('/auth/me', { token: bobToken });
+    const bobUserId = bobMe.json.user.id;
+    const solid = (r, g, b, w, h) =>
+      sharp({ create: { width: w, height: h, channels: 4, background: { r, g, b, alpha: 1 } } }).png().toBuffer();
+    // As elsewhere in this file, a "gif" is a picture whose declared type is gif.
+    const uploadGif = async (token, bytes, filename) => {
+      const form = new FormData();
+      form.append('file', new Blob([bytes], { type: 'image/gif' }), filename);
+      return (
+        await fetch(`${BASE}/attachments`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form })
+      ).json();
+    };
+    const blobOf = (hash) => join(dataDir, 'uploads', hash.slice(0, 2), hash);
+    const serverList = async (token, q = '') =>
+      (await req(`/gifs/server${q ? `?q=${encodeURIComponent(q)}` : ''}`, { token })).json?.gifs ?? [];
+
+    // Three gifs posted to a channel everybody sees, so they appear in the auto list.
+    const autoA = await uploadGif(ownerToken, await solid(11, 22, 33, 14, 9), 'auto-alpha.gif');
+    const autoB = await uploadGif(ownerToken, await solid(44, 55, 66, 15, 9), 'auto-bravo.gif');
+    const autoC = await uploadGif(ownerToken, await solid(77, 88, 99, 16, 9), 'auto-charlie.gif');
+    const sgMessage = await req(`/channels/${colorChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'server gif candidates', attachmentIds: [autoA.id, autoB.id, autoC.id] },
+    });
+    check('server gifs: the candidate gifs were posted', sgMessage.status === 200, `status ${sgMessage.status}`);
+
+    // Permissions: reading is for anyone with the picker, changing is ManageEmojis.
+    check('server gifs: a member reads the Server tab', (await req('/gifs/server', { token: bobToken })).status === 200);
+    check('server gifs: the Server tab needs a session (401)', (await req('/gifs/server')).status === 401);
+    check(
+      'server gifs: a member cannot curate (403)',
+      (await req('/gifs/server', { method: 'POST', token: bobToken, body: { attachmentId: autoA.id } })).status === 403,
+    );
+    check('server gifs: a member cannot open the admin view (403)', (await req('/gifs/server/manage', { token: bobToken })).status === 403);
+    check(
+      'server gifs: a member cannot hide an auto gif (403)',
+      (await req('/gifs/server/hide', { method: 'POST', token: bobToken, body: { attachmentId: autoA.id } })).status === 403,
+    );
+
+    // Before any curation the tab is the auto list.
+    const before = await serverList(bobToken);
+    check(
+      'server gifs: with nothing curated the tab is the auto-collected list',
+      before.length >= 3 && before.every((gif) => gif.source === 'auto') && before.some((gif) => gif.hash === autoA.hash),
+    );
+
+    // Curate bravo and alpha (in that order), pin charlie.
+    const addB = await req('/gifs/server', {
+      method: 'POST',
+      token: ownerToken,
+      body: { attachmentId: autoB.id, name: 'Bravo Wave', tags: ['Hello', 'wave', 'hello'] },
+    });
+    check(
+      'server gifs: an administrator curates a gif from an attachment',
+      addB.status === 200 && addB.json?.kind === 'curated' && addB.json?.hash === autoB.hash && addB.json?.name === 'Bravo Wave',
+      JSON.stringify(addB.json),
+    );
+    check('server gifs: tags are lower-cased and de-duplicated', JSON.stringify(addB.json?.tags) === JSON.stringify(['hello', 'wave']));
+    const addA = await req('/gifs/server', { method: 'POST', token: ownerToken, body: { attachmentId: autoA.id } });
+    check('server gifs: a missing name falls back to the filename', addA.json?.name === 'auto-alpha');
+    check(
+      'server gifs: the same picture cannot be curated twice (409)',
+      (await req('/gifs/server', { method: 'POST', token: ownerToken, body: { attachmentId: autoB.id } })).status === 409,
+    );
+    check(
+      'server gifs: naming two references is refused (400)',
+      (await req('/gifs/server', { method: 'POST', token: ownerToken, body: { attachmentId: autoC.id, url: 'https://static.klipy.com/x.gif' } })).status === 400,
+    );
+    const plainForm = new FormData();
+    plainForm.append('file', new Blob([await solid(5, 6, 7, 12, 12)], { type: 'image/png' }), 'still.png');
+    const stillAttachment = await (
+      await fetch(`${BASE}/attachments`, { method: 'POST', headers: { authorization: `Bearer ${ownerToken}` }, body: plainForm })
+    ).json();
+    check(
+      'server gifs: a plain picture cannot be curated (400)',
+      (await req('/gifs/server', { method: 'POST', token: ownerToken, body: { attachmentId: stillAttachment.id } })).status === 400,
+    );
+    check(
+      'server gifs: an unknown attachment is a 404',
+      (await req('/gifs/server', { method: 'POST', token: ownerToken, body: { attachmentId: 'nope' } })).status === 404,
+    );
+
+    // Ordering: curated first (position order), pinned above the rest, auto afterwards.
+    let tab = await serverList(bobToken);
+    const sources = tab.map((gif) => gif.source);
+    check(
+      'server gifs: curated gifs come first, then the auto ones',
+      sources.indexOf('auto') === 2 && sources.slice(0, 2).every((source) => source === 'curated'),
+      sources.join(','),
+    );
+    check('server gifs: curated gifs keep the order they were added in', tab[0]?.hash === autoB.hash && tab[1]?.hash === autoA.hash);
+    check(
+      'server gifs: a curated gif is not repeated in the auto part',
+      tab.filter((gif) => gif.hash === autoB.hash).length === 1,
+    );
+
+    const pinA = await req(`/gifs/server/${addA.json.id}`, { method: 'PATCH', token: ownerToken, body: { pinned: true } });
+    check('server gifs: a gif can be pinned', pinA.status === 200 && pinA.json?.pinned === true);
+    tab = await serverList(bobToken);
+    check('server gifs: a pinned gif jumps ahead of the others', tab[0]?.hash === autoA.hash && tab[0]?.pinned === true);
+
+    const reordered = await req('/gifs/server/order', { method: 'POST', token: ownerToken, body: { ids: [addB.json.id, addA.json.id] } });
+    check('server gifs: the order can be set (204)', reordered.status === 204);
+    tab = await serverList(bobToken);
+    check('server gifs: pinned still outranks position after a reorder', tab[0]?.hash === autoA.hash);
+    await req(`/gifs/server/${addA.json.id}`, { method: 'PATCH', token: ownerToken, body: { pinned: false } });
+    tab = await serverList(bobToken);
+    check('server gifs: unpinned, the explicit order stands', tab[0]?.hash === autoB.hash && tab[1]?.hash === autoA.hash);
+    check(
+      'server gifs: a rename and new tags are saved',
+      (await req(`/gifs/server/${addA.json.id}`, { method: 'PATCH', token: ownerToken, body: { name: 'Alpha Cat', tags: ['feline'] } })).json?.name === 'Alpha Cat',
+    );
+    check(
+      'server gifs: an empty change is refused (400)',
+      (await req(`/gifs/server/${addA.json.id}`, { method: 'PATCH', token: ownerToken, body: {} })).status === 400,
+    );
+    check(
+      'server gifs: a member cannot edit one (403)',
+      (await req(`/gifs/server/${addA.json.id}`, { method: 'PATCH', token: bobToken, body: { name: 'x' } })).status === 403,
+    );
+
+    // Search matches the name, the tags and the filename.
+    check('server gifs: search finds a gif by its name', (await serverList(bobToken, 'alpha cat')).some((gif) => gif.hash === autoA.hash));
+    check('server gifs: search finds a gif by its tag', (await serverList(bobToken, 'feline'))[0]?.hash === autoA.hash);
+    check('server gifs: search finds a gif by its filename', (await serverList(bobToken, 'bravo')).some((gif) => gif.hash === autoB.hash));
+    check(
+      'server gifs: a search with no match is empty',
+      (await serverList(bobToken, 'zzzz-nothing')).length === 0,
+    );
+
+    // Hiding: gone from the auto list for everybody, restorable.
+    check(
+      'server gifs: an administrator hides an auto gif',
+      (await req('/gifs/server/hide', { method: 'POST', token: ownerToken, body: { attachmentId: autoC.id } })).json?.kind === 'hidden',
+    );
+    check('server gifs: a hidden gif is gone from a member\'s tab', (await serverList(bobToken)).every((gif) => gif.hash !== autoC.hash));
+    check('server gifs: and from the administrator\'s own tab', (await serverList(ownerToken)).every((gif) => gif.hash !== autoC.hash));
+    const manage = await req('/gifs/server/manage', { token: ownerToken });
+    const hiddenRow = manage.json?.hidden?.find((gif) => gif.hash === autoC.hash);
+    check('server gifs: the admin view lists the hidden gif', hiddenRow !== undefined);
+    check(
+      'server gifs: and the curated ones in order, with no auto duplicates',
+      manage.json?.curated?.length === 2 && manage.json?.auto?.every((gif) => gif.hash !== autoC.hash && gif.hash !== autoA.hash),
+    );
+    check(
+      'server gifs: hiding a curated gif is refused (409)',
+      (await req('/gifs/server/hide', { method: 'POST', token: ownerToken, body: { attachmentId: autoA.id } })).status === 409,
+    );
+    check(
+      'server gifs: a hidden gif cannot be sent from the Server tab (404)',
+      (await req(`/gifs/server/${hiddenRow.id}/pick`, { method: 'POST', token: ownerToken })).status === 404,
+    );
+    check(
+      'server gifs: a hidden gif is still in the raw local list (unchanged endpoint)',
+      (await req('/gifs/local', { token: ownerToken })).json?.gifs?.some((gif) => gif.hash === autoC.hash) === true,
+    );
+
+    // A gif in a locked channel stays invisible to non-members in every list, hidden or not.
+    const lockRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Server Gif Lock' } });
+    const lockedGifChannel = await req('/channels', {
+      method: 'POST',
+      token: ownerToken,
+      body: { name: 'server-gif-lock', requiredRoleId: lockRole.json.id },
+    });
+    const lockedGif = await uploadGif(ownerToken, await solid(201, 202, 203, 18, 9), 'locked-away.gif');
+    await req(`/channels/${lockedGifChannel.json.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'secret gif', attachmentIds: [lockedGif.id] },
+    });
+    check('server gifs: a locked channel\'s gif is not on a member\'s tab', (await serverList(bobToken)).every((gif) => gif.hash !== lockedGif.hash));
+    check('server gifs: an administrator sees it', (await serverList(ownerToken)).some((gif) => gif.hash === lockedGif.hash));
+    // Curating it is the administrator's deliberate act, which is what publishes it.
+    // Hiding or curating by a member who cannot see the attachment is refused outright.
+    const reader = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Gif Curators', permissions: String(1n << 8n) } });
+    await req(`/members/${bobUserId}/roles/${reader.json.id}`, { method: 'PUT', token: ownerToken });
+    check(
+      'server gifs: a curator cannot hide a gif they cannot see (404)',
+      (await req('/gifs/server/hide', { method: 'POST', token: bobToken, body: { attachmentId: lockedGif.id } })).status === 404,
+    );
+    check(
+      'server gifs: a curator cannot curate a gif they cannot see (404)',
+      (await req('/gifs/server', { method: 'POST', token: bobToken, body: { attachmentId: lockedGif.id } })).status === 404,
+    );
+    check(
+      'server gifs: a curator (ManageEmojis) can open the admin view',
+      (await req('/gifs/server/manage', { token: bobToken })).json?.auto?.every((gif) => gif.hash !== lockedGif.hash) === true,
+    );
+    await req(`/members/${bobUserId}/roles/${reader.json.id}`, { method: 'DELETE', token: ownerToken });
+    check('server gifs: losing the role loses the access (403)', (await req('/gifs/server/manage', { token: bobToken })).status === 403);
+
+    // The image route and picking.
+    const imageOf = (id, token) => fetch(`${BASE}/gifs/server/${id}/image`, { headers: { authorization: `Bearer ${token}` } });
+    const curatedImage = await imageOf(addB.json.id, bobToken);
+    check(
+      'server gifs: a curated gif is served to any member',
+      curatedImage.status === 200 && curatedImage.headers.get('content-type') === 'image/gif',
+    );
+    const picked = await req(`/gifs/server/${addB.json.id}/pick`, { method: 'POST', token: bobToken });
+    check('server gifs: a member can pick one into a message', picked.status === 200 && picked.json?.hash === autoB.hash, `status ${picked.status}`);
+    check(
+      'server gifs: and send it',
+      (await req(`/channels/${colorChannel.id}/messages`, { method: 'POST', token: bobToken, body: { content: '', attachmentIds: [picked.json.id] } })).status === 200,
+    );
+
+    // The gateway tells open pickers to refresh.
+    const sgSocket = await openGateway({ token: bobToken });
+    const sgBefore = sgSocket.events.length;
+    const addCForEvent = await req('/gifs/server', { method: 'POST', token: ownerToken, body: { attachmentId: autoC.id, name: 'Charlie' } });
+    await sleep(300);
+    check(
+      'server gifs: a change reaches connected members as SERVER_GIFS_UPDATE',
+      sgSocket.events.slice(sgBefore).some((frame) => frame.t === 'SERVER_GIFS_UPDATE'),
+    );
+    check('server gifs: curating a hidden gif promotes it', addCForEvent.json?.id === hiddenRow.id && addCForEvent.json?.kind === 'curated');
+    sgSocket.ws.close();
+
+    // Retention: a curated gif's blob outlives its message, the image rule, and the emergency limit.
+    await req(`/messages/${sgMessage.json.id}`, { method: 'DELETE', token: ownerToken });
+    await req('/retention', { method: 'PATCH', token: ownerToken, body: { imageRetentionDays: 0 } });
+    await req('/retention/run', { method: 'POST', token: ownerToken });
+    check('server gifs: a curated gif survives the image rule', existsSync(blobOf(autoB.hash)) && existsSync(blobOf(autoA.hash)));
+    await req('/retention', { method: 'PATCH', token: ownerToken, body: { imageRetentionDays: null, storageLimitBytes: 1, storageTargetBytes: 0 } });
+    await req('/retention/run', { method: 'POST', token: ownerToken });
+    check('server gifs: and the emergency storage limit', existsSync(blobOf(autoB.hash)) && existsSync(blobOf(autoA.hash)));
+    await req('/retention', { method: 'PATCH', token: ownerToken, body: { storageLimitBytes: null, storageTargetBytes: null } });
+    check(
+      'server gifs: a curated gif is still served after retention',
+      (await imageOf(addA.json.id, bobToken)).status === 200 && (await serverList(bobToken)).some((gif) => gif.hash === autoA.hash),
+    );
+
+    // A hidden-only gif holds nothing: once its message is gone its bytes go.
+    const hideOnly = await uploadGif(ownerToken, await solid(130, 131, 132, 13, 9), 'hide-only.gif');
+    const hideOnlyMessage = await req(`/channels/${colorChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'to be hidden', attachmentIds: [hideOnly.id] },
+    });
+    await req('/gifs/server/hide', { method: 'POST', token: ownerToken, body: { attachmentId: hideOnly.id } });
+    await req(`/messages/${hideOnlyMessage.json.id}`, { method: 'DELETE', token: ownerToken });
+    await req('/retention', { method: 'PATCH', token: ownerToken, body: { imageRetentionDays: 0 } });
+    await req('/retention/run', { method: 'POST', token: ownerToken });
+    await req('/retention', { method: 'PATCH', token: ownerToken, body: { imageRetentionDays: null } });
+    check('server gifs: hiding does not keep a gif\'s bytes alive', !existsSync(blobOf(hideOnly.hash)));
+    check('server gifs: while the curated ones are still on disk', existsSync(blobOf(autoB.hash)));
+
+    // Removing: the row goes, then the next sweep takes the bytes (nothing else holds them).
+    check('server gifs: a member cannot remove one (403)', (await req(`/gifs/server/${addB.json.id}`, { method: 'DELETE', token: bobToken })).status === 403);
+    check('server gifs: an administrator removes one (204)', (await req(`/gifs/server/${addB.json.id}`, { method: 'DELETE', token: ownerToken })).status === 204);
+    check('server gifs: removing an unknown one is a 404', (await req(`/gifs/server/${addB.json.id}`, { method: 'DELETE', token: ownerToken })).status === 404);
+    check('server gifs: a removed gif is no longer served (404)', (await imageOf(addB.json.id, bobToken)).status === 404);
+    check('server gifs: and is off the tab', (await serverList(bobToken)).every((gif) => gif.hash !== autoB.hash));
+    await req('/retention/run', { method: 'POST', token: ownerToken });
+    check('server gifs: its bytes are swept once nothing holds them', !existsSync(blobOf(autoB.hash)));
+    check('server gifs: the other curated gifs keep theirs', existsSync(blobOf(autoA.hash)));
+
+    // Restoring a hidden gif that still has a message: it returns to the auto list.
+    const restoreGif = await uploadGif(ownerToken, await solid(150, 151, 152, 13, 11), 'restore-me.gif');
+    await req(`/channels/${colorChannel.id}/messages`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { content: 'restore me', attachmentIds: [restoreGif.id] },
+    });
+    const hiddenRestore = await req('/gifs/server/hide', { method: 'POST', token: ownerToken, body: { attachmentId: restoreGif.id } });
+    check('server gifs: the gif is hidden', (await serverList(bobToken)).every((gif) => gif.hash !== restoreGif.hash));
+    check('server gifs: un-hiding is a delete of the hidden row (204)', (await req(`/gifs/server/${hiddenRestore.json.id}`, { method: 'DELETE', token: ownerToken })).status === 204);
+    check('server gifs: and it is back in the auto list', (await serverList(bobToken)).some((gif) => gif.hash === restoreGif.hash && gif.source === 'auto'));
+
+    // The audit log records adds, removals, hides and restores.
+    const auditKinds = (await req('/audit?limit=100', { token: ownerToken })).json?.entries?.map((entry) => entry.kind) ?? [];
+    for (const kind of ['server_gif_add', 'server_gif_remove', 'server_gif_hide', 'server_gif_unhide']) {
+      check(`server gifs: the audit log records ${kind}`, auditKinds.includes(kind));
+    }
+    const removeEntry = (await req('/audit?limit=100', { token: ownerToken })).json?.entries?.find((entry) => entry.kind === 'server_gif_remove');
+    check('server gifs: a removal names the gif', removeEntry?.detail?.gifName === 'Bravo Wave' && removeEntry?.actor !== null);
+
+    // Adding from a member's favorite.
+    const favSource = await uploadGif(ownerToken, await solid(170, 171, 172, 10, 10), 'from-fav.gif');
+    await req(`/channels/${colorChannel.id}/messages`, { method: 'POST', token: ownerToken, body: { content: 'fav', attachmentIds: [favSource.id] } });
+    const fav = await req('/gifs/favorites', { method: 'POST', token: ownerToken, body: { attachmentId: favSource.id } });
+    const fromFav = await req('/gifs/server', { method: 'POST', token: ownerToken, body: { favoriteId: fav.json.id } });
+    check('server gifs: a favorite can be curated', fromFav.status === 200 && fromFav.json?.hash === favSource.hash);
+    check(
+      'server gifs: only your own favorite (404)',
+      (await req('/gifs/server', { method: 'POST', token: ownerToken, body: { favoriteId: 'not-mine' } })).status === 404,
+    );
+    // The real service refuses a non-Klipy address before any fetch is made.
+    check(
+      'server gifs: an address outside the hosted service is refused (400)',
+      (await req('/gifs/server', { method: 'POST', token: ownerToken, body: { url: 'http://127.0.0.1:1/x.gif' } })).status === 400,
+    );
+    check(
+      'server gifs: a lookalike host is refused (400)',
+      (await req('/gifs/server', { method: 'POST', token: ownerToken, body: { url: 'https://klipy.com.evil.test/x.gif' } })).status === 400,
+    );
+  }
+
+  // The same service in process, with a fake network, for the hosted-address path.
+  {
+    const sgDir = mkdtempSync(join(tmpdir(), 'harmony-servergifs-'));
+    const sgDb = new Database({ dataDir: sgDir, dbFile: join(sgDir, 'sg.db'), uploadDir: join(sgDir, 'uploads') });
+    const sgSettings = createSettingsService(sgDb.sqlite, { serverName: 'Test', requireInvite: false });
+    const sgAttachments = createAttachmentService(sgDb.sqlite, { uploadDir: join(sgDir, 'uploads') }, sgSettings);
+    insertUser(sgDb.sqlite, { id: 'u1', username: 'owner', passwordHash: 'x', isOwner: true });
+
+    const sgAudit = [];
+    const sgEvents = [];
+    const fetched = [];
+    const gifBytes = await sharp({ create: { width: 21, height: 13, channels: 4, background: { r: 3, g: 99, b: 200, alpha: 1 } } })
+      .png()
+      .toBuffer();
+    let response = { data: gifBytes, contentType: 'image/gif' };
+    const service = createServerGifService(sgDb.sqlite, {
+      attachments: sgAttachments,
+      gifs: { listLocal: () => [] },
+      audit: { serverGif: (kind, actorId, filename, gifName) => sgAudit.push({ kind, actorId, filename, gifName }) },
+      hub: { dispatch: (event) => sgEvents.push(event) },
+      fetchImage: async (url) => {
+        fetched.push(url);
+        return response;
+      },
+    });
+    const auth = { user: { id: 'u1' }, permissions: 0n, sessionId: 's', token: 't' };
+    const rejection = async (input) => {
+      try {
+        await service.add(auth, input);
+        return 0;
+      } catch (error) {
+        return error.statusCode ?? -1;
+      }
+    };
+
+    check('server gifs (fake network): an address outside the service is refused before any fetch', (await rejection({ url: 'https://example.com/a.gif' })) === 400 && fetched.length === 0);
+    check('server gifs (fake network): a look-alike host is refused before any fetch', (await rejection({ url: 'https://klipy.com.evil.test/a.gif' })) === 400 && fetched.length === 0);
+    check('server gifs (fake network): an unusable address is refused', (await rejection({ url: 'not a url' })) === 400);
+
+    response = null;
+    check('server gifs (fake network): a failed fetch is a 415', (await rejection({ url: 'https://static.klipy.com/ii/a/b/cat.gif' })) === 415);
+    response = { data: gifBytes, contentType: 'image/png' };
+    check('server gifs (fake network): a non-gif answer is a 415', (await rejection({ url: 'https://static.klipy.com/ii/a/b/cat.gif' })) === 415);
+    response = { data: Buffer.from('not an image at all'), contentType: 'image/gif' };
+    check('server gifs (fake network): bytes that are not an image are refused', (await rejection({ url: 'https://static.klipy.com/ii/a/b/cat.gif' })) === 413);
+
+    response = { data: gifBytes, contentType: 'image/gif' };
+    const added = await service.add(auth, { url: 'https://static.klipy.com/ii/a/b/cat%20dance.gif', tags: ['Dance'] });
+    check(
+      'server gifs (fake network): a hosted gif is fetched and stored as curated',
+      added.kind === 'curated' && added.filename === 'cat dance.gif' && added.width === 21 && added.height === 13 && fetched.length >= 1,
+      JSON.stringify(added),
+    );
+    check(
+      'server gifs (fake network): the copy is on disk, so link rot cannot touch it',
+      existsSync(join(sgDir, 'uploads', added.hash.slice(0, 2), added.hash)),
+    );
+    check('server gifs (fake network): it was audited and announced', sgAudit.some((entry) => entry.kind === 'server_gif_add' && entry.filename === 'cat dance.gif') && sgEvents.includes('SERVER_GIFS_UPDATE'));
+    check('server gifs (fake network): fetching the same gif again is a conflict', (await rejection({ url: 'https://static.klipy.com/ii/a/b/cat%20dance.gif' })) === 409);
+    check('server gifs (fake network): the listing shows it with its tags', service.list(auth, { limit: 10 }).some((gif) => gif.hash === added.hash && gif.tags.includes('dance')));
+
+    // The reference counting: the bytes belong to the curated row alone.
+    const { listReferencedHashes } = await import('../src/db/attachments.ts');
+    check('server gifs (fake network): a curated hash counts as referenced', listReferencedHashes(sgDb.sqlite).has(added.hash));
+    service.remove(auth, added.id);
+    check('server gifs (fake network): a removed one no longer does', !listReferencedHashes(sgDb.sqlite).has(added.hash));
+
+    sgDb.close();
+    rmSync(sgDir, { recursive: true, force: true });
+  }
 
   // --- Hosted gif service ---
   check('the hosted tab is off by default', (await req('/meta')).json?.klipyConfigured === false);

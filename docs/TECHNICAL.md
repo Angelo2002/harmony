@@ -730,6 +730,28 @@ Klipy every member's address. One consequence is worth knowing: the tile and the
 not the same file, because a grid of full-size gifs would be megabytes through the instance's own
 connection for every search.
 
+## Server gifs
+
+The Server tab layers an administrators' list on top of that auto-collected listing. The table
+`server_gifs` (migration 32) has one row per content hash with a `kind`: `curated` is a gif an
+administrator chose, `hidden` is an auto-collected gif an administrator removed from the list.
+Modelling the hide as a row of its own keeps one place for "what has an administrator said about this
+picture" and lets the admin restore it; a curated gif is also promoted from a hidden row in place.
+
+The point of curating is permanence, so the row owns a stored copy: even a gif added by hosted
+address is fetched and stored at that moment. That makes retention the thing to get right. The
+pruner frees a blob when no row references its hash, and `listReferencedHashes` is the single place
+that says what references one, so it counts `server_gifs` rows of kind `curated` (and not hidden
+ones, which must not keep a blob alive). This is the same class of bug as saved gifs losing their
+bytes; the smoke test curates a gif, deletes its message, runs the image rule and the emergency
+storage limit, and checks the bytes remain, and that they go once the gif is removed.
+
+`gifs/server-gifs.ts` sits beside the gif service rather than inside it, and builds its auto part by
+calling `listLocal`, reading a few extra rows to cover the hashes it then drops, so channel
+visibility is enforced in exactly one place. It dispatches `SERVER_GIFS_UPDATE` (no payload) to
+everyone after any change, and the audit service records the four `server_gif_*` kinds. Reordering is
+one transaction that renumbers positions; pinned gifs sort above position order in the query itself.
+
 ## Gif storage: store or link
 
 By default every gif is brought home: a picked Klipy result or a pasted gif address is downloaded and

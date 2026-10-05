@@ -37,6 +37,7 @@ import { createEmbedService } from './embeds/service.ts';
 import { createModerationService } from './moderation/service.ts';
 import { createMediaService } from './media/service.ts';
 import { createGifService } from './gifs/service.ts';
+import { createServerGifService } from './gifs/server-gifs.ts';
 import { registerErrorHandler } from './http/errors.ts';
 import { registerSecurityHeaders, warnAboutExposure } from './http/security.ts';
 import { registerWebClient, webClientIndex } from './http/webclient.ts';
@@ -64,6 +65,7 @@ import { registerEmojiRoutes } from './routes/emojis.ts';
 import { registerStickerRoutes } from './routes/stickers.ts';
 import { registerMediaRoutes } from './routes/media.ts';
 import { registerGifRoutes } from './routes/gifs.ts';
+import { registerServerGifRoutes } from './routes/server-gifs.ts';
 import { registerUserRoutes } from './routes/users.ts';
 import { registerChannelSettingsRoutes } from './routes/channel-settings.ts';
 import { registerRetentionRoutes } from './routes/retention.ts';
@@ -122,6 +124,12 @@ const mediaService = createMediaService(db.sqlite, config);
 const gifService = createGifService(db.sqlite, config, {
   attachments: attachmentService,
   settings: settingsService,
+});
+const serverGifService = createServerGifService(db.sqlite, {
+  attachments: attachmentService,
+  gifs: gifService,
+  audit: auditService,
+  hub,
 });
 
 const app = Fastify({ logger: { level: config.logLevel }, trustProxy: config.trustProxy });
@@ -259,6 +267,7 @@ registerAttachmentRoutes(app, { service: attachmentService, settings: settingsSe
 registerEmbedRoutes(app, { settings: settingsService, service: embedService });
 registerMediaRoutes(app, { service: mediaService, audit: auditService });
 registerGifRoutes(app, { service: gifService });
+registerServerGifRoutes(app, { service: serverGifService });
 registerEmojiRoutes(app, { service: emojiService, importer: emojiImport, hub });
 registerStickerRoutes(app, { service: stickerService });
 registerUserRoutes(app, { db, users: userService, hub });

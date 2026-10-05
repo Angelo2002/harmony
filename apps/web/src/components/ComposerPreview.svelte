@@ -8,8 +8,9 @@
 
 <!--
   Decoration only: the textarea stays the accessible source, so a screen reader
-  does not hear the draft twice. Nothing in the strip takes focus or a click.
+  does not hear the draft twice. The outer box scrolls with the wheel or touch;
+  the content inside is inert, so its links and mentions take no focus or click.
 -->
-<div class="composer-preview" aria-hidden="true">
-  <MessageContent {blocks} />
+<div class="composer-preview" aria-hidden="true" tabindex="-1">
+  <div class="content" inert><MessageContent {blocks} /></div>
 </div>

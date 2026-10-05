@@ -1768,16 +1768,11 @@ button.mention:hover {
   color: var(--h-text-muted);
   font-size: 0.925rem;
   line-height: 1.4;
-  pointer-events: none;
 }
 
 /* The message styles space blocks apart; the ends should not leave a gap inside the strip. */
-.composer-preview > :first-child {
-  margin-top: 0;
-}
-
-.composer-preview > :last-child {
-  margin-bottom: 0;
+.composer-preview .content {
+  margin: 0;
 }
 
 /* The buttons sit by the last line, so a draft that grows taller does not leave them floating mid-box. */

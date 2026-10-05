@@ -830,7 +830,6 @@ export const migrations: Migration[] = [
           after = rows[rows.length - 1]?.rowid ?? after + 1;
         }
       }
-      `);
     },
   },
   {

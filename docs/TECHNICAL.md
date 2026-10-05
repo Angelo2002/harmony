@@ -803,7 +803,7 @@ admin help text also states:
   CDN link is never on it: those addresses are signed with `ex`/`is`/`hm` parameters and expire in
   about a day, so the bridge keeps downloading and storing them.
 
-How it works without a new table: a linked gif is an ordinary embed. The message text is the gif's
+How a linked gif is stored: it is an ordinary embed. The message text is the gif's
 address, and when the embed resolver sees an allowlisted address in link mode it calls
 `verifyLinkedGif` (`embeds/linked-gif.ts`) and, if that passes, stores `LinkEmbed.gif`
 (`{ contentType, width, height }`) on the message's `embed` column with the gif's address as the embed
@@ -824,12 +824,52 @@ they are stored bytes, and saving a hosted gif to favorites still keeps a copy.
 The Content-Security-Policy is built per response (`http/security.ts`): only the built-in policy is
 widened, only `img-src` and `media-src`, only while the mode is on. It is read per page load, so a
 client with the app already open needs a reload after the setting changes. A custom `HARMONY_CSP` is
-never modified. Switching back to `store` leaves existing linked embeds in the database; clients stop
-drawing them (and the browser would refuse them anyway) and the address shows as plain text.
+never modified.
 
 The bridge needs nothing: a message is text plus the embed, and a linked gif's text is just the
 address, so Discord unfurls it itself. Incoming Discord links to an allowlisted host are linked the
 same way in link mode.
+
+### Gif sources: switching modes loses nothing
+
+`gif_sources` (migration 31, `db/gif_sources.ts`, `gifs/sources.ts`) pairs a remote gif address with the
+copy this server holds of it, so flipping `gifStorage` never duplicates or loses a gif. One row per
+address: the normalized `url` (`gifs/source-url.ts`: https only, lowercase host, default port and
+fragment dropped, **path and query kept verbatim** because Klipy and Tenor can select the file by query),
+a nullable `hash` pointing at the content-addressed blob (not a foreign key; whoever deletes a blob
+clears the pairing), the type, size and dimensions, `first_seen_at`, `last_seen_at`, `copied_at`,
+`last_checked_at`, `fail_count`, `status` (`ok` or `dead`) and `held`. Only addresses on the gif-host
+allowlist are recorded. The migration backfills pairs from `attachments.source_url` and
+`gif_favorites.source_url`, in pages, once.
+
+- **Recording.** Link mode never fetches: `gifs.link`, the embed resolver's `linkGif` and the
+  `pick`/`addFavorite` paths only upsert the row (a repeat just moves `last_seen_at`; one that answers
+  again revives a dead row). Wherever bytes are stored for an address (the store path, a Klipy pick) the
+  row is pointed at them, and a copy that exists is reused: `pick` of a held Klipy address makes no
+  fetch, a store-mode message for an address with a copy gets an attachment from it
+  (`attachStoredCopy`) with no fetch, and in link mode a message whose remote no longer verifies falls
+  back to the held copy.
+- **Serving.** `GET /api/v1/gifs/copy?url=` serves a copy. In store mode a recorded address without one
+  is fetched once, through `fetchPublicImage` (the same SSRF guard as every outbound fetch), by
+  `ensureCopy`: concurrent asks share one download, four run at a time, and a failed address is left
+  alone for five minutes. Three failures in a row mark it `dead`; the client then shows the message's
+  link. In link mode the route serves only an existing copy, which the client uses when the remote
+  fails to load. Only recorded, allowlisted addresses are ever fetched, so the route is not a way to make
+  the server fetch arbitrary URLs. Clips (mp4/webm) cannot be copied and stay links.
+- **Who keeps the blob (`held`).** `held = 1` means the copy was made for the pairing itself (on demand
+  or by the archive), so the retention sweep counts it as a reference (`listReferencedHashes`). `held =
+  0` means the row only mirrors bytes an attachment or favorite holds: the blob follows their retention,
+  and the pairing is cleared when the sweep deletes it, so image retention still applies to stored gifs.
+  The pruner also forgets pairings whose file vanished (`reconcileGifPairs`), and a missing copy is then
+  simply fetched again on demand instead of answering 404. Emergency pruning (storage limit) releases
+  held copies, oldest first, before it evicts any attachment, since they can be fetched again and no
+  message depends on them.
+- **Admin.** Settings, Gifs shows the counts and two actions (`Manage Server`, audit kinds `gif_archive`
+  and `gif_free`). Archive copies a bounded batch (20) per request, concurrently capped, respecting the
+  upload size limit and the allowlist, and the client repeats it while `more` is set. Free releases held
+  copies of gifs that are still linked and that nothing else keeps; "nothing else" is answered in one
+  function, `isGifBlobHeldElsewhere` (attachments, favorites and, when the table exists, `server_gifs`),
+  which is where any future holder of gif blobs is added. It is refused while the mode is `store`.
 
 ## Server log
 

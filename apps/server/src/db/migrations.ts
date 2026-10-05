@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { EVERYONE_PERMISSIONS, permissionsToString } from '@harmony/shared';
+import { EVERYONE_PERMISSIONS, isGifLinkUrl, permissionsToString } from '@harmony/shared';
+import { normalizeGifSourceUrl } from '../gifs/source-url.ts';
 
 export interface Migration {
   version: number;
@@ -736,6 +737,100 @@ export const migrations: Migration[] = [
        * preview or fetched picture does not come back with the next edit.
        */
       db.exec(`ALTER TABLE messages ADD COLUMN embeds_hidden INTEGER NOT NULL DEFAULT 0`);
+    },
+  },
+  {
+    version: 31,
+    name: 'gif_sources',
+    up(db) {
+      /*
+       * Pairs a remote gif address with the copy this server holds of it, so that
+       * switching the gif storage mode between "store" and "link" never fetches a
+       * gif twice or loses one. `url` is the normalized address (see
+       * gifs/source-url.ts). `hash` points at the content-addressed blob and is
+       * null while there is no copy: a gif only linked so far, or one whose copy
+       * was released. It is deliberately not a foreign key, since blobs are files
+       * and not rows; whoever deletes a blob clears the pairing instead.
+       * `fail_count` and `status` give up on an address after repeated failed
+       * fetches ('dead'), and `last_checked_at` spaces the retries.
+       *
+       * `held` says who keeps the blob alive. 0: the pairing merely mirrors bytes
+       * an attachment or a favorite holds, so the blob follows their retention
+       * and the pairing is cleared once it is gone. 1: the copy was made for the
+       * pairing itself (an archive run, an on-demand copy), so the retention
+       * sweep treats the blob as referenced until the copy is released.
+       */
+      db.exec(`
+        CREATE TABLE gif_sources (
+          url             TEXT PRIMARY KEY,
+          hash            TEXT,
+          content_type    TEXT,
+          size            INTEGER,
+          width           INTEGER,
+          height          INTEGER,
+          first_seen_at   TEXT NOT NULL,
+          last_seen_at    TEXT NOT NULL,
+          copied_at       TEXT,
+          held            INTEGER NOT NULL DEFAULT 0,
+          last_checked_at TEXT,
+          fail_count      INTEGER NOT NULL DEFAULT 0,
+          status          TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok', 'dead'))
+        );
+        CREATE INDEX idx_gif_sources_hash ON gif_sources(hash) WHERE hash IS NOT NULL;
+      `);
+
+      /*
+       * One-time, idempotent backfill from what already pairs an address with
+       * bytes: gifs fetched from a link (attachments.source_url) and gifs kept
+       * from the hosted service (gif_favorites.source_url). Done in pages so a
+       * large history never sits in memory at once; INSERT OR IGNORE keeps the
+       * first pairing per address.
+       */
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO gif_sources
+           (url, hash, content_type, size, width, height, first_seen_at, last_seen_at, copied_at, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ok')`,
+      );
+      interface Pair {
+        rowid: number;
+        source_url: string;
+        hash: string;
+        content_type: string;
+        size: number;
+        width: number | null;
+        height: number | null;
+        created_at: string;
+      }
+      for (const table of ['attachments', 'gif_favorites'] as const) {
+        let after = 0;
+        for (;;) {
+          const rows = db
+            .prepare(
+              `SELECT rowid, source_url, hash, content_type, size, width, height, created_at FROM ${table}
+               WHERE source_url IS NOT NULL AND content_type = 'image/gif' AND rowid > ?
+               ORDER BY rowid LIMIT 500`,
+            )
+            .all(after) as unknown as Pair[];
+          if (rows.length === 0) break;
+          for (const row of rows) {
+            const url = normalizeGifSourceUrl(row.source_url);
+            if (url === null || !isGifLinkUrl(url)) continue;
+            insert.run(
+              url,
+              row.hash,
+              row.content_type,
+              row.size,
+              row.width,
+              row.height,
+              row.created_at,
+              row.created_at,
+              row.created_at,
+            );
+          }
+          after = rows[rows.length - 1]?.rowid ?? after + 1;
+        }
+      }
+      `);
     },
   },
   {

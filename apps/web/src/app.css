@@ -1411,6 +1411,13 @@ img.avatar {
   line-height: 0;
 }
 
+/* What a linked gif falls back to when no source could be loaded: the address itself. */
+.embed-gif-link {
+  display: block;
+  margin: 0.4rem 0 0;
+  overflow-wrap: anywhere;
+}
+
 .embed-gif img,
 .embed-gif video {
   display: block;

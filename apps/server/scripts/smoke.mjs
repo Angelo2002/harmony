@@ -7,7 +7,7 @@
 //
 // Run with: npm run smoke --workspace @harmony/server
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
@@ -33,6 +33,14 @@ import { insertChannel } from '../src/db/channels.ts';
 import { insertMessage } from '../src/db/messages.ts';
 import { listLinkedAttachments } from '../src/db/attachments.ts';
 import { createEmbedService } from '../src/embeds/service.ts';
+import { createGifService } from '../src/gifs/service.ts';
+import { createGifSourceService } from '../src/gifs/sources.ts';
+import { normalizeGifSourceUrl } from '../src/gifs/source-url.ts';
+import { fetchPublicImage } from '../src/embeds/media.ts';
+import { createPruner } from '../src/retention/pruner.ts';
+import { createBlobStore } from '../src/storage/blobs.ts';
+import { migrations } from '../src/db/migrations.ts';
+import { upsertGifFavorite } from '../src/db/gif_favorites.ts';
 import { verifyLinkedGif } from '../src/embeds/linked-gif.ts';
 import { createAttachmentService } from '../src/attachments/service.ts';
 import { createSettingsService } from '../src/settings/service.ts';
@@ -1493,6 +1501,278 @@ try {
 
     pictureDb.close();
     rmSync(pictureDir, { recursive: true, force: true });
+  }
+
+  // --- Gif sources: a remote gif address paired with the copy held here ---
+  // In process, with a fake network, for the same reason as the section above.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'harmony-gifsrc-'));
+    const config = { uploadDir: join(dir, 'uploads') };
+    const db = new Database({ dataDir: dir, dbFile: join(dir, 'gifsrc.db'), uploadDir: config.uploadDir });
+    const sql = db.sqlite;
+    const settings = createSettingsService(sql, { serverName: 'Test', requireInvite: false });
+    settings.update({ embedsEnabled: true });
+    const attachments = createAttachmentService(sql, config, settings);
+    const blobStore = createBlobStore(config);
+    insertUser(sql, { id: 'u1', username: 'owner', passwordHash: 'x', isOwner: true });
+    insertChannel(sql, {
+      id: 'c1', name: 'general', topic: null, categoryId: null, type: 'text', position: 0,
+      createdAt: new Date().toISOString(), discordChannelId: null,
+    });
+    const addMessage = (id, content) =>
+      insertMessage(sql, { id, channelId: 'c1', authorId: 'u1', content, createdAt: new Date().toISOString() });
+    const makeGif = (red) =>
+      sharp({ create: { width: 8, height: 8, channels: 3, background: { r: red, g: 40, b: 90 } } }).gif().toBuffer();
+    const gifA = await makeGif(200);
+    const gifH = await Promise.all([1, 2, 3, 4, 5].map((n) => makeGif(20 + n * 40)));
+    const gifC = await makeGif(120);
+    const gifD = await makeGif(250);
+    // Noise does not compress, so this one is safely over the smallest size limit a server accepts (1 KiB).
+    const gifBig = await sharp(randomBytes(150 * 150 * 3), { raw: { width: 150, height: 150, channels: 3 } }).gif().toBuffer();
+    const sha = (data) => createHash('sha256').update(data).digest('hex');
+
+    // The fake network: whatever is in `world` is served, everything else fails.
+    const world = new Map();
+    const fetched = [];
+    const fetchImage = async (url) => {
+      fetched.push(url);
+      return world.get(url) ?? null;
+    };
+    const fetchedCount = (url) => fetched.filter((entry) => entry === url).length;
+    const sources = createGifSourceService(sql, config, { attachments, fetchImage });
+    const rowCount = () => sql.prepare('SELECT COUNT(*) AS n FROM gif_sources').get().n;
+    const rowOf = (url) => sql.prepare('SELECT * FROM gif_sources WHERE url = ?').get(url);
+    const blobCount = () => blobStore.listHashes().length;
+    const auth = { user: { id: 'u1' }, permissions: 0n };
+    const alive = async () => ({ contentType: 'image/gif', width: null, height: null });
+    const gifs = createGifService(sql, config, { attachments, settings, sources, fetchImage, verifyLinkedGif: alive });
+    const hubStub = { dispatch: () => {} };
+    const mkEmbeds = (verify) =>
+      createEmbedService({
+        sqlite: sql, settings, hub: hubStub, attachments, sources,
+        renderMessage: (id) => ({ id, channelId: 'c1', author: { id: 'u1' }, attachments: [] }),
+        verifyLinkedGif: verify,
+      });
+    const embeds = mkEmbeds(alive);
+    const embedOf = (id) => parseMessageEmbed(sql.prepare('SELECT embed FROM messages WHERE id = ?').get(id)?.embed ?? null);
+
+    const G1 = 'https://media.giphy.com/media/aaa/giphy.gif';
+    const G2 = 'https://media.giphy.com/media/bbb/giphy.gif';
+    world.set(G1, { contentType: 'image/gif', data: gifA });
+
+    // The normalization rule.
+    check('gif url: case, default port and fragment collapse to one form',
+      normalizeGifSourceUrl('HTTPS://Media.Giphy.COM:443/media/aaa/giphy.gif#top') === G1);
+    check('gif url: the query string is kept as given',
+      normalizeGifSourceUrl('https://media.tenor.com/x/a.gif?size=big&v=2') === 'https://media.tenor.com/x/a.gif?size=big&v=2' &&
+        normalizeGifSourceUrl('https://media.tenor.com/x/a.gif?v=1') !== normalizeGifSourceUrl('https://media.tenor.com/x/a.gif?v=2'));
+    check('gif url: http, credentials and junk are not recorded',
+      normalizeGifSourceUrl('http://media.giphy.com/a.gif') === null &&
+        normalizeGifSourceUrl('https://u:p@media.giphy.com/a.gif') === null &&
+        normalizeGifSourceUrl('not a url') === null &&
+        normalizeGifSourceUrl(`https://media.giphy.com/${'a'.repeat(2100)}.gif`) === null);
+
+    // Link mode only records the pairing.
+    settings.update({ gifStorage: 'link' });
+    await gifs.link(auth, G1);
+    await gifs.link(auth, 'https://MEDIA.giphy.com/media/aaa/giphy.gif#again');
+    check('the same address twice, spelled two ways, is one row', rowCount() === 1);
+    check('link mode records the address without a copy and fetches nothing',
+      rowOf(G1)?.hash === null && fetched.length === 0 && blobCount() === 0);
+    check('only gif hosts are recorded; a private or foreign address is not',
+      sources.record('https://127.0.0.1/x.gif') === null && sources.record('https://example.com/x.gif') === null &&
+        sources.record('http://media.giphy.com/x.gif') === null && rowCount() === 1);
+
+    addMessage('gm1', G1);
+    embeds.resolve('gm1', G1);
+    await sleep(150);
+    check('a linked message carries the gif embed and still has one row', embedOf('gm1')?.gif?.contentType === 'image/gif' && rowCount() === 1);
+    check('stats: one linked, none archived, none dead',
+      JSON.stringify(sources.stats()) === JSON.stringify({ total: 1, linked: 1, archived: 0, dead: 0, archivedBytes: 0 }));
+
+    // Store mode copies on demand, once, however many ask at once.
+    settings.update({ gifStorage: 'store' });
+    const asks = await Promise.all([1, 2, 3, 4, 5].map(() => sources.ensureCopy(G1)));
+    check('on demand: five concurrent asks make one fetch and one blob',
+      fetchedCount(G1) === 1 && blobCount() === 1 && asks.every((entry) => entry?.hash === sha(gifA)));
+    check('the copy is held by the pairing itself', rowOf(G1)?.held === 1 && rowOf(G1)?.size === gifA.length);
+    await sources.ensureCopy(G1);
+    check('and never fetched again', fetchedCount(G1) === 1);
+    check('the linked message is untouched by the copy', embedOf('gm1')?.gif != null);
+
+    // Switching modes back and forth loses nothing.
+    settings.update({ gifStorage: 'link' });
+    check('store to link: the copy is kept and still found', sources.copyFor(G1)?.hash === sha(gifA) && blobCount() === 1 && rowCount() === 1);
+    await gifs.link(auth, G1);
+    check('linking the same gif again neither refetches nor drops the copy', fetchedCount(G1) === 1 && rowOf(G1)?.hash === sha(gifA));
+    settings.update({ gifStorage: 'store' });
+    check('link to store: served from the same copy, no second fetch, no second blob',
+      (await sources.ensureCopy(G1))?.hash === sha(gifA) && fetchedCount(G1) === 1 && blobCount() === 1);
+
+    // A dead source is marked dead and the message keeps its link.
+    settings.update({ gifStorage: 'link' });
+    await gifs.link(auth, G2);
+    addMessage('gm2', G2);
+    embeds.resolve('gm2', G2);
+    await sleep(150);
+    settings.update({ gifStorage: 'store' });
+    const age = (url) => sql.prepare("UPDATE gif_sources SET last_checked_at = '2000-01-01T00:00:00.000Z' WHERE url = ?").run(url);
+    check('a failed fetch yields no copy', (await sources.ensureCopy(G2)) === null && rowOf(G2)?.fail_count === 1);
+    await sources.ensureCopy(G2);
+    check('a retry straight away is not made', fetchedCount(G2) === 1);
+    age(G2);
+    await sources.ensureCopy(G2);
+    age(G2);
+    await sources.ensureCopy(G2);
+    check('three failures in a row mark it dead', rowOf(G2)?.status === 'dead' && fetchedCount(G2) === 3);
+    age(G2);
+    await sources.ensureCopy(G2);
+    check('a dead source is not fetched any more', fetchedCount(G2) === 3);
+    check('the message keeps showing its link', embedOf('gm2')?.gif != null && embedOf('gm2')?.url === G2);
+    check('stats count it as dead and not linked', sources.stats().dead === 1 && sources.stats().linked === 0);
+    settings.update({ gifStorage: 'link' });
+    await gifs.link(auth, G2);
+    check('seen alive again, it is revived', rowOf(G2)?.status === 'ok' && rowOf(G2)?.fail_count === 0);
+
+    // The archive job is bounded, and only ever fetches what it is allowed to.
+    const H = [1, 2, 3, 4, 5].map((n) => `https://media.giphy.com/media/h${n}/giphy.gif`);
+    for (const [n, url] of H.entries()) {
+      world.set(url, { contentType: 'image/gif', data: gifH[n] });
+      sources.record(url, 'image/gif');
+    }
+    world.set(G2, { contentType: 'image/gif', data: gifC });
+    // 5 + G2 (revived) are waiting; the batch is bounded to what the caller asks.
+    const first = await sources.archive(2);
+    check('archive: a batch is bounded and reports progress',
+      first.attempted === 2 && first.copied === 2 && first.more === true && first.stats.archived >= 3, JSON.stringify(first));
+    const second = await sources.archive(3);
+    const third = await sources.archive(10);
+    check('archive: repeated calls finish the job', second.attempted === 3 && third.more === false && sources.stats().linked === 0, JSON.stringify([second, third]));
+    check('archive: one blob per distinct picture', blobCount() === 7);
+    check('archive: nothing is left to do afterwards', (await sources.archive(10)).attempted === 0);
+    sql.prepare('INSERT INTO gif_sources (url, first_seen_at, last_seen_at) VALUES (?, ?, ?)')
+      .run('https://intranet.example/p.gif', new Date().toISOString(), new Date().toISOString());
+    const guarded = await sources.archive(10);
+    check('archive: an address off the allowlist is never fetched, and is given up on',
+      guarded.attempted === 1 && guarded.copied === 0 && guarded.markedDead === 1 && guarded.more === false &&
+        !fetched.includes('https://intranet.example/p.gif') && (await sources.ensureCopy('https://intranet.example/p.gif')) === null);
+    check('archive: the real downloader refuses private addresses',
+      (await fetchPublicImage('http://127.0.0.1:9/a.gif', 'smoke')) === null &&
+        (await fetchPublicImage('https://localhost/a.gif', 'smoke')) === null);
+    const H6 = 'https://media.giphy.com/media/h6/giphy.gif';
+    sources.record(H6, 'image/gif');
+    world.set(H6, { contentType: 'image/gif', data: gifBig });
+    const normalLimit = settings.get().maxImageBytes;
+    settings.update({ maxImageBytes: 1024 });
+    const tooBig = await sources.archive(5);
+    settings.update({ maxImageBytes: normalLimit });
+    check('archive: the upload size limit is respected', tooBig.copied === 0 && tooBig.failed === 1 && rowOf(H6)?.hash === null);
+    const H7 = 'https://media.giphy.com/media/h7/giphy.gif';
+    sources.record(H7, 'image/gif');
+    world.set(H7, { contentType: 'image/png', data: gifA });
+    const notGif = await sources.archive(5);
+    check('archive: something that is not a gif is not kept', notGif.copied === 1 && rowOf(H7)?.hash === null);
+
+    // Using a copy for a new message costs no fetch.
+    settings.update({ gifStorage: 'store' });
+    const before = fetched.length;
+    addMessage('gm3', H[0]);
+    embeds.resolve('gm3', H[0]);
+    await sleep(150);
+    const gm3 = listLinkedAttachments(sql, 'gm3');
+    check('store mode: a message with an archived address gets the copy, with no fetch',
+      gm3.length === 1 && gm3[0].hash === sha(gifH[0]) && gm3[0].source_url === H[0] && fetched.length === before && embedOf('gm3') === null);
+    settings.update({ gifStorage: 'link' });
+    addMessage('gm4', H[1]);
+    mkEmbeds(async () => null).resolve('gm4', H[1]);
+    await sleep(150);
+    check('link mode with a dead remote: the message falls back to the copy held here',
+      listLinkedAttachments(sql, 'gm4').length === 1 && fetched.length === before && embedOf('gm4') === null);
+    addMessage('gm5', H[2]);
+    embeds.resolve('gm5', H[2]);
+    await sleep(150);
+    check('link mode with a live remote: still linked, copy kept, nothing deleted',
+      embedOf('gm5')?.gif != null && sources.copyFor(H[2]) !== null && listLinkedAttachments(sql, 'gm5').length === 0);
+
+    // Picking a hosted gif twice is one fetch and one blob.
+    const K = 'https://static.klipy.com/ii/k1/k.gif';
+    world.set(K, { contentType: 'image/gif', data: gifD });
+    const blobsBefore = blobCount();
+    settings.update({ gifStorage: 'store' });
+    const pickA = await gifs.pick(auth, { url: K });
+    const pickB = await gifs.pick(auth, { url: K });
+    await gifs.addFavorite(auth, { url: K });
+    check('pick: the same hosted gif twice is one fetch, and the second pick shares the bytes',
+      fetchedCount(K) === 1 && pickA.hash === pickB.hash && pickA.id !== pickB.id);
+    check('pick: it is one row and one new blob, for the gif itself', rowOf(K)?.hash === pickA.hash && blobCount() === blobsBefore + 1);
+
+    // Freeing copies keeps whatever else holds them.
+    settings.update({ gifStorage: 'link' });
+    upsertGifFavorite(sql, {
+      userId: 'u1', hash: rowOf(H[3]).hash, filename: 'a.gif', contentType: 'image/gif',
+      size: rowOf(H[3]).size, width: 8, height: 8, sourceUrl: null,
+    });
+    const held = sql.prepare('SELECT COUNT(*) AS n FROM gif_sources WHERE held = 1 AND hash IS NOT NULL').get().n;
+    const freeStats = sources.free();
+    check('free: releases copies nothing else keeps and reports it', freeStats.released > 0 && freeStats.released < held, JSON.stringify([freeStats, held]));
+    check('free: a favorited gif keeps its copy', rowOf(H[3])?.hash === sha(gifH[3]) && existsSync(blobStore.pathFor(sha(gifH[3]))));
+    check('free: a gif on a message attachment keeps its copy',
+      rowOf(H[0])?.hash === sha(gifH[0]) && existsSync(blobStore.pathFor(sha(gifH[0]))));
+    check('free: the addresses stay recorded', rowOf(H[4]) !== undefined && rowOf(H[4])?.hash === null);
+    check('free: the freed bytes are gone from disk', existsSync(blobStore.pathFor(sha(gifA))) === false && freeStats.freedBytes > 0);
+    check('free: a released gif is fetched again on demand', (await sources.ensureCopy(G1))?.hash === sha(gifA) && fetchedCount(G1) === 2);
+
+    // Retention: the pruner and the pairing agree about what is still here.
+    const pruner = createPruner({ sqlite: sql, config, settings, hub: hubStub, log: () => {} });
+    pruner.runNow();
+    check('prune: a copy made for a gif source is not swept', existsSync(blobStore.pathFor(sha(gifA))) && rowOf(G1)?.hash === sha(gifA));
+    sql.prepare('DELETE FROM gif_favorites WHERE hash = ?').run(pickA.hash);
+    sql.prepare('DELETE FROM attachments WHERE hash = ?').run(pickA.hash);
+    pruner.runNow();
+    check('prune: a blob only mirrored by a pairing goes with its holder, and the pairing is cleared',
+      !existsSync(blobStore.pathFor(pickA.hash)) && rowOf(K)?.hash === null);
+    check('prune: that gif is fetched again on demand rather than missing', (await sources.ensureCopy(K))?.hash === sha(gifD) && fetchedCount(K) === 2);
+    blobStore.delete(sha(gifA));
+    pruner.runNow();
+    check('prune: a copy whose file vanished is forgotten, not served as missing', rowOf(G1)?.hash === null);
+    check('prune: and is fetched again', (await sources.ensureCopy(G1))?.hash === sha(gifA) && existsSync(blobStore.pathFor(sha(gifA))));
+
+    // Emergency pruning gives up copies before it touches attachments.
+    const attachmentsBefore = sql.prepare('SELECT COUNT(*) AS n FROM attachments').get().n;
+    const messagesBefore = sql.prepare('SELECT COUNT(*) AS n FROM messages').get().n;
+    const total = blobStore.totalBytes();
+    const heldBeforeEmergency = sql.prepare('SELECT COUNT(*) AS n FROM gif_sources WHERE held = 1 AND hash IS NOT NULL').get().n;
+    settings.updateRetention({ storageLimitBytes: total - 1, storageTargetBytes: total - gifA.length });
+    pruner.runNow();
+    settings.updateRetention({ storageLimitBytes: null, storageTargetBytes: null });
+    check('emergency prune: gif copies are released first, and that is enough',
+      sql.prepare('SELECT COUNT(*) AS n FROM gif_sources WHERE held = 1 AND hash IS NOT NULL').get().n < heldBeforeEmergency &&
+        blobStore.totalBytes() <= total - gifA.length &&
+        sql.prepare('SELECT COUNT(*) AS n FROM attachments').get().n === attachmentsBefore);
+    check('emergency prune: no message is deleted', sql.prepare('SELECT COUNT(*) AS n FROM messages').get().n === messagesBefore);
+
+    // The one-off backfill from what already pairs an address with bytes.
+    const old = new DatabaseSync(':memory:');
+    const cols = 'hash TEXT, content_type TEXT, size INTEGER, width INTEGER, height INTEGER, source_url TEXT, created_at TEXT';
+    old.exec(`CREATE TABLE attachments (id TEXT, ${cols}); CREATE TABLE gif_favorites (id TEXT, ${cols});`);
+    const put = old.prepare('INSERT INTO attachments (id, hash, content_type, size, width, height, source_url, created_at) VALUES (?, ?, ?, 10, 2, 2, ?, ?)');
+    put.run('a1', 'h1', 'image/gif', 'HTTPS://Media.Giphy.com/x.gif#frag', '2024-01-01T00:00:00.000Z');
+    put.run('a2', 'h2', 'image/gif', 'https://media.giphy.com/x.gif', '2024-02-01T00:00:00.000Z');
+    put.run('a3', 'h3', 'image/png', 'https://media.giphy.com/png.png', '2024-01-01T00:00:00.000Z');
+    put.run('a4', 'h4', 'image/gif', 'https://example.com/other.gif', '2024-01-01T00:00:00.000Z');
+    put.run('a5', 'h5', 'image/gif', null, '2024-01-01T00:00:00.000Z');
+    old.prepare('INSERT INTO gif_favorites (id, hash, content_type, size, width, height, source_url, created_at) VALUES (?, ?, ?, 10, 2, 2, ?, ?)')
+      .run('f1', 'h6', 'image/gif', 'https://static.klipy.com/ii/z.gif', '2024-03-01T00:00:00.000Z');
+    migrations.find((migration) => migration.version === 31).up(old);
+    const filled = old.prepare('SELECT url, hash, held FROM gif_sources ORDER BY url').all();
+    check('backfill: pairs gif addresses with their bytes, normalized, one row each, not held',
+      filled.length === 2 && filled[0].url === 'https://media.giphy.com/x.gif' && filled[0].hash === 'h1' &&
+        filled[1].url === 'https://static.klipy.com/ii/z.gif' && filled.every((row) => row.held === 0),
+      JSON.stringify(filled));
+    old.close();
+
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 
   // --- Presence ---
@@ -6442,6 +6722,51 @@ try {
   await req(`/roles/${auditorRole.json.id}`, { method: 'DELETE', token: ownerToken });
   check('the log can be cleared', (await req('/audit', { method: 'DELETE', token: ownerToken })).status === 204);
   check('the log is empty after clearing', (await req('/audit', { token: ownerToken })).json?.entries?.length === 0);
+
+  // --- Gif sources over HTTP: permissions, the guard on the copy route, the audit trail ---
+  {
+    const gifDb = new DatabaseSync(join(dataDir, 'harmony.db'));
+    const GONE = 'https://media.giphy.com/media/harmony-smoke-nonexistent/giphy.gif';
+    check('gif sources: stats need Manage Server (403)', (await req('/gifs/sources', { token: bobToken })).status === 403);
+    check('gif sources: and a session (401)', (await req('/gifs/sources')).status === 401);
+    const stats = await req('/gifs/sources', { token: ownerToken });
+    check('gif sources: the owner reads the counts',
+      stats.status === 200 && ['total', 'linked', 'archived', 'dead', 'archivedBytes'].every((key) => typeof stats.json?.[key] === 'number'));
+    check('gif sources: archiving needs Manage Server', (await req('/gifs/sources/archive', { method: 'POST', token: bobToken })).status === 403);
+    check('gif sources: freeing needs Manage Server', (await req('/gifs/sources/free', { method: 'POST', token: bobToken })).status === 403);
+    check('gif sources: an empty archive run does nothing and is not logged',
+      (await req('/gifs/sources/archive', { method: 'POST', token: ownerToken })).json?.attempted === 0 &&
+        (await req('/audit?limit=100', { token: ownerToken })).json?.entries?.length === 0);
+
+    check('gif copy: needs a session (401)', (await req(`/gifs/copy?url=${encodeURIComponent(GONE)}`)).status === 401);
+    check('gif copy: an address never recorded is 404 and is not fetched',
+      (await req(`/gifs/copy?url=${encodeURIComponent(GONE)}`, { token: ownerToken })).status === 404);
+    check('gif copy: a private address is 404',
+      (await req(`/gifs/copy?url=${encodeURIComponent('https://127.0.0.1/a.gif')}`, { token: ownerToken })).status === 404 &&
+        (await req(`/gifs/copy?url=${encodeURIComponent('http://localhost:9/a.gif')}`, { token: ownerToken })).status === 404);
+    check('gif sources: freeing is refused while the server stores gifs',
+      (await req('/gifs/sources/free', { method: 'POST', token: ownerToken })).status === 409);
+
+    // A recorded address whose fetch fails (guarded and, here, unreachable or absent).
+    const nowIso = new Date().toISOString();
+    gifDb.prepare('INSERT INTO gif_sources (url, content_type, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)').run(GONE, 'image/gif', nowIso, nowIso);
+    const ran = await req('/gifs/sources/archive', { method: 'POST', token: ownerToken });
+    check('gif sources: an archive run reports its batch and the failure',
+      ran.status === 200 && ran.json?.attempted === 1 && ran.json?.copied === 0 && ran.json?.failed === 1 && ran.json?.more === false,
+      JSON.stringify(ran.json));
+    check('gif sources: the failure is counted against the address', gifDb.prepare('SELECT fail_count FROM gif_sources WHERE url = ?').get(GONE)?.fail_count === 1);
+
+    const flip = await req('/settings', { method: 'PATCH', token: ownerToken, body: { gifStorage: 'link' } });
+    const freed = await req('/gifs/sources/free', { method: 'POST', token: ownerToken });
+    check('gif sources: freeing works while linking', flip.status === 200 && freed.status === 200 && freed.json?.released === 0);
+    const gifAudit = (await req('/audit?limit=100', { token: ownerToken })).json?.entries ?? [];
+    check('gif sources: archive and free are audit-logged',
+      gifAudit.some((entry) => entry.kind === 'gif_archive' && entry.detail.count === 0) &&
+        gifAudit.some((entry) => entry.kind === 'gif_free' && entry.detail.count === 0));
+    await req('/settings', { method: 'PATCH', token: ownerToken, body: { gifStorage: 'store' } });
+    gifDb.close();
+    await req('/audit', { method: 'DELETE', token: ownerToken });
+  }
 
   const auditDays = await req('/retention', {
     method: 'PATCH',

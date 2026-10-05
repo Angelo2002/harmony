@@ -56,6 +56,10 @@ export interface AuditService {
     filename: string,
     gifName?: string,
   ): void;
+  /** Records an administrator copying linked gifs onto this server (one batch). */
+  gifsArchived(actorId: string, count: number): void;
+  /** Records an administrator releasing the stored copies of gifs that are still linked. */
+  gifsFreed(actorId: string, count: number, bytes: number): void;
   list(query: AuditQuery): AuditListResponse;
   /** Empties the log, returning how many entries were removed. */
   clear(): number;
@@ -192,6 +196,14 @@ export function createAuditService(sqlite: DatabaseSync): AuditService {
 
     serverGif(kind, actorId, filename, gifName) {
       write(kind, actorId, null, null, { filename, gifName, actorName: userName(actorId) });
+    },
+
+    gifsArchived(actorId, count) {
+      write('gif_archive', actorId, null, null, { count, actorName: userName(actorId) });
+    },
+
+    gifsFreed(actorId, count, bytes) {
+      write('gif_free', actorId, null, null, { count, bytes, actorName: userName(actorId) });
     },
 
     list(query) {

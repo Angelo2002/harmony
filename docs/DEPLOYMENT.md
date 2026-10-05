@@ -380,6 +380,10 @@ When an admin sets Gif storage to "Link to the hosted service", the built-in
 policy additionally allows images and media from a short fixed list of gif hosts
 (Klipy, Tenor's media hosts, Giphy's media hosts); a policy you set yourself is
 never modified, so add those hosts to its `img-src` and `media-src` if you use
-link mode with one. The other
+link mode with one. Switching between Store and Link never loses a gif: the
+server remembers each linked gif's address and copies it on demand, and Settings,
+Gifs can archive every linked gif onto the server (or free those copies again).
+Copies made that way are kept until released or until the storage limit needs
+the space; retention by age does not remove them. The other
 hardening headers (`X-Content-Type-Options`, `X-Frame-Options`,
 `Referrer-Policy`, and HSTS over HTTPS) stay on either way.

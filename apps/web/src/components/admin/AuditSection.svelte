@@ -29,6 +29,8 @@
     server_gif_remove: 'server gif',
     server_gif_hide: 'server gif',
     server_gif_unhide: 'server gif',
+    gif_archive: 'gifs',
+    gif_free: 'gifs',
   };
 
   let entries = $state<AuditEntry[]>([]);
@@ -141,6 +143,10 @@
         return `hid ${entry.detail.filename ?? 'a gif'} from the server gifs`;
       case 'server_gif_unhide':
         return `restored ${entry.detail.filename ?? 'a gif'} to the server gifs`;
+      case 'gif_archive':
+        return `copied ${entry.detail.count ?? 0} linked gif${entry.detail.count === 1 ? '' : 's'} onto this server`;
+      case 'gif_free':
+        return `released the stored copies of ${entry.detail.count ?? 0} linked gif${entry.detail.count === 1 ? '' : 's'}`;
     }
   }
 </script>

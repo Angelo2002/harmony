@@ -8,6 +8,7 @@
   import { firstUnreadIndex, newMessageCount, newMessagesLabel } from '../lib/unread';
   import { emojis } from '../lib/emojis.svelte';
   import { gifs } from '../lib/gifs.svelte';
+  import LinkedGif from './LinkedGif.svelte';
   import { lightbox } from '../lib/lightbox.svelte';
   import { members } from '../lib/members.svelte';
   import { meta } from '../lib/meta.svelte';
@@ -171,12 +172,13 @@
   }
 
   /**
-   * Whether a linked gif is drawn: only while the instance is set to link (the
-   * page's Content-Security-Policy allows the gif hosts only then) and only for
-   * an address on the allowlist, whatever the server sent.
+   * Whether a linked gif is drawn: only for an address on the allowlist, whatever
+   * the server sent. While the instance links it is loaded from the gif host (the
+   * page's Content-Security-Policy allows those hosts only then); while it stores,
+   * from this server's own copy, which the server makes on first request.
    */
   function linkedGifShown(embed: LinkEmbed): boolean {
-    return embed.gif != null && meta.data?.gifStorage === 'link' && isGifLinkUrl(embed.url);
+    return embed.gif != null && meta.data?.gifStorage != null && isGifLinkUrl(embed.url);
   }
 
   /**
@@ -689,13 +691,7 @@
                   while the instance is in link mode, and only for an allowlisted host.
                 -->
                 {#if linkedGifShown(message.embed)}
-                  <a class="embed-gif" href={message.embed.url} target="_blank" rel="noreferrer noopener">
-                    {#if message.embed.gif.contentType.startsWith('video/')}
-                      <video src={message.embed.url} autoplay loop muted playsinline preload="metadata"></video>
-                    {:else}
-                      <img src={message.embed.url} alt="" loading="lazy" referrerpolicy="no-referrer" />
-                    {/if}
-                  </a>
+                  <LinkedGif url={message.embed.url} contentType={message.embed.gif.contentType} mode={meta.data?.gifStorage} />
                 {/if}
               {:else if message.embed.player}
                 <div class="embed">

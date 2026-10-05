@@ -40,6 +40,7 @@ import {
   resolveUsage,
   scoreAt,
 } from '../src/lib/emoji-usage.ts';
+import { gifCopyUrl, linkedGifSources } from '../src/lib/linked-gif.ts';
 import { inlineSegmentsOf, parseMessage } from '../src/lib/message-text.ts';
 import { mergeLatest, mentionsUser } from '../src/lib/messages.ts';
 import { draftProblem, newPollDraft, toCreatePollBody, withAddedOption, withoutOption } from '../src/lib/poll-draft.ts';
@@ -1173,6 +1174,23 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   noExpiry.options[0].text = 'a';
   noExpiry.options[1].text = 'b';
   check('no expiry is sent as null and accepted', toCreatePollBody(noExpiry).durationHours === null && createPollSchema.safeParse(toCreatePollBody(noExpiry)).success);
+}
+
+{
+  // Where a linked gif is drawn from.
+  const url = 'https://media.giphy.com/media/a/giphy.gif?cid=1&ep=v1';
+  const copy = `/api/v1/gifs/copy?url=${encodeURIComponent(url)}`;
+  check('the copy address carries the whole link, query included', gifCopyUrl(url) === copy && copy.includes('%3Fcid%3D1%26ep%3Dv1'));
+  const linkMode = linkedGifSources('link', url, 'image/gif');
+  check('link mode: the remote first, this server\'s copy if it is gone', linkMode.primary === url && linkMode.fallback === copy);
+  const storeMode = linkedGifSources('store', url, 'image/gif');
+  check('store mode: this server\'s copy, nothing else', storeMode.primary === copy && storeMode.fallback === null);
+  const linkClip = linkedGifSources('link', url, 'video/mp4');
+  check('link mode: a clip has no copy to fall back to', linkClip.primary === url && linkClip.fallback === null);
+  const storeClip = linkedGifSources('store', url, 'video/webm');
+  check('store mode: a clip cannot be copied, so the link is shown', storeClip.primary === null && storeClip.fallback === null);
+  const unknown = linkedGifSources(undefined, url, 'image/gif');
+  check('before the instance settings are known nothing is loaded', unknown.primary === null && unknown.fallback === null);
 }
 
 

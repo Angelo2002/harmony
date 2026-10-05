@@ -14,6 +14,7 @@
   let confirmingFree = $state(false);
 
   function formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 KB';
     if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
@@ -110,6 +111,6 @@
     if you switch to storing. <strong>Free copies</strong> removes the copies of gifs that are still linked and
     that nothing else keeps; gifs members saved, gifs on a message as an attachment and curated server gifs are
     never touched. The addresses stay recorded, so a gif can be copied again later. Freeing is only available
-    while storage is set to Link (save the setting first).
+    while storage is set to Link (save the setting first). Clips (MP4 or WebM) cannot be copied and stay linked.
   </p>
 </div>

@@ -126,6 +126,18 @@ export function createSfu(signals: SfuSignals, options: SfuOptions = {}): Sfu {
     iceServers: options.iceServers ?? [],
     ...(options.portRange ? { icePortRange: options.portRange } : {}),
     ...(options.publicIp ? { iceAdditionalHostAddresses: [options.publicIp] } : {}),
+    /*
+     * One transport, and so one UDP port per local address, for the whole
+     * connection, instead of werift's default of one per media line. That keeps
+     * a member's slice of the ICE port range small, but the real reason is a
+     * leak: with the default (`max-compat`), renegotiating a connection — which
+     * happens whenever a member joins or leaves, or a screen starts — orphans
+     * the old per-line transport, whose sockets `pc.close()` never reaches, so
+     * the range fills until no new media line can gather and a screen share sits
+     * on "Connecting…" forever. Bundling every line onto one transport leaves
+     * nothing to orphan. Every browser bundles, so nothing else changes.
+     */
+    bundlePolicy: 'max-bundle',
   };
 
   function room(channelId: string): Peer[] {

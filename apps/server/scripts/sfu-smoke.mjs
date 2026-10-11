@@ -162,6 +162,18 @@ async function main() {
   // The offer has to carry a video codec, or no browser could answer a screen.
   check('the offer carries a video codec', /vp8\/90000/i.test(offers.get('C') ?? ''));
 
+  // Every line rides one ICE transport (BUNDLE). One transport per connection is
+  // what keeps a member's UDP port usage small, and it is what stops a
+  // renegotiation from orphaning the old per-line transports' sockets — a leak
+  // that filled the ICE port range until a screen share could no longer connect.
+  const ufrags = new Set(
+    (offers.get('C') ?? '')
+      .split('\n')
+      .filter((line) => line.startsWith('a=ice-ufrag:'))
+      .map((line) => line.trim()),
+  );
+  check('the offer bundles every line onto one ICE transport', ufrags.size === 1, [...ufrags].join(' | '));
+
   // A client whose network changed cannot offer itself, so the server restarts its
   // ICE and asks again; the fresh offer must carry new ICE credentials.
   const ufrag = (sdp) => (sdp.match(/^a=ice-ufrag:(.*)$/m) ?? [])[1] ?? '';

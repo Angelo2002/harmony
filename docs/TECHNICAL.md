@@ -239,10 +239,15 @@ new call can connect at all. So the relay watches each connection's own state: o
 that goes `failed` is reaped after a short grace and one that stays `disconnected`
 after a longer one, with reaching `connected` cancelling either. The reaped
 member's seat is then released by the voice service, which drops them from the room
-and tells everyone. Note that werift does not release every UDP socket when a
-connection that has already failed is closed, so reaping reclaims most of a dead
-connection's ports but not all; a restart clears the remainder, and the port range
-is sized with that in mind.
+and tells everyone.
+
+Each connection bundles every media line onto one ICE transport (werift's
+`max-bundle`), so it holds one UDP port per local address rather than one per line.
+That is not just thrift: with werift's default of a transport per line,
+renegotiating a connection — which every join, leave or screen start does — orphaned
+the old per-line transports, whose sockets `pc.close()` never reached, so the range
+slowly filled until a new media line could gather no candidate and a screen share
+sat on "Connecting…" forever. Bundling leaves nothing to orphan.
 
 A connection that dies is normally rebuilt by the client leaving and rejoining. A
 client whose *network* changed can do better: `POST …/voice/renegotiate` asks the

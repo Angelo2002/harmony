@@ -74,6 +74,38 @@ export interface ScreenTile {
   stream: MediaStream | null;
 }
 
+/** How long a resume waits before re-checking whether the call is still ours to take. */
+const resumeRetryMs = 700;
+/** How many times a resume re-checks before it leaves a live session alone. */
+const maxResumeTries = 6;
+
+/** Where the channel a member is in is remembered, so a reloaded client can rejoin it. */
+const savedChannelPrefix = 'harmony:voice:';
+
+/**
+ * The channel this member was in, from the last session. localStorage rather than
+ * sessionStorage: a phone recreates the webview when it reopens the app, which is
+ * a fresh page load, so anything kept only for the tab is already gone.
+ */
+function readSavedChannel(userId: string | undefined): string | null {
+  if (!userId) return null;
+  try {
+    return localStorage.getItem(savedChannelPrefix + userId);
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedChannel(userId: string | undefined, channelId: string | null): void {
+  if (!userId) return;
+  try {
+    if (channelId) localStorage.setItem(savedChannelPrefix + userId, channelId);
+    else localStorage.removeItem(savedChannelPrefix + userId);
+  } catch {
+    // Storage blocked: the call just will not survive a reload.
+  }
+}
+
 class VoiceStore {
   /** The channel this member is connected to, or null. */
   channelId = $state<string | null>(null);
@@ -133,12 +165,25 @@ class VoiceStore {
   #recovering = false;
   #recoverTimer: ReturnType<typeof setTimeout> | null = null;
   #recoverAttempts = 0;
+  /** Retries while the server still shows another session holding the call. */
+  #resumeTimer: ReturnType<typeof setTimeout> | null = null;
+  #resumeTries = 0;
+  /** Guards against a visibility and an online event resuming at once. */
+  #resuming = false;
 
   constructor() {
     // A phone that lost its network is most likely back when the browser says it
     // is, well before any retry timer would notice.
     window.addEventListener('online', () => {
       if (this.#intended && this.#pc?.connectionState !== 'connected') this.#scheduleRecover(0);
+      // A page that loaded while offline could not fetch the rooms to rejoin;
+      // coming back online is the first chance to.
+      else if (!this.channelId) void this.resume();
+    });
+    // Coming back to the foreground is the cue that a backgrounded client may have
+    // lost its call, or that a recreated one needs to rejoin the channel it was in.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void this.resume();
     });
   }
 
@@ -174,27 +219,110 @@ class VoiceStore {
   }
 
   /**
-   * Fetches who is in each voice channel now. Called once on load, since the
-   * per-channel events only arrive as changes are made; without it a client that
-   * loads while somebody is already talking would show an empty room.
+   * Fetches who is in each voice channel now, and rejoins the call this member
+   * was in. Called once on load, since the per-channel events only arrive as
+   * changes are made; without it a client that loads while somebody is already
+   * talking would show an empty room.
    */
   async load(): Promise<void> {
+    const data = await this.#fetchRooms();
+    if (data) await this.#resumeWith(data);
+  }
+
+  /**
+   * Puts this member back in the call they were in before the client went away.
+   *
+   * A phone that leaves and reopens the app is a fresh webview, so nothing in
+   * memory survives; the channel they were in is remembered in localStorage and
+   * this restores it. When the server still lists them, the rejoin reattaches the
+   * media; when it no longer does, this rejoins the remembered channel afresh.
+   * Called on load, on returning to the foreground, and after the online handler.
+   */
+  async resume(): Promise<void> {
+    if (this.#resuming || this.joining) return;
+    // Already in a call in this session: make sure it is really still alive, the
+    // same way a connection-state change would, rather than rebuild a healthy one.
+    if (this.channelId) {
+      if (this.#pc) this.#onConnectionState(this.#pc.connectionState);
+      return;
+    }
+    this.#resuming = true;
+    try {
+      const data = await this.#fetchRooms();
+      if (data) await this.#resumeWith(data);
+    } finally {
+      this.#resuming = false;
+    }
+  }
+
+  /** The rosters plus self, or null when the request fails (offline, signed out). */
+  async #fetchRooms(): Promise<VoiceRoomsResponse | null> {
     try {
       const data = await api<VoiceRoomsResponse>('/voice');
       const rosters: Record<string, VoiceState[]> = {};
       for (const entry of data.channels) rosters[entry.channelId] = entry.members;
       this.rosters = rosters;
-      // The server still lists this member but their client is gone — the page was
-      // reloaded, or a phone closed and reopened the app — so put them back in the
-      // call: the bar returns and the media connection is made again. When another
-      // session still holds the connection (a second tab), nothing is done here, so
-      // the two do not fight over it.
-      if (data.self?.detached && this.channelId === null && !this.joining) {
-        await this.join(data.self.channelId);
-      }
+      return data;
     } catch {
       // A failed load leaves the sidebar without rosters until the next event.
+      return null;
     }
+  }
+
+  /**
+   * Decides whether to rejoin, from a fresh room snapshot. The server's own
+   * record wins when there is one; the remembered channel is the fallback for a
+   * member it has already dropped. A live connection held by another session is
+   * left alone, but re-checked briefly, which also covers the moment the server
+   * notices this one went away and marks the membership detached.
+   */
+  async #resumeWith(data: VoiceRoomsResponse): Promise<void> {
+    if (this.channelId || this.joining) return;
+    const saved = readSavedChannel(session.user?.id);
+    const self = data.self;
+    // The server's record wins when there is one; the remembered channel is the
+    // fallback for a member it has already dropped from the room.
+    const target = self?.channelId ?? saved;
+    if (!target) return;
+    if (self && !self.detached) {
+      // Another session holds the connection, or the server has not yet noticed
+      // this one went away. Only wait our turn when this client had joined that
+      // channel (a recreated page racing the server); a fresh tab leaves it alone.
+      if (saved === target) this.#scheduleResumeRetry();
+      return;
+    }
+    this.#cancelResumeRetry();
+    this.#resumeTries = 0;
+    await this.join(target);
+    // A channel that is gone, or one this member can no longer reach, leaves no
+    // membership behind; forget it rather than retrying on every resume.
+    if (this.channelId !== target) this.#forget();
+  }
+
+  #scheduleResumeRetry(): void {
+    if (this.#resumeTimer || this.#resumeTries >= maxResumeTries) return;
+    this.#resumeTries += 1;
+    this.#resumeTimer = setTimeout(() => {
+      this.#resumeTimer = null;
+      void this.resume();
+    }, resumeRetryMs);
+  }
+
+  #cancelResumeRetry(): void {
+    if (this.#resumeTimer) {
+      clearTimeout(this.#resumeTimer);
+      this.#resumeTimer = null;
+    }
+  }
+
+  /** Remembers the channel, so a recreated client knows which call to rejoin. */
+  #remember(channelId: string): void {
+    writeSavedChannel(session.user?.id, channelId);
+  }
+
+  /** Forgets it, on an explicit leave, a logout, or a rejoin that could not land. */
+  #forget(): void {
+    writeSavedChannel(session.user?.id, null);
   }
 
   /**
@@ -438,6 +566,8 @@ class VoiceStore {
       const room = await api<VoiceRoomResponse>(`/channels/${channelId}/voice`, { method: 'POST' });
       this.members = room.members;
       this.rosters = { ...this.rosters, [channelId]: room.members };
+      // The join landed, so remember the channel: a recreated client rejoins it.
+      this.#remember(channelId);
       // Anyone already in the room is a baseline, not a fresh arrival.
       this.#lastMembers = new Set(room.members.map((entry) => entry.user.id));
       this.#rosterReady = true;
@@ -465,6 +595,8 @@ class VoiceStore {
     this.#recoverAttempts = 0;
     this.#watching = {};
     this.#cancelRecover();
+    this.#cancelResumeRetry();
+    this.#forget();
     await this.#disconnect();
   }
 
@@ -704,6 +836,9 @@ class VoiceStore {
     this.#recovering = false;
     this.#recoverAttempts = 0;
     this.#cancelRecover();
+    this.#cancelResumeRetry();
+    this.#resumeTries = 0;
+    this.#forget();
     this.#ice = null;
     for (const track of this.#display?.getTracks() ?? []) track.stop();
     this.#display = null;

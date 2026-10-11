@@ -271,8 +271,15 @@ presumed stale. A client that loads and finds itself detached — the page was
 reloaded, or a phone closed and reopened the app — rejoins the room it is already
 in, which the server turns into a fresh media connection rather than a no-op; a
 client that finds itself still attached (another tab) leaves it alone, so the two do
-not fight over the call. That is what brings a call back after a reload instead of
-leaving the client unaware it was ever in one.
+not fight over the call.
+
+The channel a member is in is also remembered in the browser — `localStorage`, not
+`sessionStorage`, because a phone recreates the webview and that is a fresh page
+load. On load, on returning to the foreground, and when the network comes back, the
+client checks the room it was in and rejoins: through the detached reattach when the
+server still lists it, or afresh when it was away long enough to be dropped. Only a
+channel this client itself joined is retried, so a second tab never takes a live
+call, and an explicit leave or a logout forgets it.
 
 The relay gathers against the ICE servers it was configured with and no others: by
 default none, since a host with a public address needs no STUN. Clients, which may

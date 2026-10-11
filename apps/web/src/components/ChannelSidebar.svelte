@@ -13,7 +13,7 @@
   import ChannelMenu from './ChannelMenu.svelte';
   import Icon from './Icon.svelte';
   import { voice } from '../lib/voice.svelte';
-  import { webVoiceDisabled } from '../lib/voice-mode';
+  import { askHostToJoin, voiceHost, webVoiceDisabled } from '../lib/voice-mode';
 
   const permissions = $derived(permissionsFromString(session.permissions || '0'));
   // The button appears for anyone who could use at least one tab, moderators
@@ -23,6 +23,15 @@
   const myId = $derived(session.user?.id ?? null);
   /** The host app runs voice natively; the sidebar keeps the rosters but cannot join. */
   const voiceOff = webVoiceDisabled();
+  /** The shell's native-voice bridge, when it injected one. */
+  const host = voiceHost();
+
+  /** What a voice channel's tap does, for the tooltip. */
+  function voiceTitle(channel: Channel): string {
+    if (voice.channelId === channel.id) return `Disconnect from ${channel.name}`;
+    if (voiceOff && !host) return 'Voice is handled by the app';
+    return `Join ${channel.name}`;
+  }
 
   /** Categories that demand a role; every channel inside one is locked too. */
   const lockedCategories = $derived(
@@ -163,13 +172,15 @@
         class:active={voice.channelId === channel.id}
         class:connecting={voice.joining === channel.id}
         type="button"
-        disabled={voiceOff}
-        title={voiceOff
-          ? 'Voice is handled by the app'
-          : voice.channelId === channel.id
-            ? `Disconnect from ${channel.name}`
-            : `Join ${channel.name}`}
-        onclick={() => (voice.channelId === channel.id ? voice.leave() : voice.join(channel.id))}
+        disabled={voiceOff && !host}
+        title={voiceTitle(channel)}
+        onclick={() => {
+          // With voice off and a host present, the tap starts the native call
+          // rather than the web client's own, which the host has taken over.
+          if (voiceOff && askHostToJoin(channel.id, channel.name)) return;
+          if (voice.channelId === channel.id) void voice.leave();
+          else void voice.join(channel.id);
+        }}
         oncontextmenu={(event) => {
           event.preventDefault();
           cancelPress();

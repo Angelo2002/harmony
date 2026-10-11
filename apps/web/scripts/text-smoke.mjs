@@ -94,7 +94,7 @@ import {
 import { firstUnreadIndex, muteLabel, newMessageCount, newMessagesLabel, pillCount } from '../src/lib/unread.ts';
 import { groupedRows, isGrouped } from '../src/lib/message-grouping.ts';
 import { detectTrigger, rankMember, suggestionsFor } from '../src/lib/composer-suggest.ts';
-import { webVoiceDisabled } from '../src/lib/voice-mode.ts';
+import { askHostToJoin, voiceHost, webVoiceDisabled } from '../src/lib/voice-mode.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { draftPreview } from '../src/lib/composer-preview.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
@@ -971,6 +971,7 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
 {
   const savedFlag = globalThis.__harmonyVoiceDisabled;
   const savedLocation = globalThis.location;
+  const savedHost = globalThis.HarmonyVoiceHost;
   try {
     delete globalThis.__harmonyVoiceDisabled;
     delete globalThis.location;
@@ -984,11 +985,27 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
     check('a query parameter turns voice off', webVoiceDisabled() === true);
     globalThis.location = { search: '?voice=on' };
     check('any other value leaves it on', webVoiceDisabled() === false);
+
+    // The host bridge hands a channel tap to native voice.
+    delete globalThis.HarmonyVoiceHost;
+    check('no host is detected as none', voiceHost() === null);
+    check('without a host the client keeps its own join', askHostToJoin('c1', 'Lounge') === false);
+    const posted = [];
+    globalThis.HarmonyVoiceHost = { postMessage: (message) => posted.push(message) };
+    check('a present host is detected', voiceHost() !== null);
+    check('a tap is handed to the host', askHostToJoin('c1', 'Lounge') === true);
+    const handoff = posted.length === 1 ? JSON.parse(posted[0]) : null;
+    check(
+      'the hand-off carries the channel id and name',
+      handoff?.type === 'join' && handoff.channelId === 'c1' && handoff.channelName === 'Lounge',
+    );
   } finally {
     if (savedFlag === undefined) delete globalThis.__harmonyVoiceDisabled;
     else globalThis.__harmonyVoiceDisabled = savedFlag;
     if (savedLocation === undefined) delete globalThis.location;
     else globalThis.location = savedLocation;
+    if (savedHost === undefined) delete globalThis.HarmonyVoiceHost;
+    else globalThis.HarmonyVoiceHost = savedHost;
   }
 }
 

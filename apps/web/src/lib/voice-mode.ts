@@ -17,3 +17,25 @@ export function webVoiceDisabled(): boolean {
   const search = (globalThis as { location?: { search?: string } }).location?.search ?? '';
   return new URLSearchParams(search).get('voice') === 'off';
 }
+
+/** The bridge the shell injects so the client can hand a call to its native voice. */
+export interface VoiceHost {
+  postMessage(message: string): void;
+}
+
+/** The host bridge, when the shell injected one. Null in a plain browser. */
+export function voiceHost(): VoiceHost | null {
+  const host = (globalThis as { HarmonyVoiceHost?: VoiceHost }).HarmonyVoiceHost;
+  return host && typeof host.postMessage === 'function' ? host : null;
+}
+
+/**
+ * Hands a voice channel to the host, which starts its native call. Returns false
+ * when there is no host, so the caller falls back to the web client's own join.
+ */
+export function askHostToJoin(channelId: string, channelName: string): boolean {
+  const host = voiceHost();
+  if (!host) return false;
+  host.postMessage(JSON.stringify({ type: 'join', channelId, channelName }));
+  return true;
+}

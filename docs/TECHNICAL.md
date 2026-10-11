@@ -288,6 +288,12 @@ page with `?voice=off`. The client then keeps the rosters it shows in the sideba
 never joins or resumes a call, so it does not hold the microphone or the seat the
 native client needs. Unset, nothing changes.
 
+The same host can inject a `HarmonyVoiceHost` object with a `postMessage`. With
+voice off and that object present, a tap on a voice channel is handed to it as
+`{ "type": "join", "channelId", "channelName" }` rather than being disabled, so a
+member can start the native call from the channel list; without the object the tap
+stays inert as before.
+
 The relay gathers against the ICE servers it was configured with and no others: by
 default none, since a host with a public address needs no STUN. Clients, which may
 be behind a NAT the relay cannot reach, are handed their own list by

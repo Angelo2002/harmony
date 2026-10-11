@@ -11,6 +11,7 @@ import { api } from './api';
 import { meta } from './meta.svelte';
 import { session } from './session.svelte';
 import { playSound } from './sounds';
+import { webVoiceDisabled } from './voice-mode';
 
 /**
  * The client's voice session. All audio is handled here in the browser: the
@@ -277,6 +278,8 @@ class VoiceStore {
    * notices this one went away and marks the membership detached.
    */
   async #resumeWith(data: VoiceRoomsResponse): Promise<void> {
+    // The host owns voice: keep the rosters (already set) but never rejoin.
+    if (webVoiceDisabled()) return;
     if (this.channelId || this.joining) return;
     const saved = readSavedChannel(session.user?.id);
     const self = data.self;
@@ -486,6 +489,9 @@ class VoiceStore {
 
   /** Joins a channel, or moves there from another one. */
   async join(channelId: string): Promise<void> {
+    // The host app runs voice itself (native), so the web client must not take
+    // the microphone. The rosters stay visible; joining does not.
+    if (webVoiceDisabled()) return;
     if (this.channelId === channelId || this.joining) return;
     this.#intended = channelId;
     this.#recoverAttempts = 0;

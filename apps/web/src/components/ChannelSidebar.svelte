@@ -13,6 +13,7 @@
   import ChannelMenu from './ChannelMenu.svelte';
   import Icon from './Icon.svelte';
   import { voice } from '../lib/voice.svelte';
+  import { webVoiceDisabled } from '../lib/voice-mode';
 
   const permissions = $derived(permissionsFromString(session.permissions || '0'));
   // The button appears for anyone who could use at least one tab, moderators
@@ -20,6 +21,8 @@
   const canAdmin = $derived(canOpenAdminPanel(permissions));
   const myPicture = $derived(avatarUrl(session.user));
   const myId = $derived(session.user?.id ?? null);
+  /** The host app runs voice natively; the sidebar keeps the rosters but cannot join. */
+  const voiceOff = webVoiceDisabled();
 
   /** Categories that demand a role; every channel inside one is locked too. */
   const lockedCategories = $derived(
@@ -160,7 +163,12 @@
         class:active={voice.channelId === channel.id}
         class:connecting={voice.joining === channel.id}
         type="button"
-        title={voice.channelId === channel.id ? `Disconnect from ${channel.name}` : `Join ${channel.name}`}
+        disabled={voiceOff}
+        title={voiceOff
+          ? 'Voice is handled by the app'
+          : voice.channelId === channel.id
+            ? `Disconnect from ${channel.name}`
+            : `Join ${channel.name}`}
         onclick={() => (voice.channelId === channel.id ? voice.leave() : voice.join(channel.id))}
         oncontextmenu={(event) => {
           event.preventDefault();

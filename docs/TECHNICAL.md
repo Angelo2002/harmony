@@ -281,6 +281,13 @@ server still lists it, or afresh when it was away long enough to be dropped. Onl
 channel this client itself joined is retried, so a second tab never takes a live
 call, and an explicit leave or a logout forgets it.
 
+A host that runs voice itself — the Android shell, whose native client captures the
+microphone — can switch the web client's voice off entirely: setting
+`window.__harmonyVoiceDisabled = true` in its document-start script, or opening the
+page with `?voice=off`. The client then keeps the rosters it shows in the sidebar but
+never joins or resumes a call, so it does not hold the microphone or the seat the
+native client needs. Unset, nothing changes.
+
 The relay gathers against the ICE servers it was configured with and no others: by
 default none, since a host with a public address needs no STUN. Clients, which may
 be behind a NAT the relay cannot reach, are handed their own list by

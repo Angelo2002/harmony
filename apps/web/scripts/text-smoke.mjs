@@ -94,6 +94,7 @@ import {
 import { firstUnreadIndex, muteLabel, newMessageCount, newMessagesLabel, pillCount } from '../src/lib/unread.ts';
 import { groupedRows, isGrouped } from '../src/lib/message-grouping.ts';
 import { detectTrigger, rankMember, suggestionsFor } from '../src/lib/composer-suggest.ts';
+import { webVoiceDisabled } from '../src/lib/voice-mode.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { draftPreview } from '../src/lib/composer-preview.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
@@ -964,6 +965,31 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
     'a bot command is offered and names its bot',
     botRows.some((row) => row.key === 'botcmd:c1' && row.commandId === 'c1' && row.detail.includes('Helper')),
   );
+}
+
+// --- Host-controlled voice ---
+{
+  const savedFlag = globalThis.__harmonyVoiceDisabled;
+  const savedLocation = globalThis.location;
+  try {
+    delete globalThis.__harmonyVoiceDisabled;
+    delete globalThis.location;
+    check('voice is on by default', webVoiceDisabled() === false);
+    globalThis.__harmonyVoiceDisabled = true;
+    check('the host global turns voice off', webVoiceDisabled() === true);
+    globalThis.__harmonyVoiceDisabled = 'off';
+    check('a string "off" also turns it off', webVoiceDisabled() === true);
+    delete globalThis.__harmonyVoiceDisabled;
+    globalThis.location = { search: '?voice=off' };
+    check('a query parameter turns voice off', webVoiceDisabled() === true);
+    globalThis.location = { search: '?voice=on' };
+    check('any other value leaves it on', webVoiceDisabled() === false);
+  } finally {
+    if (savedFlag === undefined) delete globalThis.__harmonyVoiceDisabled;
+    else globalThis.__harmonyVoiceDisabled = savedFlag;
+    if (savedLocation === undefined) delete globalThis.location;
+    else globalThis.location = savedLocation;
+  }
 }
 
 // --- Composer preview ---

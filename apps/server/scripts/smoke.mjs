@@ -654,6 +654,56 @@ try {
     );
     check('clips advertise range support', ranged.headers.get('accept-ranges') === 'bytes');
 
+    // A pending upload no message carries yet is only its uploader's (or an
+    // administrator's) to fetch: nobody else has a channel to read it through.
+    check(
+      'another member cannot fetch a pending upload (404)',
+      (await fetch(`${BASE}/attachments/${clip.id}`, {
+        headers: { authorization: `Bearer ${bobToken}` },
+      })).status === 404,
+    );
+    check(
+      'the uploader can still fetch their own pending upload',
+      (await fetch(`${BASE}/attachments/${clip.id}`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })).status === 200,
+    );
+
+    // Media on a soft-deleted message is no longer on display in its channel, so
+    // it is not served either; an administrator keeps access for moderation.
+    const doomedPng = await sharp({
+      create: { width: 7, height: 5, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .png()
+      .toBuffer();
+    const doomedForm = new FormData();
+    doomedForm.append('file', new Blob([doomedPng], { type: 'image/png' }), 'doomed.png');
+    const doomed = await (
+      await fetch(`${BASE}/attachments`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${bobToken}` },
+        body: doomedForm,
+      })
+    ).json();
+    const doomedMessage = await req(`/channels/${general.id}/messages`, {
+      method: 'POST',
+      token: bobToken,
+      body: { content: 'here for a moment', attachmentIds: [doomed.id] },
+    });
+    await req(`/messages/${doomedMessage.json.id}`, { method: 'DELETE', token: bobToken });
+    check(
+      'media on a deleted message is not served to its author (404)',
+      (await fetch(`${BASE}/attachments/${doomed.id}`, {
+        headers: { authorization: `Bearer ${bobToken}` },
+      })).status === 404,
+    );
+    check(
+      'an administrator can still fetch media on a deleted message',
+      (await fetch(`${BASE}/attachments/${doomed.id}`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })).status === 200,
+    );
+
     const fakeVideo = new FormData();
     fakeVideo.append('file', new Blob([Buffer.from('definitely not an mp4')], { type: 'video/mp4' }), 'fake.mp4');
     const fakeVideoRes = await fetch(`${BASE}/attachments`, {
@@ -3472,6 +3522,21 @@ try {
         body: { attachmentId: hiddenAttachment.id },
       })
     ).status === 404,
+  );
+  // Reading the bytes directly is reading the channel too: a member who cannot
+  // see the channel gets the same 404 as a missing id, so the route is not an
+  // existence oracle. An administrator (the uploader here) still gets them.
+  check(
+    'media in a channel a member cannot see is not served (404)',
+    (await fetch(`${BASE}/attachments/${hiddenAttachment.id}`, {
+      headers: { authorization: `Bearer ${bobToken}` },
+    })).status === 404,
+  );
+  check(
+    'an administrator can still fetch media in a locked channel',
+    (await fetch(`${BASE}/attachments/${hiddenAttachment.id}`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    })).status === 200,
   );
 
   // The same again for an age-gated section locked at the category, which is how

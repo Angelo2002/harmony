@@ -1651,6 +1651,14 @@ Serves the bytes with a long-lived immutable cache header, and answers a single 
 with `206`, which is what lets a video player seek. Uploads that are never attached to a message
 are eventually removed by [retention](#retention).
 
+An attachment belongs to the channel its message is in, so reading one is reading that channel:
+`ViewChannels` alone is not enough. The caller must also be able to see the channel
+([channel locking](#channel-locking)), and the message must not have been deleted. A pending upload
+that no message carries yet is served only to the member who uploaded it or to an administrator. A
+missing attachment, one in a channel the caller cannot see, media on a deleted message, and
+somebody else's pending upload all answer `404 attachment_not_found`, so the route is not an
+existence oracle.
+
 #### `DELETE /api/v1/attachments/:id` — `ManageServer`
 
 Deletes a stored attachment; the message stays, minus the file. Storage is content-addressed, so

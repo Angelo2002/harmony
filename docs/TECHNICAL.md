@@ -109,6 +109,13 @@ however many times they are posted. The database rows reference blobs by hash, a
 retention pruning removes any blob nothing references any more. Backing up the
 database and the `uploads/` folder together is therefore enough.
 
+Serving one is not a plain blob read: `GET /api/v1/attachments/:id` resolves the
+attachment's message and enforces the same channel visibility as reading that
+channel's history, so a member who loses the role a channel needs loses its media
+too. A pending upload no message carries yet is served only to its uploader or an
+administrator, and a deleted message's media answers `404` like a missing id, so
+the route is not an existence oracle (see `docs/API.md`).
+
 ## Theming
 
 An instance picks two colors — a background and an accent — and the client derives

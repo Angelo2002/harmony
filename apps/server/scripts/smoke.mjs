@@ -1397,8 +1397,25 @@ try {
   );
   check('public addresses are allowed', isPrivateAddress('1.1.1.1') === false && isPrivateAddress('8.8.8.8') === false);
   check(
+    'IPv6 reserved and documentation blocks outside global unicast are refused',
+    // The first hextet is below 0x2000 even though it starts with 2 or 3, so a
+    // text test of the first character would wrongly admit these.
+    isPrivateAddress('2::1') &&
+      isPrivateAddress('20::1') &&
+      isPrivateAddress('200::1') &&
+      isPrivateAddress('3::1') &&
+      isPrivateAddress('3f::1') &&
+      isPrivateAddress('3fff::1') && // RFC 9637 documentation 3fff::/20
+      isPrivateAddress('3fff:0:0:0:0:0:0:0'), // the 3fff::/20 network address itself
+  );
+  check(
     'global unicast IPv6 is allowed',
     isPrivateAddress('2606:4700:4700::1111') === false && isPrivateAddress('2001:4860:4860::8888') === false,
+  );
+  check(
+    'a global unicast address just past the documentation block is still allowed',
+    // 3fff:1000:: is above 3fff::/20, and 2000:: is the bottom of global unicast.
+    isPrivateAddress('3fff:1000::1') === false && isPrivateAddress('2000::1') === false,
   );
 
   const metadata = parseEmbedMetadata(

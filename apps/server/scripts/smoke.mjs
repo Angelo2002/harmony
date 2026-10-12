@@ -25,7 +25,7 @@ import { isKlipyAddress, klipySearchUrl, normalizeKlipySearch } from '../src/gif
 import { createServerGifService } from '../src/gifs/server-gifs.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
-import { insertGhostUser, insertUser, mergeUsers } from '../src/db/users.ts';
+import { insertBotUser, insertGhostUser, insertUser, mergeUsers } from '../src/db/users.ts';
 import { insertInvite } from '../src/db/invites.ts';
 import { insertBan } from '../src/db/bans.ts';
 import { createAuthService } from '../src/auth/service.ts';
@@ -4891,6 +4891,23 @@ try {
     ghostStore.sqlite.prepare("SELECT discord_id FROM users WHERE id = 'member-1'").get()?.discord_id === null,
   );
 
+  // Only a Discord stand-in is ever merged. Another account type that somehow
+  // carries the id (a bot, say) is refused rather than folded in, since a merge
+  // would delete that account and re-own its rows.
+  insertBotUser(ghostStore.sqlite, { id: 'bot-holder', username: 'idholder', permissions: '0' });
+  ghostStore.sqlite.prepare("UPDATE users SET discord_id = '777777' WHERE id = 'bot-holder'").run();
+  let botTakenError = null;
+  try {
+    ghostUsers.linkDiscord('member-1', '777777');
+  } catch (error) {
+    botTakenError = error;
+  }
+  check('linking an id a bot holds is refused (409)', botTakenError?.statusCode === 409, String(botTakenError));
+  check(
+    'the bot holding the id is left alone',
+    ghostStore.sqlite.prepare("SELECT discord_id FROM users WHERE id = 'bot-holder'").get()?.discord_id === '777777',
+  );
+
   // Signing in with Discord creates the account the first time. Run against the
   // same throwaway database, with the invite requirement switched by hand.
   let requireInvite = false;
@@ -4966,6 +4983,22 @@ try {
     bannedSignIn = error;
   }
   check('a banned stand-in cannot sign up (403)', bannedSignIn?.code === 'account_banned');
+
+  // An account that is not a stand-in (a bot, say) holding the id is refused too,
+  // so a Discord sign-in can never delete the bot by merging it into a new member.
+  insertBotUser(ghostStore.sqlite, { id: 'bot-signin', username: 'signinbot', permissions: '0' });
+  ghostStore.sqlite.prepare("UPDATE users SET discord_id = '700000000000000010' WHERE id = 'bot-signin'").run();
+  let botSignInError = null;
+  try {
+    discordAuth.signInWithDiscord(discordIdentity('700000000000000010', 'botclash'), null, null);
+  } catch (error) {
+    botSignInError = error;
+  }
+  check('an id a bot holds cannot sign in (409)', botSignInError?.statusCode === 409, String(botSignInError));
+  check(
+    'the bot is left in place by a refused sign-in',
+    ghostStore.sqlite.prepare("SELECT account_type FROM users WHERE id = 'bot-signin'").get()?.account_type === 'bot',
+  );
 
   // Invites gate new accounts only.
   requireInvite = true;

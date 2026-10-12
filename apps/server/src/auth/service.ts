@@ -60,7 +60,9 @@ export interface AuthService {
    * Signs in with a proven Discord identity, creating the account on first
    * visit. A new account has no password. A bridge stand-in for the same Discord
    * user is folded into it, so their history becomes theirs. Throws for a banned
-   * account and, where invites are required, for a missing or unusable code.
+   * account and, where invites are required, for a missing or unusable code. An
+   * id already held by any account other than a stand-in is refused rather than
+   * merged.
    */
   signInWithDiscord(
     identity: DiscordIdentity,
@@ -193,6 +195,13 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
         const auth = this.sessionForUser(existing.id, userAgent);
         if (!auth) throw banned;
         return { auth, created: false };
+      }
+
+      // Any other account holding the id (a bot, say) is not ours to fold into
+      // a new member, so treat the id as taken rather than merge it away. Only a
+      // Discord stand-in may be adopted.
+      if (existing && existing.account_type !== 'ghost') {
+        throw new HttpError(409, 'discord_id_taken', 'That Discord account is already linked to another account.');
       }
 
       // A stand-in's ban follows it into the account that replaces it.

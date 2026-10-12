@@ -488,9 +488,10 @@ its client secret write-only like the bot token. The flow carries a one-time
 forged callback cannot land and a leaked code cannot be exchanged without the
 verifier. Signing in finds the account that already carries the Discord id, or
 creates one on first use, adopting any stand-in for that id so its history follows;
-a stand-in row is never signed into on its own, since it has no real owner. On that
-first sign-in the picture from Discord is imported as the member's avatar, unless
-they already have one, so nobody arrives as a blank face.
+a stand-in row is never signed into on its own, since it has no real owner, and an
+id held by any other account type (a real member or a bot) is refused rather than
+merged. On that first sign-in the picture from Discord is imported as the member's
+avatar, unless they already have one, so nobody arrives as a blank face.
 
 ## Bots and account types
 

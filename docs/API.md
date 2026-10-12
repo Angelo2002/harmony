@@ -2480,8 +2480,10 @@ dropped, and the stand-in is deleted. The whole thing is one transaction, so the
 half-merged. The member now shows that Discord history as their own, under their current name and
 picture, and is a single entry in every list.
 
-An id another member already holds is refused with `409 discord_id_taken`. Clearing the link
-(`discordId: null`, or `DELETE /api/v1/users/@me/discord` for your own) stops future attribution but
+An id another member already holds is refused with `409 discord_id_taken`. Only a Discord stand-in
+(a `ghost`) is ever merged: if any other account type carries the id, the link is refused the same way
+rather than folding that account in. Clearing the link (`discordId: null`, or
+`DELETE /api/v1/users/@me/discord` for your own) stops future attribution but
 does not undo a merge: the history stays with the member. A stand-in account is never the target of
 a link, since its profile is the bridge's to manage (`400 externally_managed`).
 

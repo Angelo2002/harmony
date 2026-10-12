@@ -4,8 +4,10 @@
 // the quick switcher's matching, the channel arrows, the unread tab title and
 // how mutes change it, how a channel inherits its category's settings, where
 // the "new" line and the new-messages bar land, and reading the time
-// expressions the composer turns into timestamps, and the channel and message
-// a launch link (a notification tap or a deep link) names.
+// expressions the composer turns into timestamps, the channel and message a
+// launch link (a notification tap or a deep link) names, and the native voice
+// host bridge (its off flag, the join/leave hand-off, and the call state it
+// pushes back).
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -95,7 +97,15 @@ import {
 import { firstUnreadIndex, muteLabel, newMessageCount, newMessagesLabel, pillCount } from '../src/lib/unread.ts';
 import { groupedRows, isGrouped } from '../src/lib/message-grouping.ts';
 import { detectTrigger, rankMember, suggestionsFor } from '../src/lib/composer-suggest.ts';
-import { askHostToJoin, voiceHost, webVoiceDisabled } from '../src/lib/voice-mode.ts';
+import {
+  HOST_VOICE_EVENT,
+  askHostToJoin,
+  askHostToLeave,
+  parseHostVoiceMessage,
+  subscribeHostVoiceState,
+  voiceHost,
+  webVoiceDisabled,
+} from '../src/lib/voice-mode.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { draftPreview } from '../src/lib/composer-preview.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
@@ -1001,6 +1011,78 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
       'the hand-off carries the channel id and name',
       handoff?.type === 'join' && handoff.channelId === 'c1' && handoff.channelName === 'Lounge',
     );
+
+    // The inbound half: the shell pushes call state back so the row can read it.
+    check('a non-message is ignored', parseHostVoiceMessage(null) === null && parseHostVoiceMessage('nope') === null);
+    check('an unknown version is ignored', parseHostVoiceMessage({ version: 2, type: 'state', channelId: 'c1' }) === null);
+    check('an unknown type is ignored', parseHostVoiceMessage({ version: 1, type: 'join' }) === null);
+    check('a state without a channel id is useless', parseHostVoiceMessage({ version: 1, type: 'state' }) === null);
+
+    const parsed = parseHostVoiceMessage({
+      version: 1,
+      type: 'state',
+      channelId: 'c1',
+      channelName: 'Lounge',
+      self: { muted: true, deafened: false, sharing: false },
+      members: [
+        { id: 'u1', name: 'Nanahoshi', muted: true, sharing: false, speaking: true },
+        { id: 'u2', name: 'Eris', muted: false, sharing: true, speaking: false },
+        { id: '' },
+        null,
+      ],
+    });
+    check(
+      'a state message is read',
+      parsed?.type === 'state' && parsed.channelId === 'c1' && parsed.channelName === 'Lounge',
+    );
+    check('self flags are read', parsed?.self.muted === true && parsed?.self.deafened === false);
+    check(
+      'members mirror the roster and drop the unusable',
+      parsed?.members.length === 2 && parsed.members[0].speaking === true && parsed.members[1].sharing === true,
+    );
+    check(
+      'a missing name falls back to the id',
+      parseHostVoiceMessage({ version: 1, type: 'state', channelId: 'c1', members: [{ id: 'u3' }] })?.members[0].name ===
+        'u3',
+    );
+    check('the terminal message is read', parseHostVoiceMessage('{"version":1,"type":"left"}')?.type === 'left');
+
+    // Both delivery routes: the bridge callback, and the window event a shell
+    // may dispatch instead. Node has no window, so the event is proven against
+    // a stand-in listener target.
+    const delivered = [];
+    const unsubscribe = subscribeHostVoiceState((message) => delivered.push(message));
+    check('the client assigns the bridge callback', typeof globalThis.HarmonyVoiceHost?.onState === 'function');
+    globalThis.HarmonyVoiceHost.onState('{"version":1,"type":"left"}');
+    check('a callback message reaches the handler', delivered.length === 1 && delivered[0].type === 'left');
+    unsubscribe();
+    check('unsubscribing clears the callback', globalThis.HarmonyVoiceHost.onState === undefined);
+
+    const eventListeners = new Map();
+    const savedAdd = globalThis.addEventListener;
+    const savedRemove = globalThis.removeEventListener;
+    globalThis.addEventListener = (type, listener) => eventListeners.set(type, listener);
+    globalThis.removeEventListener = (type) => eventListeners.delete(type);
+    try {
+      const seen = [];
+      const stop = subscribeHostVoiceState((message) => seen.push(message));
+      check('the event route is registered', eventListeners.has(HOST_VOICE_EVENT));
+      eventListeners.get(HOST_VOICE_EVENT)({ detail: { version: 1, type: 'left' } });
+      check('an event message reaches the handler', seen.length === 1 && seen[0].type === 'left');
+      stop();
+      check('unsubscribing removes the event route', !eventListeners.has(HOST_VOICE_EVENT));
+    } finally {
+      if (savedAdd === undefined) delete globalThis.addEventListener;
+      else globalThis.addEventListener = savedAdd;
+      if (savedRemove === undefined) delete globalThis.removeEventListener;
+      else globalThis.removeEventListener = savedRemove;
+    }
+
+    // Leaving from the row goes through the same bridge.
+    check('a leave tap reaches the host', askHostToLeave() === true);
+    check('the leave carries the terminal type', posted.length === 2 && JSON.parse(posted[1]).type === 'leave');
+    delete globalThis.HarmonyVoiceHost;
+    check('a leave without a host falls back', askHostToLeave() === false);
   } finally {
     if (savedFlag === undefined) delete globalThis.__harmonyVoiceDisabled;
     else globalThis.__harmonyVoiceDisabled = savedFlag;

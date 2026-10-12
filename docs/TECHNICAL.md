@@ -302,6 +302,24 @@ voice off and that object present, a tap on a voice channel is handed to it as
 member can start the native call from the channel list; without the object the tap
 stays inert as before.
 
+The other direction is symmetric, and is what lets the sidebar's own voice row
+reflect a call the shell runs natively. The shell pushes call state back through
+the same object by calling `window.HarmonyVoiceHost.onState(message)` — the client
+assigns that handler when it starts — or by dispatching a `harmony:voice-state`
+`window` event whose `detail` is the same payload. A state message is
+`{ "version": 1, "type": "state", "channelId", "channelName", "self": { "muted",
+"deafened", "sharing" }, "members": [ { "id", "name", "muted", "sharing",
+"speaking" } ] }`, mirroring a `VOICE_STATE_UPDATE` roster with the shell's own
+`speaking` reading (its inbound `audioLevel`) added; `{ "version": 1, "type":
+"left" }` ends the call. The client trusts none of it: an unknown version or type,
+or a state without a channel id, is dropped, and every field is normalised. While a
+call is pushed, the sidebar marks that row as connected, shows the shell's
+speaking ring and the member's muted state, and hands a tap on the row back as
+`{ "type": "leave" }` through the same receiver the join uses. The web client
+never joins a native call itself, so there is no second voice bar to fight the
+shell's own controls; both halves live in `lib/voice-mode.ts` and the state it
+drives is `lib/host-voice.svelte.ts`.
+
 The relay gathers against the ICE servers it was configured with and no others: by
 default none, since a host with a public address needs no STUN. Clients, which may
 be behind a NAT the relay cannot reach, are handed their own list by

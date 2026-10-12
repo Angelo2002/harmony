@@ -26,6 +26,7 @@ import { roster } from './roster.svelte';
 import { commands } from './commands.svelte';
 import { nameColors } from './name-colors.svelte';
 import { voice } from './voice.svelte';
+import { hostVoice } from './host-voice.svelte';
 import { session } from './session.svelte';
 import { channelSettings } from './channel-settings.svelte';
 import { drafts } from './drafts.svelte';
@@ -251,6 +252,7 @@ class ChatStore {
     await roster.load();
     await commands.load();
     await voice.load().catch(() => {});
+    hostVoice.start();
     gateway.connect();
     // A message named by a launch link is only followable now that the channel
     // is open and its newest page is loaded. The socket is up first, so the walk
@@ -300,6 +302,7 @@ class ChatStore {
     commands.reset();
     nameColors.reset();
     voice.reset();
+    hostVoice.stop();
     // Unsent messages are keyed by member, so they never leak to the next
     // account in this tab, but a logout should not leave them sitting in
     // session storage either.

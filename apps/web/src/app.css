@@ -1400,6 +1400,29 @@ button.server-name:hover:not(:disabled) {
   }
 }
 
+/*
+ * A voice row the native shell is connected to. There is no web voice bar under
+ * it for a browser call, so the row carries the state itself: a steady dot while
+ * connected, dimmed to the muted mark's color when the shell says this member is
+ * muted or deafened, at which point the icon in place of the dot says which.
+ */
+.voice-live {
+  display: inline-flex;
+  align-items: center;
+  color: var(--h-ok);
+}
+
+.voice-live.muted {
+  color: var(--h-text-muted);
+}
+
+.voice-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--h-radius-full);
+  background: currentColor;
+}
+
 .channel.connecting {
   color: var(--h-text-muted);
 }

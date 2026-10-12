@@ -50,10 +50,26 @@ A green build is not a substitute for exercising the feature. If the change is
 visual, you cannot see the UI: say what you changed, what you verified
 mechanically, and hand the visual check to the user explicitly.
 
-## Commits and versions: do these yourself
+## Commits, branches and pull requests
 
-Unless the user tells you otherwise, you own committing and version bumping.
-Do not wait to be asked, and do not leave finished work uncommitted.
+The project is a GitHub **fork → branch → pull request** repository. The company
+fork (`origin`) is ours to write to; the canonical repository (`upstream`) is
+read-only for the company account. Every change lands through a branch and a
+pull request against `upstream/main`. The full command reference, the account
+handle and the one-time setup live in `docs/GIT_WORKFLOW.md`.
+
+### Remotes
+
+- `origin` — the company fork, `https://github.com/hrmnychat-hue/harmony`
+  (GitHub account `hrmnychat-hue`). This is the only remote we push to.
+- `upstream` — the canonical repository,
+  `https://github.com/YuukiEatsYou/harmony`. We have pull access only and never
+  push to it.
+
+### Committing and versioning
+
+Unless the user tells you otherwise, you own committing and version bumping. Do
+not wait to be asked, and do not leave finished work uncommitted.
 
 - Bump the version with every user-facing change. The single source is
   `HARMONY_VERSION` in `packages/shared/src/constants.ts` (the client, server and
@@ -63,28 +79,66 @@ Do not wait to be asked, and do not leave finished work uncommitted.
   then paragraphs explaining what changed and why, including the reasoning a
   future reader would otherwise have to reconstruct. Prefer several paragraphs
   over one dense line.
-- Committing is yours; pushing is not. The owner pushes unless they explicitly
-  ask you to. Never force-push.
 - Keep backticks out of commit messages and the shell command that carries them;
   they are a quoting hazard in a one-liner. Use plain words.
 - Commit one coherent idea at a time. Do not bundle unrelated work just because
   it is convenient.
+- Never force-push, and never commit to `main` on either remote.
 
-## Branches and merging: never work on main
+### Branches
 
 Main is what people pull to install or update, so it has to be a state someone
-has actually run. The recent PR series caused trouble by landing on it directly,
-so from now on main is treated as a release branch only.
+has actually run, and it is only ever advanced by a merge upstream.
 
-- Never commit to main directly. Start every piece of work on a new branch off
-  main, named after the version it is expected to ship as: `v<version>`, for
-  example `v1.25.0`. Do the commits and the version bump on that branch.
-- Only merge that branch into main once the owner has tested and verified the
-  work on it. You may do the merge yourself once the owner says it is good;
-  pushing stays theirs (see above). If the planned version moves while you are
-  still on the branch, the branch name does not have to follow it.
+- Start every piece of work on a branch off `upstream/main`. Fetch it first so
+  the branch is current:
+
+  ```sh
+  git fetch upstream
+  git switch -c <branch> upstream/main
+  ```
+
+- Name the branch after the version it is expected to ship as: `v<version>`, for
+  example `v1.25.0`. Do the commits and the version bump on the branch. If the
+  planned version moves while you are still on the branch, the branch name does
+  not have to follow it.
 - A change that ships no code and no user-visible behavior, such as an edit to
-  this file, is the one exception and may go straight to main.
+  this file or to `docs/`, has no version to name the branch after: use
+  `docs/<slug>` or `chore/<slug>` instead.
+
+### Pushing and opening the pull request
+
+Push the branch to the fork, then open a pull request against `upstream/main`:
+
+```sh
+git push -u origin <branch>
+```
+
+The company GitHub account cannot use the web UI to target the canonical repo,
+so open the pull request through the API (`GITHUB_TOKEN` is already in the
+agent environment):
+
+```sh
+curl -sS -X POST \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/YuukiEatsYou/harmony/pulls \
+  -d '{"title":"<title>","head":"hrmnychat-hue:<branch>","base":"main","body":"<body>"}'
+```
+
+Write the pull request body for a reviewer who will not read the diff first: a
+short summary, implementation notes, the exact verification you ran, and risks.
+The bundled `github-pr-workflow` skill has the full shape.
+
+### Review and merge
+
+- The owner (`YuukiEatsYou`) reviews and merges pull requests into upstream
+  `main`. The company account has pull-only access upstream, so agents cannot
+  merge or push upstream.
+- Do not merge your own pull request. Push review fixes as new commits on the
+  same branch and re-request review; reply to every review comment.
+- Once a pull request is merged, delete the branch (locally and on the fork) and
+  rebuild local `main` from `upstream/main` rather than pushing it.
 
 ## Keep the docs current
 
@@ -97,8 +151,9 @@ evolves, keep it true, in the same commit as the change it describes:
 - `README.md` — the pitch and quick start aimed at a non-technical owner. Keep
   it accurate when a feature changes what the product does or how it is set up.
 - `docs/` — `TECHNICAL.md` (internals and the bridge), `API.md` (the HTTP and
-  WebSocket contract) and `DEPLOYMENT.md` (running it on a server). Update the
-  relevant one when behaviour or a contract changes.
+  WebSocket contract), `DEPLOYMENT.md` (running it on a server) and
+  `GIT_WORKFLOW.md` (the fork, branch and pull-request flow). Update the relevant
+  one when behaviour or a contract changes.
 
 If a change makes an existing statement false, fixing the docs is part of
 finishing the change, not a follow-up.

@@ -137,7 +137,7 @@ export function createSfu(signals: SfuSignals, options: SfuOptions = {}): Sfu {
      * on "Connecting…" forever. Bundling every line onto one transport leaves
      * nothing to orphan. Every browser bundles, so nothing else changes.
      */
-    bundlePolicy: 'max-bundle',
+    bundlePolicy: 'max-bundle' as const,
   };
 
   function room(channelId: string): Peer[] {

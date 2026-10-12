@@ -347,9 +347,16 @@
           {:else}Voice connected{/if}
         </span>
         {#if voice.sharing}
-          <span class="voice-bar-sharing"><Icon name="screen" size={12} /> Sharing your screen</span>
+          <span class="voice-bar-sharing">
+            <Icon name="screen" size={12} />
+            <span class="voice-bar-sharing-text">Sharing your screen</span>
+          </span>
         {:else if sharer}
-          <span class="voice-bar-sharing other"><Icon name="screen" size={12} /> {sharer} is sharing</span>
+          <span class="voice-bar-sharing other">
+            <Icon name="screen" size={12} />
+            <span class="voice-bar-sharing-name">{sharer}</span>
+            <span class="voice-bar-sharing-suffix">is sharing their screen</span>
+          </span>
         {/if}
         {#if !voice.connecting && voice.connectionState !== 'failed'}
           <span class="voice-signal" title="Live audio: microphone sending, incoming audio">
@@ -388,7 +395,7 @@
         type="button"
         class="voice-bar-button"
         class:sharing={voice.sharing}
-        disabled={!voice.sharing && sharer !== null}
+        aria-disabled={!voice.sharing && sharer !== null}
         title={voice.sharing
           ? 'Stop sharing'
           : sharer
@@ -397,7 +404,7 @@
         aria-label={voice.sharing
           ? 'Stop sharing your screen'
           : sharer
-            ? `${sharer} is already sharing their screen in this channel`
+            ? `${sharer} is already sharing their screen in this channel. Sharing is unavailable until they stop.`
             : 'Share your screen'}
         onclick={() => (voice.sharing ? voice.stopScreen() : voice.shareScreen())}
       >

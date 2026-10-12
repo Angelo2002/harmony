@@ -994,18 +994,40 @@ button.server-name:hover:not(:disabled) {
   font-size: 0.74rem;
 }
 
-/* Shown while this member shares, so it is more than a button's color. */
+/* Shown while this member shares, so it is more than a button's color. A single
+   line like .voice-bar-title: the sidebar is narrow and this column shares it
+   with four controls, so the note truncates rather than wrapping the bar taller. */
 .voice-bar-sharing {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+  min-width: 0;
   color: var(--h-ok);
   font-size: 0.72rem;
   font-weight: 600;
 }
 
-/* Shown while another member holds the room's one screen, so the disabled share
-   button has a visible reason rather than a tooltip that a touch screen hides. */
+/* The glyph keeps its size while the label shrinks. */
+.voice-bar-sharing svg {
+  flex: none;
+}
+
+.voice-bar-sharing-text,
+.voice-bar-sharing-name {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The trailing words stay whole; only the name is allowed to truncate. */
+.voice-bar-sharing-suffix {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Shown while another member holds the room's one screen, so the unavailable
+   share button has a visible reason rather than a tooltip that a touch screen hides. */
 .voice-bar-sharing.other {
   color: var(--h-text-muted);
 }
@@ -1054,6 +1076,24 @@ button.server-name:hover:not(:disabled) {
 .voice-bar-button:hover:not(:disabled) {
   color: var(--h-text);
   background: var(--h-hover);
+}
+
+/* The unavailable share control. It uses aria-disabled rather than the disabled
+   attribute so it stays in the tab order and a keyboard or screen-reader user can
+   reach it and hear why it is unavailable; a click runs the share guard, which
+   puts the reason in .voice-bar-error. It reads and behaves as disabled: dimmed,
+   not-allowed, and with the shared hover and press effects pinned off. */
+.voice-bar-button[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.voice-bar-button[aria-disabled='true']:hover,
+.voice-bar-button[aria-disabled='true']:active {
+  color: var(--h-text-muted);
+  background: none;
+  box-shadow: none;
+  transform: none;
 }
 
 .voice-bar-button.on {

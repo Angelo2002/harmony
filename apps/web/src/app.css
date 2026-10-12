@@ -1000,16 +1000,18 @@ button.server-name:hover:not(:disabled) {
 .voice-bar-sharing {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
   min-width: 0;
+  overflow: hidden;
   color: var(--h-ok);
   font-size: 0.72rem;
   font-weight: 600;
 }
 
-/* The glyph keeps its size while the label shrinks. */
+/* The glyph keeps its size and carries the only spacing on the row, so the name
+   and the trailing words can sit flush and a possessive stays attached. */
 .voice-bar-sharing svg {
   flex: none;
+  margin-right: 0.3rem;
 }
 
 .voice-bar-sharing-text,
@@ -1020,7 +1022,8 @@ button.server-name:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-/* The trailing words stay whole; only the name is allowed to truncate. */
+/* The trailing words stay whole; only the name gives way, so the words sharing
+   and screen survive even in the 250px sidebar. */
 .voice-bar-sharing-suffix {
   flex: none;
   white-space: nowrap;

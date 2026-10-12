@@ -352,10 +352,17 @@
             <span class="voice-bar-sharing-text">Sharing your screen</span>
           </span>
         {:else if sharer}
+          <!--
+            The column is about 79px wide at the 250px sidebar, too narrow for a
+            full sentence; a longer note such as "is sharing their screen" pushes
+            the trailing words past the column and under the buttons. The short
+            possessive keeps the word screen visible with the name truncating
+            first. The complete sentence lives on the share button's aria-label
+            and in the error the share guard raises, both of which are reachable.
+          -->
           <span class="voice-bar-sharing other">
             <Icon name="screen" size={12} />
-            <span class="voice-bar-sharing-name">{sharer}</span>
-            <span class="voice-bar-sharing-suffix">is sharing their screen</span>
+            <span class="voice-bar-sharing-name">{sharer}</span><span class="voice-bar-sharing-suffix">’s screen</span>
           </span>
         {/if}
         {#if !voice.connecting && voice.connectionState !== 'failed'}

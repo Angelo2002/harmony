@@ -84,6 +84,18 @@ export function voiceHost(): VoiceHost | null {
 }
 
 /**
+ * The most members one host call may report. A real channel holds far fewer, so
+ * the cap only ever bites on a buggy or hostile shell.
+ */
+export const HOST_VOICE_MAX_MEMBERS = 100;
+/** The longest an id may be; a longer one cannot name a real channel or member. */
+export const HOST_VOICE_MAX_ID = 64;
+/** The longest a member display name may be; the rest is dropped. */
+export const HOST_VOICE_MAX_NAME = 128;
+/** The longest a channel name may be; the rest is dropped. */
+export const HOST_VOICE_MAX_CHANNEL_NAME = 128;
+
+/**
  * Reads one host message, or null when it is not a v1 host message.
  *
  * The shell is a separate program on the other side of a bridge, so nothing
@@ -92,6 +104,13 @@ export function voiceHost(): VoiceHost | null {
  * renderer never reads a value that was not there. A JSON string is accepted as
  * well as an object, since a shell that calls in through `evaluateJavascript`
  * may hand over the encoded form.
+ *
+ * Sizes are bounded here at the one choke point, because this is the only place
+ * shell input becomes roster rows: the member list is capped before it is
+ * walked, an over-long id (which cannot be real) drops its entry, a display or
+ * channel name is truncated to its bound, and a repeated id is collapsed so the
+ * sidebar's keyed each renders one row per member. Without these a shell could
+ * hand over an unbounded roster and stall or exhaust the renderer.
  */
 export function parseHostVoiceMessage(raw: unknown): HostVoiceMessage | null {
   let value: unknown = raw;
@@ -107,34 +126,49 @@ export function parseHostVoiceMessage(raw: unknown): HostVoiceMessage | null {
   if (message.version !== 1) return null;
   if (message.type === 'left') return { version: 1, type: 'left' };
   if (message.type !== 'state') return null;
-  if (typeof message.channelId !== 'string' || message.channelId.length === 0) return null;
+  if (
+    typeof message.channelId !== 'string' ||
+    message.channelId.length === 0 ||
+    message.channelId.length > HOST_VOICE_MAX_ID
+  ) {
+    return null;
+  }
 
   const self = (message.self ?? null) as Record<string, unknown> | null;
-  const members = Array.isArray(message.members) ? message.members : [];
+  const members: HostVoiceMember[] = [];
+  const seen = new Set<string>();
+  if (Array.isArray(message.members)) {
+    // Slice before the walk, so a roster of any size costs at most the cap.
+    for (const entry of message.members.slice(0, HOST_VOICE_MAX_MEMBERS)) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const member = entry as Record<string, unknown>;
+      if (typeof member.id !== 'string' || member.id.length === 0 || member.id.length > HOST_VOICE_MAX_ID) continue;
+      // The sidebar keys its rows by id, so a repeat would be a duplicate key.
+      if (seen.has(member.id)) continue;
+      seen.add(member.id);
+      members.push({
+        id: member.id,
+        name:
+          typeof member.name === 'string' && member.name.length > 0 ? member.name.slice(0, HOST_VOICE_MAX_NAME) : member.id,
+        muted: member.muted === true,
+        sharing: member.sharing === true,
+        speaking: member.speaking === true,
+      });
+    }
+  }
+
   return {
     version: 1,
     type: 'state',
     channelId: message.channelId,
-    channelName: typeof message.channelName === 'string' ? message.channelName : null,
+    channelName:
+      typeof message.channelName === 'string' ? message.channelName.slice(0, HOST_VOICE_MAX_CHANNEL_NAME) : null,
     self: {
       muted: self?.muted === true,
       deafened: self?.deafened === true,
       sharing: self?.sharing === true,
     },
-    members: members.flatMap((entry) => {
-      if (typeof entry !== 'object' || entry === null) return [];
-      const member = entry as Record<string, unknown>;
-      if (typeof member.id !== 'string' || member.id.length === 0) return [];
-      return [
-        {
-          id: member.id,
-          name: typeof member.name === 'string' && member.name.length > 0 ? member.name : member.id,
-          muted: member.muted === true,
-          sharing: member.sharing === true,
-          speaking: member.speaking === true,
-        },
-      ];
-    }),
+    members,
   };
 }
 

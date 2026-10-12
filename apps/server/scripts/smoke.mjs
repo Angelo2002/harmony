@@ -7,6 +7,7 @@
 //
 // Run with: npm run smoke --workspace @harmony/server
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -1129,6 +1130,93 @@ try {
     body: { endpoint: '', platform: 'android' },
   });
   check('an empty push endpoint is rejected (400)', pushBad.status === 400, `status ${pushBad.status}`);
+
+  // --- Push delivery ---
+  // A tiny receiver stands in for the distributor the install registered with: the
+  // server posts the payload to it exactly as it would post to an ntfy URL.
+  const pushHits = [];
+  let pushGoneHits = 0;
+  const pushReceiver = createServer((request, response) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => {
+      if (request.url === '/gone') {
+        pushGoneHits += 1;
+        response.statusCode = 404;
+        response.end('gone');
+        return;
+      }
+      let payload = null;
+      try {
+        payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      } catch {
+        payload = null;
+      }
+      pushHits.push(payload);
+      response.statusCode = 200;
+      response.end('ok');
+    });
+  });
+  await new Promise((ready, failed) => {
+    pushReceiver.once('error', failed);
+    pushReceiver.listen(0, '127.0.0.1', ready);
+  });
+  const pushReceiverOrigin = `http://127.0.0.1:${pushReceiver.address().port}`;
+  const waitFor = async (condition, label) => {
+    for (let attempt = 0; attempt < 100 && !condition(); attempt += 1) await sleep(100);
+    if (!condition()) throw new Error(`timed out waiting for ${label}`);
+  };
+
+  await req('/users/@me/push-devices', {
+    method: 'PUT',
+    token: bobToken,
+    body: { endpoint: `${pushReceiverOrigin}/ok`, platform: 'android' },
+  });
+  const pushedMention = await req(`/channels/${general.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: '@bob you were named' },
+  });
+  await waitFor(() => pushHits.length > 0, 'the mention push');
+  const pushed = pushHits.at(-1);
+  check(
+    'a mention pushes to the mentioned member',
+    pushed?.kind === 'mention' && pushed?.messageId === pushedMention.json?.id && pushed?.channelId === general.id,
+    `payload ${JSON.stringify(pushed)}`,
+  );
+  check(
+    'the payload names the instance and the channel',
+    typeof pushed?.instanceId === 'string' && pushed.instanceId.length > 0 && pushed?.channelName === general.name,
+    `payload ${JSON.stringify(pushed)}`,
+  );
+
+  // A distributor that no longer knows the endpoint answers gone; the device is
+  // pruned rather than retried on every future mention.
+  await req('/users/@me/push-devices', {
+    method: 'PUT',
+    token: bobToken,
+    body: { endpoint: `${pushReceiverOrigin}/gone`, platform: 'android' },
+  });
+  await req(`/channels/${general.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: '@bob and again' },
+  });
+  await waitFor(() => pushGoneHits > 0, 'the gone endpoint attempt');
+  const pushDbGone = new DatabaseSync(join(dataDir, 'harmony.db'));
+  let goneRows = [];
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    goneRows = pushDbGone
+      .prepare('SELECT endpoint FROM push_devices WHERE user_id = ? AND endpoint = ?')
+      .all(bob.json.user.id, `${pushReceiverOrigin}/gone`);
+    if (goneRows.length === 0) break;
+    await sleep(100);
+  }
+  pushDbGone.close();
+  check('a stale endpoint is pruned', goneRows.length === 0, `rows ${goneRows.length}`);
+
+  await req('/users/@me/push-devices', { method: 'DELETE', token: bobToken, body: { endpoint: `${pushReceiverOrigin}/ok` } });
+  await new Promise((ready) => pushReceiver.close(ready));
 
   // --- Link previews ---
   check('embeddable urls are found', listEmbeddableUrls('see https://example.com/a').includes('https://example.com/a'));

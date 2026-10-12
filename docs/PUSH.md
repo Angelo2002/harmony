@@ -1,12 +1,13 @@
 # Push notifications (design)
 
-> **Status: step 1 shipped — registry and identity.** The stable `instanceId` in
-> `GET /api/v1/meta` and the per-account device registry
-> (`PUT` / `DELETE /api/v1/users/@me/push-devices`) exist and are covered by the
-> smoke test; nothing is delivered to a device yet. The rest of this document —
-> the fan-out, the providers, the admin settings — is still a design for what we
-> intend to build and the contract custom clients can plan against. Treat endpoint
-> and type names there as proposals. See [What ships today](#what-ships-today).
+> **Status: step 2 shipped — registry, identity and delivery.** The stable
+> `instanceId` in `GET /api/v1/meta`, the per-account device registry
+> (`PUT` / `DELETE /api/v1/users/@me/push-devices`) and the send are implemented
+> and covered by the smoke test. A mention or a reply to a member who is not
+> currently connected is `POST`ed, as the `PushPayload` JSON, to every endpoint
+> that member registered; an endpoint the provider answers `404`/`410` for is
+> pruned. What is still unbuilt is the rest of the provider list (Web Push, FCM,
+> APNs) and the admin settings; see [What ships today](#what-ships-today).
 
 This covers **system push**: an OS-level notification raised while the app is not
 running (or is suspended). It is separate from the in-app notification *sounds*,
@@ -26,10 +27,18 @@ proposal it was built from.
   removes one; both are authenticated and idempotent, and the endpoint is stored,
   never logged. See [API.md](API.md#push-devices).
 - **Payload.** `PushPayload` in `packages/shared/src/push.ts` fixes the field names
-  the client router reads. Nothing sends it yet.
+  the client router reads.
+- **Delivery.** When a message is created live, `apps/server/src/push/dispatch.ts`
+  takes the `mentions` rows for it, drops anyone already connected to the gateway or
+  muted in the channel, and `apps/server/src/push/sender.ts` `POST`s the payload
+  JSON to each of that member's registered endpoints. It is the plain HTTP contract
+  UnifiedPush/ntfy already speak, so no provider account is needed. An endpoint the
+  provider answers `404`/`410` for is pruned. `GET /api/v1/meta` advertises the
+  capability as `push: { supported: true, providers: ["unifiedpush"] }`.
 
-The provider adapters, the decision logic and the admin settings below are still
-unbuilt. An instance with push unconfigured behaves exactly as before.
+Still unbuilt: the Web Push, FCM and APNs adapters, the per-instance on/off and
+snippet-privacy settings, and retry bookkeeping (`last_error_at`). An instance with
+no registered devices sends nothing.
 
 ## Why this is needed
 
@@ -129,12 +138,18 @@ interface InstanceMeta {
 An absent `push` block means "not configured" — the client simply does not offer
 notifications for that server.
 
+**Shipped.** `GET /api/v1/meta` returns `push: { supported: true, providers: ["unifiedpush"] }`.
+`supported` is true whenever the instance can deliver to a registered endpoint,
+which today is always; the field is there so a build that turns delivery off can
+say so without an older client offering a notification that never arrives.
+
 ### 3. Device registry
 
 > **Shipped.** The table and the two endpoints below exist today, in the shape the
 > mobile shell registers with. The columns the design proposed for later stages
 > (`provider`, `keys`, `label`, error bookkeeping) are not there yet; only what the
-> shipped contract needs is.
+> shipped contract needs is, and delivery prunes an endpoint the provider reports
+> gone rather than recording an error against it.
 
 One row per app install per member. Repeated registration of the same endpoint
 updates the row rather than duplicating it.
@@ -166,8 +181,10 @@ delivery lands; they are not built.
 
 ### 4. When to notify
 
-Mirror the client's `#notify` (`apps/web/src/lib/chat.svelte.ts`) exactly, so the
-sound and the push can never disagree:
+> **Shipped** in `apps/server/src/push/dispatch.ts`.
+
+Mirror the client's `#notify` (`apps/web/src/lib/chat.svelte.ts`), so the sound and
+the push cannot disagree:
 
 1. Never for the author's own message; never for a bot/stand-in (already excluded
    from the mention rows).
@@ -175,10 +192,11 @@ sound and the push can never disagree:
    category's, else defaults.
 3. If `muted` or `level === 'nothing'` → **no push** (this suppresses mentions too,
    matching the sound).
-4. If `level === 'mentions'` → push only for `kind` `mention` or `reply`.
-5. If `level === 'default'` → v1 pushes only for `mention` or `reply`, which is the
-   same set the inbox holds. (Pushing every message in every unmuted channel is a
-   possible later option, not a v1 behavior.)
+4. A resolved `mentions` level pushes only for `kind` `mention` or `reply`.
+5. A resolved `all` (the server default) does the same in v1: every recipient is
+   already a name mention or a reply, so `all` and `mentions` come to the same set
+   here. (Pushing every message in every unmuted channel is a possible later
+   option, not a v1 behavior.)
 6. Skip if the member currently has a live gateway connection — the hub already
    knows this, and it means a desktop app that is running is not also pushed.
 7. Fire on **creation only**, never on edit. An edit re-records name mentions; a
@@ -189,6 +207,12 @@ member's devices. (Sending to every device is fine at these counts; a future
 option is to send to the most recently seen device only.)
 
 ### 5. Where the fan-out runs
+
+> **Shipped.** The live-only seam is `MessageService.onMessageReceived`, fired from
+> `announce()` (a local post) and the non-`silent` branches of `createBridged` /
+> `createPollBridged` (a live Discord message). A history import is `silent` and
+> stays silent; an edit does not fire it. `index.ts` defers the fan-out past the
+> request so a slow provider never delays the post.
 
 The recipients are the `mentions` rows for the message. The trigger must be a
 "live message created" signal — not an edit, and **not** a history backfill.
@@ -230,12 +254,18 @@ interface PushPayload {
 
 - Never include tokens, session data, or a full message body.
 - The `snippet` is a privacy choice: a self-hosted instance may prefer to send ids
-  only and let the client fetch the text on open. Make it an admin setting, default
-  to a short snippet (about 80 characters) or to ids only — decide before shipping.
+  only and let the client fetch the text on open. The shipped default is a short
+  snippet (the first 80 characters, whitespace flattened), so a tray can show what
+  the notification is about; an admin setting to send ids only is still unbuilt.
 - The client deep-links from `instanceId` → `channelId` → `messageId` and fetches
   the rest over the normal API.
 
 ### 7. Providers
+
+> **Shipped: UnifiedPush / ntfy.** `apps/server/src/push/sender.ts` `POST`s the
+> payload JSON to the registered endpoint over HTTP, which is all UnifiedPush/ntfy
+> need. The `PushSender` interface below is the design it was built to; the other
+> adapters are unbuilt.
 
 Behind one interface, so the contract never mentions a specific service:
 
@@ -260,8 +290,8 @@ Adapters, in the order they are worth building:
 
 1. **UnifiedPush / ntfy** — the reference adapter, and the best fit for this
    project. The device `endpoint` is an HTTP URL a local distributor (the ntfy app)
-   hands the client; the server `POST`s the payload to it with the capability in
-   `keys`. No Apple or Google account, works sideloaded, self-hostable.
+   hands the client; the server `POST`s the payload to it. **Shipped.** No Apple or
+   Google account, works sideloaded, self-hostable.
 2. **Web Push (VAPID)** — for browser/PWA and Electron. Needs a server VAPID
    keypair (admin setting; the public half is in `meta.push.vapidPublicKey`) and the
    client's `keys.p256dh` / `keys.auth`. No third-party account either.
@@ -270,17 +300,22 @@ Adapters, in the order they are worth building:
 4. **APNs** — iOS. Needs a paid Apple Developer account for the push entitlement;
    a free-signed sideload cannot use it.
 
-An instance enables exactly one provider at a time (admin setting), or none. Push
-is **off by default** and configured per instance.
+In the shipped build there is nothing to configure: an instance delivers to any
+registered endpoint over HTTP, and sends nothing until a member registers one. The
+per-instance on/off and the "one provider at a time" choice are part of the admin
+settings that are still unbuilt.
 
 ### 8. Housekeeping
 
-- **Prune on provider feedback.** A `410 Gone` / `404` (or FCM's
-  `UNREGISTERED`) means the token is dead: delete the row (`gone: true`).
-- **Backoff.** A transient failure sets `last_error_at`/`last_error` and is retried
-  later, not in a tight loop.
-- **Cascade.** Deleting a member removes their devices (`ON DELETE CASCADE`).
+- **Prune on provider feedback.** A `410 Gone` / `404` means the endpoint is dead:
+  the row is deleted, so it is not retried on every future mention. **Shipped.**
+- **Backoff.** A transient failure is logged and dropped; `last_error_at`/`last_error`
+  and a later retry are not built yet, because a push is best-effort and the next
+  mention is its own retry.
+- **Cascade.** Deleting a member removes their devices (`ON DELETE CASCADE`). **Shipped.**
 - **Cap and rate limit** registration and sends, and coalesce per message as above.
+  Registration is rate limited and one message coalesces to one notification per
+  member; a send cap is not built.
 
 ## Client contract
 
@@ -329,47 +364,54 @@ The whole feature is additive:
   simply omits `push`.
 - The gateway protocol is unchanged.
 
-An instance with push unconfigured behaves exactly as today.
+An instance with no registered device sends nothing, exactly as today.
 
 ## Rollout
 
 1. **Registry and identity — shipped.** Migrations 41–42, `instanceId` in `meta`,
    and the `/users/@me/push-devices` endpoints. No sending yet; covered by the
-   smoke test. `meta.push` was left out on purpose: with no provider configured it
-   would always report unsupported, which an absent block already means, so it
-   belongs with the first adapter.
-2. **UnifiedPush/ntfy sender + fan-out.** The decision logic, the live-only seam,
-   and a fake sender in the smoke tests.
+   smoke test. `meta.push` was left for this step, when there is something to
+   advertise.
+2. **UnifiedPush/ntfy sender + fan-out — shipped.** The decision logic, the
+   live-only seam in `MessageService`, the HTTP sender, `meta.push`, and smoke
+   coverage that posts a real mention to a local receiver and prunes a gone one.
 3. **Web Push (VAPID)** and the admin settings UI.
 4. **FCM / APNs** adapters for those who want them.
-5. **Client integration**, mobile first.
+5. **Client integration**, mobile first. **Shipped on the mobile side** (YUC-9).
 
 ## Open questions
 
 - Default for `level === 'default'`: mentions/replies only, or (later) every
-  message in an unmuted channel?
-- Snippet in the payload vs ids only — which should the default be?
+  message in an unmuted channel? Shipped as mentions/replies only.
+- Snippet in the payload vs ids only — which should the default be? Shipped as a
+  short snippet; the ids-only setting is still open.
 - One push per device, or the most recently seen device only?
 - Where the member's push master switch lives: implied by having a registered
   device, or its own field alongside `notifyMajor` / `notifyMinor`?
 - Do we need to cap pushes per member per minute for a busy channel?
+- An endpoint is a member-supplied URL the server will `POST` to, so a hostile
+  registration can aim the server at an internal address. Do we block private
+  targets (breaking a self-hosted LAN distributor), or accept it as a member of a
+  single-community instance probing its own host?
 
 ## File map
 
-- `apps/server/src/routes/meta.ts` — **shipped:** `instanceId`.
-- `apps/server/src/settings/service.ts` — **shipped:** instance id (`push` provider
-  settings come with the first adapter).
+- `apps/server/src/routes/meta.ts` — **shipped:** `instanceId` and `push`.
+- `apps/server/src/settings/service.ts` — **shipped:** the instance id.
 - `apps/server/src/db/migrations.ts` — **shipped:** the `instance_identity` and
-  `push_devices` migrations.
+  `push_devices` migrations. Delivery needs no schema change.
 - `apps/server/src/db/push_devices.ts` — **shipped:** the registry queries.
+- `apps/server/src/db/mentions.ts` — **shipped:** `listMentionsForMessage`, the
+  recipients.
 - `apps/server/src/routes/push-devices.ts` — **shipped:** the endpoints.
-- `apps/server/src/push/service.ts` — **shipped:** the registry service (the
-  decision and fan-out are still to come).
-- `apps/server/src/push/providers/*` — new, one adapter each (UnifiedPush first).
-- `apps/server/src/messages/service.ts` — the live-only notify seam.
-- `apps/server/src/realtime/hub.ts` — "is this member connected" for skipping.
-- `packages/shared/src/push.ts` — **shipped:** the payload type; `api.ts` and
-  `schemas.ts` — **shipped:** the meta field and the request schemas.
-- `docs/API.md` — **shipped:** the endpoints and the `meta` field.
-- `apps/server/scripts/smoke.mjs` — **shipped:** the registry checks (the decision
-  and a fake sender are still to come).
+- `apps/server/src/push/service.ts` — **shipped:** the registry service.
+- `apps/server/src/push/dispatch.ts` — **shipped:** who to notify and the fan-out.
+- `apps/server/src/push/sender.ts` — **shipped:** the provider-agnostic HTTP sender.
+- `apps/server/src/messages/service.ts` — **shipped:** the `onMessageReceived` seam.
+- `apps/server/src/realtime/hub.ts` — **shipped:** "is this member connected" for
+  skipping.
+- `packages/shared/src/push.ts` — **shipped:** the payload type and `InstancePushMeta`;
+  `api.ts` and `schemas.ts` — **shipped:** the meta field and the request schemas.
+- `docs/API.md` — **shipped:** the endpoints, the `meta` field and the send rule.
+- `apps/server/scripts/smoke.mjs` — **shipped:** the registry checks and a live
+  mention delivered to a local receiver, plus the gone-endpoint prune.

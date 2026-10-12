@@ -33,3 +33,20 @@ export interface PushPayload {
   /** Short preview, or `null`. */
   snippet: string | null;
 }
+
+/** A push channel an instance can deliver to. UnifiedPush is the one we wire first. */
+export type PushProvider = 'unifiedpush' | 'webpush' | 'fcm' | 'apns';
+
+/**
+ * The push block of `GET /api/v1/meta`. Absent means the instance cannot deliver
+ * a push, so a client simply does not offer notifications for it. All fields are
+ * additive: an old client ignores the block, and an old server omits it.
+ */
+export interface InstancePushMeta {
+  /** Whether this instance delivers to a registered endpoint at all. */
+  supported: boolean;
+  /** The adapters the instance can deliver to, best first. */
+  providers: PushProvider[];
+  /** Present only when `webpush` is offered. */
+  vapidPublicKey?: string;
+}

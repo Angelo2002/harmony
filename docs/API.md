@@ -518,6 +518,7 @@ Public instance information a client needs before signing in.
   "klipyConfigured": false,
   "gifStorage": "store",
   "discordAuthEnabled": false,
+  "push": { "supported": true, "providers": ["unifiedpush"] },
   "limits": {
     "messageLength": 4000,
     "attachmentsPerMessage": 10,
@@ -533,6 +534,11 @@ Public instance information a client needs before signing in.
 it on, and the instance has a public base URL — so it is the switch a client uses to decide whether
 to offer a "Sign in with Discord" button. It is off on a fresh instance. See
 [Discord sign-in](#discord-sign-in).
+
+`push` advertises whether, and how, this instance delivers to a registered device. It is absent when
+the instance cannot deliver, so an old client and an old server keep working. Today this instance
+always sends to a registered endpoint over HTTP, and `unifiedpush` is the adapter the mobile shell
+speaks.
 
 `instanceId` is a stable id for this instance, minted once at first migration and kept for its life.
 A client stores it and prefers it over the origin when routing a push notification or a `harmony://`
@@ -2151,12 +2157,17 @@ The endpoints a member's installs can be reached at. The endpoint is per install
 a client registers it with every instance the member has added and removes it on sign-out or when the
 provider rotates it.
 
-Harmony currently **records** these endpoints but does not deliver to them: no provider is wired yet.
-The routes exist so the mobile shell's registration seam has somewhere to point before push ships.
-When it does, the notification delivered to an endpoint is the `PushPayload` shape in
-[`packages/shared/src/push.ts`](../packages/shared/src/push.ts): `instanceId`, `instanceName`,
-`iconUrl`, `channelId`, `channelName`, `messageId`, `kind` (`mention` or `reply`), `authorName` and
-`snippet`. The launcher repository's `docs/PUSH.md` is the same contract from the client side.
+Harmony **delivers** to these endpoints now, provider-agnostically: when a member is mentioned or
+replied to in a channel, the notification is sent as the JSON body of an HTTP `POST` to each endpoint
+the member registered, which is the whole UnifiedPush/ntfy contract. It is not sent to a member who is
+already connected to this instance, or who has muted the channel or set it to notify nothing. The
+notification is the `PushPayload` shape in [`packages/shared/src/push.ts`](../packages/shared/src/push.ts):
+`instanceId`, `instanceName`, `iconUrl`, `channelId`, `channelName`, `messageId`, `kind` (`mention` or
+`reply`), `authorName` and `snippet`. It is self-contained, so a client routes it without calling back.
+A send that the provider answers with `404` or `410` means the endpoint is gone, and the registration
+is pruned rather than retried. `iconUrl` is set only when the instance has a public base URL, since
+that is the only origin the server knows for itself. The launcher repository's `docs/PUSH.md` is the
+same contract from the client side.
 
 #### `PUT /api/v1/users/@me/push-devices` — auth
 

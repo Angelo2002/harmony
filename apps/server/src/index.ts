@@ -33,6 +33,8 @@ import { createEmojiImportService } from './emojis/import.ts';
 import { createStickerService } from './stickers/service.ts';
 import { createUserService } from './users/service.ts';
 import { createPushService } from './push/service.ts';
+import { createHttpPushSender } from './push/sender.ts';
+import { createPushDispatcher } from './push/dispatch.ts';
 import { createMessageService } from './messages/service.ts';
 import { createPinService } from './pins/service.ts';
 import { createSavedMessageService } from './saved/service.ts';
@@ -234,6 +236,22 @@ const embedService = createEmbedService({
 });
 messageService.onMessageCreated((message) => embedService.resolve(message.id, message.content));
 messageService.onMessageEdited((message) => embedService.resolve(message.id, message.content));
+
+// Reaches a member away from the app: every mention or reply is fanned out to
+// the devices that member registered. It runs after the message is stored and
+// broadcast, deferred so a slow provider never delays the post, and a device
+// whose endpoint answers gone is pruned rather than retried forever.
+const pushDispatcher = createPushDispatcher({
+  sqlite: db.sqlite,
+  hub,
+  settings: settingsService,
+  sender: createHttpPushSender(),
+  // The endpoint is a capability, so failures are logged by member and reason.
+  log: (message, detail) => app.log.debug(detail ?? {}, message),
+});
+messageService.onMessageReceived((message) => {
+  setImmediate(() => pushDispatcher.notify(message));
+});
 
 const bridgeLogger = {
   info: (message: string, detail?: unknown) => app.log.info(detail ?? {}, message),

@@ -42,10 +42,11 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     // is verified, which is the expensive step.
     loginAddressLimiter.check(request.ip);
     const input = parseBody(loginSchema, request.body);
-    // The key is the submitted name exactly as findUserByUsername looks it up,
-    // so a differently-cased or padded variant is the different (and unknown)
-    // account it is, not a way around the budget.
-    loginAccountLimiter.check(input.username);
+    // The account budget must fold case exactly as the NOCASE column does, or a
+    // case variant is a fresh budget for the same account: findUserByUsername
+    // matches case-insensitively, so every spelling still verifies that one
+    // account's password.
+    loginAccountLimiter.check(input.username.toLowerCase());
     const result = await deps.service.login(input, request.headers['user-agent'] ?? null);
     setSessionCookie(reply, deps.config, result.token);
     return result;

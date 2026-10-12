@@ -58,6 +58,15 @@ function attempt(app, username, forwardedFor) {
   });
 }
 
+/** Every upper/lower-case spelling of a lowercase word's ASCII letters. */
+function caseVariants(word) {
+  return [...word].reduce((acc, ch) => {
+    const lower = ch.toLowerCase();
+    const upper = ch.toUpperCase();
+    return acc.flatMap((prefix) => (lower === upper ? [prefix + lower] : [prefix + lower, prefix + upper]));
+  }, ['']);
+}
+
 // 1. A rotating address must not reset one account's budget. Each of the first
 //    ten attempts arrives from a different address, so the address budget alone
 //    cannot stop the eleventh; only the account budget can.
@@ -102,6 +111,35 @@ function attempt(app, username, forwardedFor) {
   }
   check('the first ten accounts from one address are 401', statuses.slice(0, 10).every((s) => s === 401), statuses.join(','));
   check('the eleventh account from one address is 429', statuses[10] === 429, statuses.join(','));
+  await app.close();
+}
+
+// 4. Case must not fork one account's budget. findUserByUsername matches
+//    case-insensitively (the username column is COLLATE NOCASE), so any
+//    spelling of a name resolves to the same account and verifies the same
+//    password. The account budget has to fold case the same way, or an attacker
+//    who can rotate the source address gets a fresh budget per spelling.
+{
+  const app = await makeApp();
+  const variants = caseVariants('victim');
+  check(
+    'the case-variant list holds distinct spellings',
+    variants.length > 1 && new Set(variants).size === variants.length,
+    `${variants.length} variants`,
+  );
+
+  const statuses = [];
+  for (let i = 0; i < variants.length * 10; i += 1) {
+    // A distinct address per attempt, so only the account budget can 429.
+    const address = `198.18.${Math.floor(i / 250) % 250}.${(i % 250) + 1}`;
+    statuses.push((await attempt(app, variants[i % variants.length], address)).statusCode);
+  }
+  const allowed = statuses.filter((status) => status !== 429).length;
+  check(
+    "every spelling of one account shares a single budget (<= 10 non-429)",
+    allowed <= 10,
+    `${allowed} non-429 of ${statuses.length}`,
+  );
   await app.close();
 }
 

@@ -20,6 +20,7 @@ import WebSocket from 'ws';
 import sharp from 'sharp';
 import { Permission, HARMONY_VERSION, listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
+import { guardedFetch, resolvePublicHost } from '../src/embeds/guard.ts';
 import { isDiscordAttachment, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
 import { isKlipyAddress, klipySearchUrl, normalizeKlipySearch } from '../src/gifs/klipy.ts';
 import { createServerGifService } from '../src/gifs/server-gifs.ts';
@@ -1469,6 +1470,42 @@ try {
       isPrivateAddress('fd00::1'),
   );
   check('public addresses are allowed', isPrivateAddress('1.1.1.1') === false && isPrivateAddress('8.8.8.8') === false);
+
+  // --- SSRF DNS-rebinding guard ---
+  // The guard resolves a host once and the fetch is pinned to the address that
+  // was checked, so a name cannot answer with a public address for the check
+  // and a private one for the connection. Every outbound preview, gif and push
+  // request goes through the guarded fetch.
+  const publicLiteral = await resolvePublicHost('8.8.8.8');
+  check(
+    'the guard returns a public literal unchanged',
+    publicLiteral?.address === '8.8.8.8' && publicLiteral.family === 4,
+  );
+  check(
+    'the guard refuses a private literal and a name that resolves to loopback',
+    (await resolvePublicHost('127.0.0.1')) === null &&
+      (await resolvePublicHost('::1')) === null &&
+      (await resolvePublicHost('localhost')) === null,
+  );
+  check('the guard refuses a name that does not resolve', (await resolvePublicHost('nothing.invalid')) === null);
+
+  const rebound = createServer((_request, response) => response.end('internal'));
+  await new Promise((ready) => rebound.listen(0, '127.0.0.1', ready));
+  const reboundPort = rebound.address().port;
+  try {
+    // The target is genuinely reachable, so the refusal below is the guard and
+    // not a dead socket: a direct fetch reaches it, a guarded one does not.
+    check('the loopback target answers a plain fetch', (await fetch(`http://127.0.0.1:${reboundPort}/`)).status === 200);
+    let refused = false;
+    try {
+      await guardedFetch(`http://localhost:${reboundPort}/`);
+    } catch {
+      refused = true;
+    }
+    check('a guarded fetch refuses the same target reached by a name', refused === true);
+  } finally {
+    await new Promise((ready) => rebound.close(ready));
+  }
 
   const metadata = parseEmbedMetadata(
     '<html><head><title>Fallback</title>' +

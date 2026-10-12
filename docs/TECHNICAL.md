@@ -1020,8 +1020,18 @@ is told about the gif it wanted and then wraps it in a card instead of showing i
 picture first costs nothing when the answer really is a page, since that is still read exactly as
 before.
 
-It also makes the second and later postings of the same link free. Blobs are content-addressed, so
-the bytes were only ever stored once; the row is what is per-message, and a row is a few hundred
+Every one of those outbound fetches — the page, the preview image, the avatar import and the push
+delivery beside them — goes through `guardedFetch` in `apps/server/src/embeds/guard.ts`. The guard
+used to resolve the host with `dns.lookup` and then let `fetch` resolve it again, which left a window
+for DNS rebinding: a name that answered with a public address for the check and a private one for the
+connection would reach an internal service from the server. The fetch now resolves the host and
+connects through a dispatcher whose own lookup re-checks the address at connect time and returns the
+exact address it approved, so a socket is only ever opened to an address that passed the guard. The
+original hostname still drives `Host` and TLS SNI; only the resolved address is pinned. The type
+allowlist, SVG refusal, redirect limit and size cap are unchanged.
+
+It also makes the second and later postings of the same link free. Blobs are content-addressed, so the
+bytes were only ever stored once; the row is what is per-message, and a row is a few hundred
 bytes. What the column adds is the ability to notice before fetching that this instance already holds
 the file, so a gif posted every morning is downloaded on the first morning and copied from the shelf
 on every morning after. The trade is that a link is assumed to keep pointing at what it pointed at

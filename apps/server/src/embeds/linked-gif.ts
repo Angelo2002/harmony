@@ -1,5 +1,5 @@
 import { isGifLinkHost, isLinkedGifType, type LinkedGif } from '@harmony/shared';
-import { resolvesToPublicHost } from './guard.ts';
+import { guardedFetch, resolvesToPublicHost } from './guard.ts';
 import { readCappedBody } from './media.ts';
 
 const CHECK_TIMEOUT_MS = 6000;
@@ -18,7 +18,7 @@ export interface LinkedGifIO {
   isPublicHost: (hostname: string) => Promise<boolean>;
 }
 
-const REAL_IO: LinkedGifIO = { fetch: (input, init) => fetch(input, init), isPublicHost: resolvesToPublicHost };
+const REAL_IO: LinkedGifIO = { fetch: guardedFetch, isPublicHost: resolvesToPublicHost };
 
 /** Signature shared by the real check and the stand-ins tests inject. */
 export type VerifyLinkedGif = (url: string, limits: LinkedGifLimits) => Promise<LinkedGif | null>;

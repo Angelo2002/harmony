@@ -1,5 +1,5 @@
 import type { PushPayload } from '@harmony/shared';
-import { resolvesToPublicHost } from '../embeds/guard.ts';
+import { guardedFetch, resolvesToPublicHost } from '../embeds/guard.ts';
 
 /**
  * What one delivery attempt came back as. The sender never throws, so the
@@ -45,7 +45,9 @@ export interface HttpPushSenderOptions {
    * Accept an endpoint on a private, loopback or link-local address. Off by
    * default and never enabled outside a test: the smoke harness runs its
    * delivery receiver on loopback, and the server entry turns it on only under
-   * `NODE_ENV=test` with `HARMONY_PUSH_ALLOW_PRIVATE_HOSTS=true`.
+   * `NODE_ENV=test` with `HARMONY_PUSH_ALLOW_PRIVATE_HOSTS=true`. When set, the
+   * plain fetch is used too, because the guarded fetch always refuses a private
+   * address regardless of this option.
    */
   allowPrivateHosts?: boolean;
 }
@@ -60,9 +62,11 @@ const DEFAULT_TIMEOUT_MS = 8_000;
  */
 export function createHttpPushSender(options: HttpPushSenderOptions = {}): PushSender {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const fetchImpl = options.fetchImpl ?? fetch;
   const isPublicHost = options.isPublicHost ?? resolvesToPublicHost;
   const allowPrivateHosts = options.allowPrivateHosts ?? false;
+  // The guarded fetch refuses a private address itself, so the test-only escape
+  // hatch has to pair with the plain fetch as well as skipping the pre-check.
+  const fetchImpl = options.fetchImpl ?? (allowPrivateHosts ? fetch : guardedFetch);
 
   return {
     async send(endpoint, payload) {

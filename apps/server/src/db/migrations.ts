@@ -1101,4 +1101,48 @@ export const migrations: Migration[] = [
       );
     },
   },
+  {
+    version: 41,
+    name: 'instance_identity',
+    up(db) {
+      /*
+       * A stable id for this instance, minted once and kept for its life. It is
+       * what lets a client route a notification or a harmony:// deep link to the
+       * instance it belongs to even after the instance moves to a new address,
+       * which the origin cannot. It is a value rather than a table, so it lives
+       * with the other settings; INSERT OR IGNORE leaves an id that is already
+       * there untouched, so a re-run can never change it.
+       */
+      db.prepare('INSERT OR IGNORE INTO server_settings (key, value, updated_at) VALUES (?, ?, ?)').run(
+        'instance_id',
+        JSON.stringify(randomUUID()),
+        new Date().toISOString(),
+      );
+    },
+  },
+  {
+    version: 42,
+    name: 'push_devices',
+    up(db) {
+      /*
+       * The push endpoints a member has registered, one per install, for the
+       * mobile shell to reach them away from a browser. The endpoint is per
+       * install, so it is registered with each instance the member has added,
+       * and the (user_id, endpoint) key lets two accounts on one install keep
+       * their own registrations. Removing an account or an endpoint takes the row
+       * with it. Nothing delivers to these yet: the table exists so the client
+       * seam has somewhere to register before a provider is wired.
+       */
+      db.exec(`
+        CREATE TABLE push_devices (
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          endpoint   TEXT NOT NULL,
+          platform   TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (user_id, endpoint)
+        );
+      `);
+    },
+  },
 ];

@@ -39,6 +39,7 @@ code wins — please open an issue.
   - [Custom emoji](#custom-emoji)
   - [Stickers](#stickers)
   - [Users and avatars](#users-and-avatars)
+  - [Push devices](#push-devices)
   - [Username colors](#username-colors)
   - [Channel notification settings](#channel-notification-settings)
   - [Roles](#roles)
@@ -506,6 +507,7 @@ Public instance information a client needs before signing in.
 {
   "name": "My Community",
   "apiVersion": "v1",
+  "instanceId": "6f8b1c2e-…",
   "requireInvite": true,
   "theme": { "background": null, "accent": null },
   "iconHash": null,
@@ -531,6 +533,12 @@ Public instance information a client needs before signing in.
 it on, and the instance has a public base URL — so it is the switch a client uses to decide whether
 to offer a "Sign in with Discord" button. It is off on a fresh instance. See
 [Discord sign-in](#discord-sign-in).
+
+`instanceId` is a stable id for this instance, minted once at first migration and kept for its life.
+A client stores it and prefers it over the origin when routing a push notification or a `harmony://`
+deep link, so an instance that moves to a new address still resolves. It differs from the
+per-process `instanceId` in `GET /api/v1/update`, which changes on every restart and exists only so
+the owner can spot one.
 
 ### Auth
 
@@ -2051,10 +2059,10 @@ fixed base URL, and for `website` it is a full `http(s)` address. A value that i
 platform, and any key that is not a known platform, is dropped rather than stored. Read the result back
 from `GET /api/v1/users/:id/profile`.
 
-These are **in-app sounds only**. Harmony sends nothing to a device: there is no push, no service
-worker involvement and no permission prompt, and a sound can only play while a client of some kind is
-open and connected. A client decides for itself what to play, which is why the server stores two
-booleans rather than performing any delivery. Returns `MeResponse`.
+These are **in-app sounds only**. A sound can only play while a client of some kind is open and
+connected, and a client decides for itself what to play, which is why the server stores two booleans
+rather than performing any delivery. Device push is separate: see
+[Push devices](#push-devices). Returns `MeResponse`.
 
 #### `PATCH /api/v1/users/@me/password` — auth
 
@@ -2136,6 +2144,42 @@ packed RGB, either nullable); a client leads with the accent when there is one a
 otherwise. `bannerHash` is the banner's content hash, served through the route above. `nameColorId`
 is the palette entry the member picked, or `null`; the color it resolves to rides on `User.nameColor`.
 `socialLinks` is only ever the platforms that were stored.
+
+### Push devices
+
+The endpoints a member's installs can be reached at. The endpoint is per install, not per instance, so
+a client registers it with every instance the member has added and removes it on sign-out or when the
+provider rotates it.
+
+Harmony currently **records** these endpoints but does not deliver to them: no provider is wired yet.
+The routes exist so the mobile shell's registration seam has somewhere to point before push ships.
+When it does, the notification delivered to an endpoint is the `PushPayload` shape in
+[`packages/shared/src/push.ts`](../packages/shared/src/push.ts): `instanceId`, `instanceName`,
+`iconUrl`, `channelId`, `channelName`, `messageId`, `kind` (`mention` or `reply`), `authorName` and
+`snippet`. The launcher repository's `docs/PUSH.md` is the same contract from the client side.
+
+#### `PUT /api/v1/users/@me/push-devices` — auth
+
+```json
+{ "endpoint": "https://ntfy.example.com/UPabc123", "platform": "android" }
+```
+
+Registers, or refreshes, one push endpoint for the caller. `endpoint` is the provider address the
+install was handed (a UnifiedPush/ntfy URL today) and is up to 2048 characters; `platform` is what the
+install runs on and is up to 32 characters (`android` today). Registering the same endpoint again
+updates it rather than adding a duplicate, so the shell can retry a registration without checking
+first. The endpoint is keyed per account, so two accounts signed in on one install each keep their own
+registration. Returns `{ "ok": true }`.
+
+#### `DELETE /api/v1/users/@me/push-devices` — auth
+
+```json
+{ "endpoint": "https://ntfy.example.com/UPabc123" }
+```
+
+Removes the caller's registration for one endpoint, on sign-out or when the provider rotates it.
+Removing an endpoint that was never registered is a no-op, so this is also safe to retry. Returns
+`{ "ok": true }`.
 
 ### Username colors
 

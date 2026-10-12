@@ -549,6 +549,24 @@ export const emojiImportSchema = z.object({
 });
 export type EmojiImportInput = z.infer<typeof emojiImportSchema>;
 
+/**
+ * Registers one push endpoint with this instance. The endpoint is per install,
+ * not per instance, and is a provider address (a UnifiedPush/ntfy URL) the
+ * server would deliver to; delivery is not built yet, so it is only bounded
+ * here, never reached. `platform` is what the install runs on, `android` today.
+ */
+export const registerPushDeviceSchema = z.object({
+  endpoint: z.string().trim().min(1).max(2048),
+  platform: z.string().trim().min(1).max(32),
+});
+export type RegisterPushDeviceInput = z.infer<typeof registerPushDeviceSchema>;
+
+/** Removes one of the caller's registered endpoints. An unknown one is fine. */
+export const removePushDeviceSchema = z.object({
+  endpoint: z.string().trim().min(1).max(2048),
+});
+export type RemovePushDeviceInput = z.infer<typeof removePushDeviceSchema>;
+
 export const updateProfileSchema = z
   .object({
     /** `null` (or an empty string) clears it and falls back to the username. */

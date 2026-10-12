@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_MAX_VOICE_MEMBERS,
   DEFAULT_SCREEN_SHARE_FRAME_RATE,
@@ -147,6 +148,12 @@ export interface SettingsService {
   /** Content hash of the uploaded server icon, or null for the built-in default. */
   getIconHash(): string | null;
   setIconHash(hash: string | null): void;
+  /**
+   * A stable id for this instance, minted once and kept for its life. Migration
+   * 41 seeds it; a value missing from the database is minted here so `meta`
+   * never fails.
+   */
+  getInstanceId(): string;
   /** Whether the server checks for updates once a day. Off unless the owner turns it on. */
   getUpdateCheck(): boolean;
   setUpdateCheck(enabled: boolean): void;
@@ -180,6 +187,7 @@ const KEY_DISCORD_CLIENT_ID = 'discord_oauth_client_id';
 const KEY_DISCORD_CLIENT_SECRET = 'discord_oauth_client_secret';
 const KEY_DISCORD_AUTH_ENABLED = 'discord_oauth_enabled';
 const KEY_ICON_HASH = 'instance_icon_hash';
+const KEY_INSTANCE_ID = 'instance_id';
 const KEY_IMAGE_BYTES = 'upload_image_bytes';
 const KEY_VIDEO_BYTES = 'upload_video_bytes';
 const KEY_KLIPY_KEY = 'klipy_api_key';
@@ -405,6 +413,16 @@ export function createSettingsService(sqlite: DatabaseSync, defaults: SettingsDe
 
     getIconHash() {
       return parseStringOrNull(readAllSettings(sqlite).get(KEY_ICON_HASH));
+    },
+
+    getInstanceId() {
+      const stored = parseStringOrNull(readAllSettings(sqlite).get(KEY_INSTANCE_ID));
+      if (stored !== null) return stored;
+      // Migration 41 seeds this; a defensive mint covers a database where the
+      // row has been removed by hand, so `meta` never fails on a missing id.
+      const minted = randomUUID();
+      writeSetting(sqlite, KEY_INSTANCE_ID, JSON.stringify(minted));
+      return minted;
     },
 
     getKlipyKey() {

@@ -36,7 +36,7 @@ packages/
 docs/
   API.md          HTTP and gateway reference for custom clients and bots
   DEPLOYMENT.md   Running a real instance: TLS, settings, backups
-  PUSH.md         Design for OS push notifications (proposed, not built)
+  PUSH.md         Design for OS push notifications (registry shipped, delivery not)
   TECHNICAL.md    This file
 ```
 
@@ -891,12 +891,20 @@ message that mentions the member, by reply or by name, and a quieter one for the
 rest. Each member can silence either from **Notifications** in their profile.
 Both are on by default.
 
-There is no push and no device notification anywhere in the project. Nothing leaves
-the page: no service worker involvement, no permission prompt, no server doing any
-delivery. That keeps the feature small and keeps a self-hosted instance from
-needing certificate or vendor setup to nudge anybody, at the cost of only working
-while a client is open. The server therefore stores two booleans and nothing else —
-what the sound actually is, and when it plays, is the client's business.
+There is no push delivery anywhere in the project. Nothing leaves the page, and no
+server sends a device notification: no service worker, no permission prompt, no
+certificate or vendor setup. That keeps the feature small and keeps a self-hosted
+instance from needing third-party accounts to nudge anybody, at the cost of only
+working while a client is open. The server therefore stores two booleans and
+nothing else — what the sound actually is, and when it plays, is the client's
+business.
+
+What does exist is the registration half of the system-push design
+([PUSH.md](PUSH.md)): an instance has a stable `instanceId` in `GET /api/v1/meta`,
+and a member may register a device endpoint at `/users/@me/push-devices`. The
+server stores that endpoint (the `push_devices` table) but never sends to it. Keep
+the two separate in your head: the sounds are in-app and client-side, while the
+registry is a capability recorded ahead of a delivery path that is not built.
 
 Which messages count as a mention is decided by the same parser that renders them,
 so a name inside a backtick block is a quotation rather than a summons.

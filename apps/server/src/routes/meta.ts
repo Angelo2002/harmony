@@ -11,6 +11,7 @@ export function registerMetaRoutes(app: FastifyInstance, deps: { config: Config;
     const body: InstanceMeta = {
       name: settings.serverName,
       apiVersion: API_VERSION,
+      instanceId: deps.settings.getInstanceId(),
       requireInvite: settings.requireInvite,
       theme: settings.theme,
       iconHash: deps.settings.getIconHash(),

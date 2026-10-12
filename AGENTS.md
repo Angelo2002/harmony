@@ -203,6 +203,26 @@ These have each cost real time; keep them in mind.
   `button:hover:not(:disabled)`, and give the panel itself `position: relative;
   z-index: 1` so it stays above the catcher and its controls keep working.
 
+## Clean workspace: leave nothing running
+
+Company rule YUC-RULE-001. Every employee leaves their workspace exactly as they
+found it. When a task ends - success, failure, or timeout - nothing you started
+is still running, and nothing you created outside the task's execution workspace
+is left behind. RAM is finite and shared.
+
+- Stop everything you started before you mark a task done: dev/preview/test
+  servers, watchers, app servers, emulators, `adb`, Gradle/Kotlin daemons,
+  databases, queues, tunnels, and backgrounded scripts.
+- Prefer Paperclip-managed issue-workspace runtime services over `npm run dev &`;
+  they are tracked and stoppable by others.
+- Reap what you background - kill the process group, do not rely on the shell
+  exiting.
+- Leave no extra copies: throwaway clones, worktrees, temp data dirs, AVDs.
+- Verify before you finish (`ss -ltnp`, `ps -eo pid,etime,rss,args`,
+  `adb devices`, `./gradlew --stop`) and put the result in your completion note.
+- If a run dies, the next run reaps orphans attributable to finished tasks.
+- Never kill someone else's live work - flag it to the CTO.
+
 ## Working with the user
 
 - The user runs Harmony in production and is the product owner. They cannot show

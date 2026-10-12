@@ -2284,6 +2284,33 @@ try {
   check('a dark accent takes light text', deriveTheme({ accent: '#1a3ea8' }).onAccent === '#ffffff');
   check('a near black background still separates its panels', deriveTheme({ background: '#050505' }).bgElevated !== '#050505');
 
+  // On-accent text must be the higher-contrast of black or white, whatever an
+  // admin picks. The old round-number threshold sent mid tones (amber, green,
+  // teal, blue) to white, which is the lower-contrast choice (DESIGN.md 6.1).
+  const relativeContrast = (a, b) => {
+    const hi = Math.max(a, b);
+    const lo = Math.min(a, b);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  for (const [name, accent, expected] of [
+    ['the default', DEFAULT_ACCENT, '#ffffff'],
+    ['an amber', '#f59e0b', '#000000'],
+    ['a green', '#22c55e', '#000000'],
+    ['a teal', '#1abc9c', '#000000'],
+    ['a blue', '#3498db', '#000000'],
+  ]) {
+    const tokens = deriveTheme({ accent });
+    const luminance = relativeLuminance(accent);
+    const onWhite = relativeContrast(luminance, 1);
+    const onBlack = relativeContrast(luminance, 0);
+    const picked = tokens.onAccent === '#ffffff' ? onWhite : onBlack;
+    check(
+      `${name} accent takes the higher-contrast on-color (${tokens.onAccent})`,
+      tokens.onAccent === expected && picked === Math.max(onWhite, onBlack),
+    );
+    check(`${name} accent reaches 4.5:1 on its on-color`, picked >= 4.5);
+  }
+
   // --- Channel locking ---
   const staffRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Staff' } });
   const staffChannel = await req('/channels', {

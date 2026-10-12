@@ -119,9 +119,10 @@ The derivation rules, for reference:
   the background; `accentSubtle` = accent at 12% alpha; `accentGlow` = 38%
   alpha; `accentGradient` = a `linear-gradient` from the accent into a +
   0.05-hue, +0.05-lightness neighbor so it reads as depth, not a second color.
-- **`onAccent`.** Black or white, chosen by a luminance threshold. See the
-  defect in §6.1 — this is the one derived color with a measured accessibility
-  problem.
+- **`onAccent`.** Black or white, whichever has the **higher contrast** against
+  the accent. `theme.ts` compares the accent's luminance to the exact
+  black/white contrast crossover (`sqrt(1.05 * 0.05) - 0.05`, about 0.179):
+  white below it, black above. See §6.1.
 - **Borders and washes.** `border`/`borderStrong` and `hover`/`active` are
   translucent black or white depending on scheme, so they layer over any
   surface.
@@ -172,7 +173,7 @@ are reused by every `.code-block` and by `ComposerPreview`.
 | `--h-accent-subtle` | accent @12% | Selected rows (`.channel.active`, `.admin-tab.active`), `.reaction.me`. |
 | `--h-accent-glow` | accent @38% | Hover ring on buttons, accent shadow. |
 | `--h-accent-gradient` | accent → close hue | Primary CTA fill. |
-| `--h-on-accent` | accent luminance | Text/icons on an accent surface. **See §6.1.** |
+| `--h-on-accent` | accent contrast | Text/icons on an accent surface. **See §6.1.** |
 | `--h-hover` | translucent | Row hover wash (`.channel:hover`, `.roster-member:hover`). |
 | `--h-active` | translucent | Pressed/selected wash, `.message-actions button:hover`. |
 | `--h-border` | translucent | Hairline separators and control borders. |
@@ -215,14 +216,11 @@ line 111), so `1rem = 15px`. Values below show the px equivalent for review.
 
 ### 3.1 Spacing
 
-There is **no spacing token today**; every gap and padding is an ad-hoc rem
-value. The observed vocabulary clusters on a ~`0.1rem` (1.5px) quantum, with
-this long tail: `0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6,
-0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 1, 1.1, 1.2, 1.25`.
+There is a `--h-space-*` ladder, defined in the static `:root` block of
+`app.css` (it is shape, so `theme.ts` never writes it). It is the observed
+vocabulary, clustered on a ~`0.1rem` (1.5px) quantum:
 
-**[proposal]** Sanction this ladder and snap drift to it:
-
-| Step token **[proposal]** | rem | px @15 | Typical use |
+| Step token | rem | px @15 | Typical use |
 | --- | --- | --- | --- |
 | `--h-space-1` | `0.2rem` | 3 | icon-to-label, tight inline pairs |
 | `--h-space-2` | `0.3rem` | 4.5 | chip internals, message-action gap |
@@ -240,12 +238,14 @@ Rules:
 
 - Values **between** steps (`0.15`, `0.35`, `0.45`, `0.55`, `0.65`, `0.7`,
   `0.85`, `0.9`, `1.1`, `1.2`) are drift. When you next touch a component that
-  uses one, snap it to the nearest sanctioned step. Do not add a new step.
+  uses one, snap it to the nearest sanctioned step (an exact tie rounds up).
+  Do not add a new step.
 - Reuse: the ladder is used by every stylesheet — `.sidebar`/`.roster`/`.chat`
   shells, `.message`, `.composer`, `.panel`, `.admin`, forms. That reuse is its
   justification.
-- Adoption is incremental; **[proposal]** introduce the `--h-space-*` tokens in
-  `:root` and replace values as components are touched (Eris).
+- Adoption is incremental. The first consumers are `.panel`, `.channel`,
+  `.roster-member`, `.message` and `.composer`; every other component follows as
+  it is touched.
 
 ### 3.2 Typography
 
@@ -255,9 +255,10 @@ line-height `1.5`. `h1`–`h4` carry `letter-spacing: -0.02em`, `line-height:
 `h2` 0.72rem/700 uppercase tracked; `h3` 1.1rem/700) and a de-facto size ladder
 in components.
 
-Canonical scale:
+Canonical scale (`--h-text-*` tokens live in the static `:root` block in
+`app.css`):
 
-| Role | Size **[proposal token]** | Weight | Where it appears today |
+| Role | Size / token | Weight | Where it appears today |
 | --- | --- | --- | --- |
 | Micro / badge | `0.62rem` `--h-text-2xs` | 700–800 | `.badge`, `.gutter` uppercase tags |
 | Caption / meta | `0.72rem` `--h-text-xs` | 600–700 | timestamps (`.gutter-time`), `h2`, message-action buttons |
@@ -478,9 +479,10 @@ they are why §7 proposes shared primitives.
    `label` + `input` markup. Consistent today by discipline, easy to drift.
 4. **Badge/chip/status eat three shapes.** `.badge`, `.event-status`,
    `.mention-pill`, `.chip`, `.role-dot` are near-duplicates.
-5. **Local, unstyled spacing.** Every gap is a raw rem (§3.1); no component can
-   be retuned globally.
-6. **`--h-on-accent` and danger-button contrast** have measured failures (§6.1).
+5. **Spacing adoption in progress.** The `--h-space-*` ladder exists, but most
+   components still use raw rem (§3.1) until they are touched.
+6. **Danger-button contrast** has a measured failure (§6.1); `--h-on-accent`
+   was fixed in v2.7.0.
 7. **No skeleton, no progress convention** for the initial message load
    (`MessageView` prints text), which is the most-visited loading state.
 
@@ -579,26 +581,25 @@ Measured against the default palette (`#12151a` bg):
 `--h-text-faint` is for timestamps/hints/placeholders only, never for a label
 the user must read.
 
-**Defect — `onAccent` picks the wrong color for mid-tone accents.**
-`theme.ts` uses `ON_ACCENT_THRESHOLD = 0.6` (line 78): it picks white above
-that luminance. But the true crossover where black and white give equal
-contrast is luminance ≈ **0.179**. Between ~0.18 and 0.6 the code chooses
-**white**, which is the *lower*-contrast option. Measured with the shipped
-formula:
+**`onAccent` — resolved (was: the wrong color for mid-tone accents).** The old
+`theme.ts` used `ON_ACCENT_THRESHOLD = 0.6`: it picked white above that
+luminance, but the true crossover where black and white give equal contrast is
+luminance ≈ **0.179**. Between ~0.18 and 0.6 it therefore chose **white**, the
+*lower*-contrast option. `theme.ts` now compares the accent's luminance to the
+exact crossover (`sqrt(1.05 * 0.05) - 0.05`) and takes the higher-contrast
+color. The default is unchanged; every mid tone flips to black:
 
-| Accent | Luminance | Chosen | Contrast | Black would give |
+| Accent | Luminance | `onAccent` | Contrast before | Contrast now |
 | --- | --- | --- | --- | --- |
-| `#5865f2` (default) | 0.178 | white | 4.61 | 4.56 (tie — hides the bug) |
-| `#f59e0b` amber | 0.439 | white | **2.15** | 9.78 |
-| `#22c55e` green | 0.411 | white | **2.28** | 9.22 |
-| `#1abc9c` teal | 0.386 | white | **2.41** | 8.72 |
-| `#3498db` blue | 0.283 | white | **3.15** | 6.66 |
-| `#e74c3c` coral | 0.225 | white | **3.82** | 5.50 |
+| `#5865f2` (default) | 0.178 | white | 4.61 | 4.61 |
+| `#f59e0b` amber | 0.439 | black | **2.15** | 9.78 |
+| `#22c55e` green | 0.411 | black | **2.28** | 9.22 |
+| `#1abc9c` teal | 0.386 | black | **2.41** | 8.72 |
+| `#3498db` blue | 0.283 | black | **3.15** | 6.66 |
+| `#e74c3c` coral | 0.225 | black | **3.82** | 5.50 |
 
-Requirement: `onAccent` must be the color that **maximizes** contrast with the
-accent (equivalently, move the threshold to ≈ the crossover and clamp), so any
-accent an admin picks yields ≥4.5:1 where possible. This is a shared-code
-change (`packages/shared/src/theme.ts`) and needs a smoke assertion.
+`npm run smoke` asserts the default plus amber, green, teal and blue take the
+higher-contrast color, at ≥4.5:1.
 
 ### 6.2 Keyboard and focus order
 
@@ -619,10 +620,11 @@ change (`packages/shared/src/theme.ts`) and needs a smoke assertion.
 
 - Minimum **24×24 CSS px** hit area (WCAG 2.2 AA 2.5.8); aim for **44×44** on
   touch.
-- Audit needed: `.message-actions button` (`0.25rem 0.55rem`, `0.72rem` text,
-  ≈20px tall) and `.channel-more` fall below 24px in at least one dimension;
-  `.drawer-toggle` is borderline vertically. **[proposal]** keep the visual size
-  but pad the hit area to ≥24×24 (and ≥44 on touch), or grow the control.
+- `.message-actions button` (≈24px tall, `--h-text-xs` text) and `.channel-more`
+  (a 1.5rem face) now carry a transparent `::after` overlay that grows the hit
+  area to ≥24×24 without changing the visible control, and to ≥44×44 under
+  `@media (hover: none)`. `.drawer-toggle` is still borderline vertically and
+  remains to do.
 - Primary buttons are `0.6rem 1rem` with `0.9rem` text (≈33px tall) — fine.
 
 ### 6.4 Reduced motion
@@ -658,11 +660,12 @@ motion. Ensure the final (non-animated) state is the fully-visible one.
 ## 7. Proposals this document asks for
 
 Each is justified by reuse and grounded in a gap in §4.9. None introduces a
-one-off.
+one-off. Items 1, 4 and 6 are implemented in v2.7.0; the rest are open.
 
-1. **[proposal] Spacing and type tokens (§3.1, §3.2).** Introduce `--h-space-*`
-   and `--h-text-*` in `:root` (with the drift-snap rule), replacing ad-hoc
-   rem over time. Reused by every component stylesheet.
+1. **[done — v2.7.0] Spacing and type tokens (§3.1, §3.2).** `--h-space-*`
+   and `--h-text-*` now exist in `:root` (with the drift-snap rule), and
+   `.panel`, `.channel`, `.roster-member`, `.message` and `.composer` consume
+   them; the rest of the components follow as they are touched.
 2. **[proposal] A shared overlay primitive.** One component owning backdrop +
    Escape + focus trap + focus return, reused by admin, lightbox, quick
    switcher, profile viewer and gallery. Removes the largest duplication.
@@ -670,11 +673,13 @@ one-off.
    skeleton using `h-shimmer`, plus one empty-state and one error-state shape,
    replacing ~15 copies of `<p class="muted">Loading…</p>`. Reused by every
    panel and the message stream.
-4. **[proposal] Fix `onAccent` contrast (§6.1).** Required for AA under
-   operator-chosen accents.
+4. **[done — v2.7.0] Fix `onAccent` contrast (§6.1).** `onAccent` now takes the
+   higher-contrast of black or white against the accent, at the exact crossover.
 5. **[proposal] Promote `--syntax-*` to derived tokens (§2.2).** One
    definition, follows the theme.
-6. **[proposal] Raise sub-24px hit areas to ≥24px (§6.3).**
+6. **[done — v2.7.0] Raise sub-24px hit areas to ≥24px (§6.3).**
+   `.message-actions button` and `.channel-more` get a ≥24×24 (≥44 on touch)
+   hit area from a transparent `::after` overlay.
 
 ---
 

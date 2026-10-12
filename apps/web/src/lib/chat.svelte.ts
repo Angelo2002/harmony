@@ -31,6 +31,7 @@ import { channelSettings } from './channel-settings.svelte';
 import { drafts } from './drafts.svelte';
 import { playSound } from './sounds';
 import { gateway, type GatewayFrame } from './gateway';
+import type { LaunchTarget } from './launch-params';
 
 /** How many messages one history page holds, for both directions. */
 const historyPageSize = 50;
@@ -46,6 +47,13 @@ const reconcilePageSize = 100;
 const reconcileMaxPages = 10;
 /** Most history pages a jump to the first unread message will load. */
 const unreadJumpMaxPages = 20;
+/**
+ * Most history pages a launch link's message is searched through. A push
+ * notification is nearly always at the newest end, so a few pages cover the real
+ * case; a link far back in history would be better served by asking the server
+ * for a page around the id, which the history endpoint does not offer yet.
+ */
+const linkedJumpMaxPages = 20;
 /** The longest delay `setTimeout` honors; anything longer fires at once. */
 const maxTimerMs = 2 ** 31 - 1;
 /** How long emoji events wait, so the pruner's one-event-per-emoji burst reloads once. */
@@ -221,13 +229,19 @@ class ChatStore {
     this.messages = this.messages.map((message) => (message.id === messageId ? { ...message, poll } : message));
   }
 
-  async start(): Promise<void> {
+  /**
+   * Brings the store up. When the page was opened from a launch link, `target`
+   * names the channel, and sometimes the message, to open: the channel is
+   * preferred over the configured default and the message is jumped to once the
+   * channel's newest page is in.
+   */
+  async start(target?: LaunchTarget): Promise<void> {
     if (this.#started) return;
     this.#started = true;
     this.#gatewayUnsubscribe = gateway.onEvent((frame) => this.#handleEvent(frame));
     document.addEventListener('visibilitychange', this.#onVisibility);
     this.#scheduleTimeoutLift();
-    await this.loadChannels();
+    await this.loadChannels(target?.channelId ?? null);
     // Settings only quiet things down, so a failure leaves everything on the
     // defaults rather than keeping the app from starting.
     await channelSettings.load().catch(() => {});
@@ -238,6 +252,12 @@ class ChatStore {
     await commands.load();
     await voice.load().catch(() => {});
     gateway.connect();
+    // A message named by a launch link is only followable now that the channel
+    // is open and its newest page is loaded. The socket is up first, so the walk
+    // back through history does not hold live messages back.
+    if (target && target.messageId !== null && target.channelId !== null) {
+      await this.revealLinkedMessage(target.channelId, target.messageId);
+    }
   }
 
   stop(): void {
@@ -417,18 +437,24 @@ class ChatStore {
     if (changed) this.messages = next;
   }
 
-  async loadChannels(): Promise<void> {
+  async loadChannels(linkedChannelId: string | null = null): Promise<void> {
     const data = await api<ChannelListResponse>('/channels');
     this.categories = data.categories;
     this.channels = data.channels;
     this.#applyReadState(data);
 
-    // Keep the current selection if it still exists. Otherwise open the
-    // admin-configured default channel, falling back to the first channel and
-    // finally to nothing when the instance has no channels at all.
+    // Keep the current selection if it still exists. Otherwise open the channel
+    // a launch link named, when the instance knows it, ahead of the
+    // admin-configured default, falling back to the first channel and finally to
+    // nothing when the instance has no channels at all. An unknown or malformed
+    // id simply falls through to the default rather than leaving the app blank.
     const stillExists = this.channels.some((channel) => channel.id === this.activeChannelId);
     if (!stillExists) {
-      const preferred = this.channels.find((channel) => channel.id === data.defaultChannelId)?.id;
+      const linked =
+        linkedChannelId !== null && this.channels.some((channel) => channel.id === linkedChannelId)
+          ? linkedChannelId
+          : null;
+      const preferred = linked ?? this.channels.find((channel) => channel.id === data.defaultChannelId)?.id;
       await this.selectChannel(preferred ?? this.channels[0]?.id ?? null);
     } else if (this.activeChannelId) {
       // A refresh can arrive with the open channel marked unread, for instance
@@ -721,6 +747,56 @@ class ChatStore {
     if (channelId !== this.activeChannelId) return;
     if (document.visibilityState === 'visible') this.#markRead(channelId, false);
     this.scrollSignal += 1;
+  }
+
+  /**
+   * Takes the reader to a message named by a launch link, as a notification tap
+   * or a deep link carries it. The id on its own says nothing about where in
+   * history the message sits, so the newest pages are walked back a bounded
+   * distance looking for it, and the ordinary jump path then frames it with the
+   * messages around it exactly as a search result would. A message that has been
+   * deleted, or sits deeper than the walk, is quietly left alone: the channel
+   * stays open at its newest page rather than the screen going blank.
+   */
+  async revealLinkedMessage(channelId: string, messageId: string): Promise<void> {
+    // An id the instance does not know leaves the default channel open; only the
+    // channel the link actually opened is searched.
+    if (channelId !== this.activeChannelId) return;
+    const found = await this.#findMessage(messageId);
+    if (!found || channelId !== this.activeChannelId) return;
+    // A message already in the page on screen needs no refetch: flash it and
+    // bring it into view. One found deeper is framed by the jump path.
+    if (this.messages.some((message) => message.id === messageId)) {
+      this.#highlight(messageId);
+      this.scrollSignal += 1;
+      return;
+    }
+    await this.jumpToMessage(channelId, found);
+  }
+
+  /**
+   * Looks for a message id in the open channel, checking the page already loaded
+   * first and then walking back at most `linkedJumpMaxPages` pages, since the id
+   * carries no hint of where in time it sits.
+   */
+  async #findMessage(messageId: string): Promise<Message | null> {
+    const channelId = this.activeChannelId;
+    if (!channelId) return null;
+    const loaded = this.messages.find((message) => message.id === messageId);
+    if (loaded) return loaded;
+
+    let oldest = this.messages[0];
+    for (let pages = 0; pages < linkedJumpMaxPages && this.hasMore && oldest; pages++) {
+      const page = await this.#fetchHistory(channelId, { before: oldest.createdAt, beforeId: oldest.id });
+      // A channel switch while this was in flight must not answer for the wrong one.
+      if (channelId !== this.activeChannelId) return null;
+      const found = page.find((message) => message.id === messageId);
+      if (found) return found;
+      // A short page is the channel's oldest, so there is nowhere further back.
+      if (page.length < historyPageSize) return null;
+      oldest = page[0];
+    }
+    return null;
   }
 
   /** Flashes a message for a few seconds, so a jump is obvious. */

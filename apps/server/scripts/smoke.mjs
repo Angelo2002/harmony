@@ -7,6 +7,7 @@
 //
 // Run with: npm run smoke --workspace @harmony/server
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -48,6 +49,7 @@ import { createUpdateService } from '../src/update/service.ts';
 import { createUpdateApplier, listUpdateSnapshots, pruneUpdateSnapshots } from '../src/update/apply.ts';
 import { createUserService } from '../src/users/service.ts';
 import { sanitizeDetail, sanitizeLogText } from '../src/log/sanitize.ts';
+import { createHttpPushSender } from '../src/push/sender.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8791;
@@ -90,6 +92,12 @@ const server = spawn('node', ['src/index.ts'], {
     HARMONY_WEB_DIR: webDir,
     HARMONY_REQUIRE_INVITE: 'true',
     HARMONY_LOG_LEVEL: 'error',
+    // The push-delivery checks below stand a receiver up on loopback, so the
+    // server's outbound SSRF guard is relaxed for this run only. The config
+    // honours the flag only under NODE_ENV=test, which is set here, so a real
+    // deployment can never reach an internal host through a registration.
+    NODE_ENV: 'test',
+    HARMONY_PUSH_ALLOW_PRIVATE_HOSTS: 'true',
     // Short enough that a socket going silent is closed within a few seconds,
     // long enough that the heartbeating helper below never misses one.
     HARMONY_GATEWAY_HEARTBEAT_MS: String(HEARTBEAT_MS),
@@ -913,6 +921,55 @@ try {
   });
   check('a member can mute themselves', muted.json?.members?.[0]?.muted === true);
 
+  // --- One screen per room ---
+  // A room carries at most one live screen; a second member's share is refused
+  // until the first stops.
+  const ownerShare = await req(`/channels/${voiceId}/voice`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { sharing: true },
+  });
+  check(
+    'a member can start sharing their screen',
+    ownerShare.status === 200 &&
+      ownerShare.json?.members?.find((m) => m.user?.id === owner.json?.user?.id)?.sharing === true,
+    JSON.stringify(ownerShare.json),
+  );
+  await req(`/channels/${voiceId}/voice`, { method: 'POST', token: bobToken });
+  const bobRefusedShare = await req(`/channels/${voiceId}/voice`, {
+    method: 'PATCH',
+    token: bobToken,
+    body: { sharing: true },
+  });
+  check(
+    'a second member cannot share while another screen is live (409)',
+    bobRefusedShare.status === 409 && bobRefusedShare.json?.error?.code === 'screen_share_taken',
+    `status ${bobRefusedShare.status} ${JSON.stringify(bobRefusedShare.json)}`,
+  );
+  const bobAfterRefusal = await req('/voice', { token: bobToken });
+  check(
+    'the refused share is not recorded on the member',
+    bobAfterRefusal.json?.channels?.some(
+      (entry) =>
+        entry.channelId === voiceId &&
+        entry.members?.find((m) => m.user?.id === bob.json?.user?.id)?.sharing === false,
+    ) === true,
+    JSON.stringify(bobAfterRefusal.json),
+  );
+  await req(`/channels/${voiceId}/voice`, { method: 'PATCH', token: ownerToken, body: { sharing: false } });
+  const bobShare = await req(`/channels/${voiceId}/voice`, {
+    method: 'PATCH',
+    token: bobToken,
+    body: { sharing: true },
+  });
+  check(
+    'a member can share once the live screen stops (200)',
+    bobShare.status === 200 &&
+      bobShare.json?.members?.find((m) => m.user?.id === bob.json?.user?.id)?.sharing === true,
+    JSON.stringify(bobShare.json),
+  );
+  await req(`/channels/${voiceId}/voice`, { method: 'DELETE', token: bobToken });
+
   // --- ICE configuration for clients, and restarting ICE after a network change ---
   const iceUnset = await req('/voice/ice', { token: bobToken });
   check(
@@ -1129,6 +1186,167 @@ try {
     body: { endpoint: '', platform: 'android' },
   });
   check('an empty push endpoint is rejected (400)', pushBad.status === 400, `status ${pushBad.status}`);
+
+  // --- Push delivery ---
+  // A tiny receiver stands in for the distributor the install registered with: the
+  // server posts the payload to it exactly as it would post to an ntfy URL.
+  const pushHits = [];
+  let pushGoneHits = 0;
+  const pushReceiver = createServer((request, response) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => {
+      if (request.url === '/gone') {
+        pushGoneHits += 1;
+        response.statusCode = 404;
+        response.end('gone');
+        return;
+      }
+      let payload = null;
+      try {
+        payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      } catch {
+        payload = null;
+      }
+      pushHits.push(payload);
+      response.statusCode = 200;
+      response.end('ok');
+    });
+  });
+  await new Promise((ready, failed) => {
+    pushReceiver.once('error', failed);
+    pushReceiver.listen(0, '127.0.0.1', ready);
+  });
+  const pushReceiverOrigin = `http://127.0.0.1:${pushReceiver.address().port}`;
+  const waitFor = async (condition, label) => {
+    for (let attempt = 0; attempt < 100 && !condition(); attempt += 1) await sleep(100);
+    if (!condition()) throw new Error(`timed out waiting for ${label}`);
+  };
+
+  await req('/users/@me/push-devices', {
+    method: 'PUT',
+    token: bobToken,
+    body: { endpoint: `${pushReceiverOrigin}/ok`, platform: 'android' },
+  });
+  const pushedMention = await req(`/channels/${general.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: '@bob you were named' },
+  });
+  await waitFor(() => pushHits.length > 0, 'the mention push');
+  const pushed = pushHits.at(-1);
+  check(
+    'a mention pushes to the mentioned member',
+    pushed?.kind === 'mention' && pushed?.messageId === pushedMention.json?.id && pushed?.channelId === general.id,
+    `payload ${JSON.stringify(pushed)}`,
+  );
+  check(
+    'the payload names the instance and the channel',
+    typeof pushed?.instanceId === 'string' && pushed.instanceId.length > 0 && pushed?.channelName === general.name,
+    `payload ${JSON.stringify(pushed)}`,
+  );
+
+  // A distributor that no longer knows the endpoint answers gone; the device is
+  // pruned rather than retried on every future mention.
+  await req('/users/@me/push-devices', {
+    method: 'PUT',
+    token: bobToken,
+    body: { endpoint: `${pushReceiverOrigin}/gone`, platform: 'android' },
+  });
+  await req(`/channels/${general.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: '@bob and again' },
+  });
+  await waitFor(() => pushGoneHits > 0, 'the gone endpoint attempt');
+  const pushDbGone = new DatabaseSync(join(dataDir, 'harmony.db'));
+  let goneRows = [];
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    goneRows = pushDbGone
+      .prepare('SELECT endpoint FROM push_devices WHERE user_id = ? AND endpoint = ?')
+      .all(bob.json.user.id, `${pushReceiverOrigin}/gone`);
+    if (goneRows.length === 0) break;
+    await sleep(100);
+  }
+  pushDbGone.close();
+  check('a stale endpoint is pruned', goneRows.length === 0, `rows ${goneRows.length}`);
+
+  await req('/users/@me/push-devices', { method: 'DELETE', token: bobToken, body: { endpoint: `${pushReceiverOrigin}/ok` } });
+  await new Promise((ready) => pushReceiver.close(ready));
+
+  // --- Push sender SSRF guard ---
+  // The running server above has the guard relaxed so its loopback receiver is
+  // reachable. The guard itself is exercised here directly, against the real
+  // sender: a member-supplied endpoint must never make the server open a socket
+  // to an internal address, and a redirect must never be followed to one.
+  const samplePushPayload = {
+    instanceId: 'smoke-instance',
+    instanceName: 'Smoke',
+    iconUrl: null,
+    channelId: 'channel-1',
+    channelName: 'general',
+    messageId: 'message-1',
+    kind: 'mention',
+    authorName: 'owner',
+    snippet: 'hello',
+  };
+
+  const guardCalls = [];
+  const guardedSender = createHttpPushSender({
+    fetchImpl: async (url, init) => {
+      guardCalls.push({ url: String(url), redirect: init?.redirect });
+      return new Response('ok', { status: 200 });
+    },
+  });
+  const linkLocal = await guardedSender.send('http://169.254.169.254/latest/meta-data/', samplePushPayload);
+  check(
+    'a link-local push endpoint is refused with no request',
+    linkLocal.ok === false && linkLocal.gone === false && linkLocal.error === 'blocked_host' && guardCalls.length === 0,
+    `result ${JSON.stringify(linkLocal)}, calls ${guardCalls.length}`,
+  );
+  const loopback = await guardedSender.send('http://127.0.0.1:9/push', samplePushPayload);
+  check(
+    'a loopback push endpoint is refused with no request',
+    loopback.ok === false && loopback.gone === false && loopback.error === 'blocked_host' && guardCalls.length === 0,
+    `result ${JSON.stringify(loopback)}, calls ${guardCalls.length}`,
+  );
+  const privateV4 = await guardedSender.send('http://10.1.2.3/push', samplePushPayload);
+  const privateV6 = await guardedSender.send('http://[::1]/push', samplePushPayload);
+  check(
+    'private and IPv6 loopback push endpoints are refused with no request',
+    privateV4.error === 'blocked_host' && privateV6.error === 'blocked_host' && guardCalls.length === 0,
+    `v4 ${JSON.stringify(privateV4)}, v6 ${JSON.stringify(privateV6)}, calls ${guardCalls.length}`,
+  );
+
+  const redirectCalls = [];
+  const redirectSender = createHttpPushSender({
+    isPublicHost: async () => true,
+    fetchImpl: async (url, init) => {
+      redirectCalls.push({ url: String(url), redirect: init?.redirect });
+      return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } });
+    },
+  });
+  const redirected = await redirectSender.send('https://distributor.example/push', samplePushPayload);
+  check(
+    'a redirect from a push endpoint is refused, not followed',
+    redirected.ok === false &&
+      redirected.gone === false &&
+      redirected.error === 'redirect_blocked' &&
+      redirectCalls.length === 1 &&
+      redirectCalls[0]?.redirect === 'manual',
+    `result ${JSON.stringify(redirected)}, calls ${JSON.stringify(redirectCalls)}`,
+  );
+
+  const goneSender = createHttpPushSender({
+    isPublicHost: async () => true,
+    fetchImpl: async () => new Response('gone', { status: 410 }),
+  });
+  const goneResult = await goneSender.send('https://distributor.example/push', samplePushPayload);
+  check(
+    'a public endpoint that answers gone is still pruned',
+    goneResult.ok === false && goneResult.gone === true && goneResult.error === 'status_410',
+    `result ${JSON.stringify(goneResult)}`,
+  );
 
   // --- Link previews ---
   check('embeddable urls are found', listEmbeddableUrls('see https://example.com/a').includes('https://example.com/a'));

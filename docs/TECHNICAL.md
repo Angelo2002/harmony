@@ -36,7 +36,7 @@ packages/
 docs/
   API.md          HTTP and gateway reference for custom clients and bots
   DEPLOYMENT.md   Running a real instance: TLS, settings, backups
-  PUSH.md         Design for OS push notifications (registry shipped, delivery not)
+  PUSH.md         Design for OS push notifications (registry and delivery shipped)
   TECHNICAL.md    This file
 ```
 
@@ -213,7 +213,10 @@ member joins, a receive-only video line for that member's own screen beside the
 microphone line, and a send-only video slot per other member for that member's
 screen. Nothing is negotiated when a share starts or stops: the client attaches
 its screen to the line that is already there with `replaceTrack`, and the relay
-begins or stops copying packets, so renegotiation stays on join and leave.
+begins or stops copying packets, so renegotiation stays on join and leave. Only
+one screen is live in a room at a time: `voice/service.ts` refuses a second
+`sharing` flag with `409 screen_share_taken` while another member holds it, and
+the web client disables its share control and names the holder.
 Watching a screen is opt-in. A share is announced to the room as a `sharing` flag
 on the member's voice state, but the relay only forwards a producer's screen to
 the consumers that named them in their `watching` set (sent through
@@ -891,20 +894,28 @@ message that mentions the member, by reply or by name, and a quieter one for the
 rest. Each member can silence either from **Notifications** in their profile.
 Both are on by default.
 
-There is no push delivery anywhere in the project. Nothing leaves the page, and no
-server sends a device notification: no service worker, no permission prompt, no
-certificate or vendor setup. That keeps the feature small and keeps a self-hosted
-instance from needing third-party accounts to nudge anybody, at the cost of only
-working while a client is open. The server therefore stores two booleans and
-nothing else — what the sound actually is, and when it plays, is the client's
+There is no **in-page** push delivery: nothing leaves the browser tab, and the web
+client never asks for the browser Notification permission. A self-hosted instance
+needs no service worker and no vendor certificate to nudge a member, at the cost of
+only reaching a client while it is open. The server therefore stores two booleans
+and nothing else — what the sound actually is, and when it plays, is the client's
 business.
 
-What does exist is the registration half of the system-push design
-([PUSH.md](PUSH.md)): an instance has a stable `instanceId` in `GET /api/v1/meta`,
-and a member may register a device endpoint at `/users/@me/push-devices`. The
-server stores that endpoint (the `push_devices` table) but never sends to it. Keep
-the two separate in your head: the sounds are in-app and client-side, while the
-registry is a capability recorded ahead of a delivery path that is not built.
+What does reach a closed app is **system push**, the registry-and-delivery half of
+[PUSH.md](PUSH.md): an instance has a stable `instanceId` in `GET /api/v1/meta`, a
+member registers a device endpoint at `/users/@me/push-devices` (the `push_devices`
+table), and the server sends to it. When a message is created live, `push/dispatch.ts`
+takes the `mentions` rows for it, drops anyone already connected to the gateway or
+muted in the channel, and `push/sender.ts` `POST`s the `PushPayload` JSON to each
+remaining device over HTTP — the provider-agnostic UnifiedPush/ntfy contract, no
+vendor account. An endpoint the provider answers `404`/`410` for is pruned. The
+sender treats an endpoint as hostile like every other outbound fetch: its host
+must resolve to a public address, and no redirect is followed, so a registration
+cannot aim the server at an internal address. The fan-out hangs off
+`onMessageReceived`, which fires for a live local post and a live bridged one but
+never for a history import or an edit, so an old message cannot ring twice. Keep
+the two separate in your head: the sounds are in-app and client-side, while push
+crosses to a distributor and carries ids, not a session.
 
 Which messages count as a mention is decided by the same parser that renders them,
 so a name inside a backtick block is a quotation rather than a summons.

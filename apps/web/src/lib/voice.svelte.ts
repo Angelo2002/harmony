@@ -711,6 +711,19 @@ class VoiceStore {
   }
 
   /**
+   * The name of another member already sharing a screen in this channel, or null.
+   * A room carries one live screen, so the UI disables the share control while
+   * this is set and `shareScreen` refuses before it opens the picker. The server
+   * is still the authority; this is what makes the dead end visible.
+   */
+  get screenSharerName(): string | null {
+    const me = session.user?.id ?? null;
+    const sharer = this.members.find((entry) => entry.sharing && entry.user.id !== me);
+    if (!sharer) return null;
+    return sharer.user.displayName ?? sharer.user.username;
+  }
+
+  /**
    * Starts watching a member's screen. The relay forwards nothing until this is
    * sent, which is what keeps the stream off the wire for everyone who never opted
    * in; the server asks the producer for a keyframe, so the picture starts at once.
@@ -760,6 +773,14 @@ class VoiceStore {
   async shareScreen(): Promise<void> {
     const pc = this.#pc;
     if (!pc || this.sharing) return;
+    // A room carries one live screen. The server is the authority, but checking
+    // the roster first keeps the picker from opening for a share that would be
+    // refused, and names whoever already holds it.
+    const sharer = this.screenSharerName;
+    if (sharer) {
+      this.error = `${sharer} is already sharing their screen in this channel.`;
+      return;
+    }
     const transceiver = pc
       .getTransceivers()
       .find((entry) => entry.receiver.track?.kind === 'video' && entry.currentDirection === 'sendonly');
@@ -787,7 +808,15 @@ class VoiceStore {
       await transceiver.sender.replaceTrack(track);
       this.#screenSender = transceiver.sender;
       this.sharing = true;
-      this.#sync();
+      try {
+        await this.#pushState();
+      } catch (cause) {
+        // Someone started sharing between our check and the server's, so the
+        // share was refused; drop the capture and surface who has it.
+        await this.stopScreen();
+        this.error = cause instanceof Error ? cause.message : 'Could not share your screen.';
+        return;
+      }
       // The browser's own Stop sharing button ends the track; follow it.
       track.addEventListener('ended', () => void this.stopScreen());
     } catch (cause) {
@@ -823,9 +852,10 @@ class VoiceStore {
     for (const track of this.#mic?.getAudioTracks() ?? []) track.enabled = live;
   }
 
-  #sync(): void {
-    if (!this.channelId) return;
-    void api(`/channels/${this.channelId}/voice`, {
+  /** Sends the member's own voice flags; resolves once the server accepts them. */
+  #pushState(): Promise<void> {
+    if (!this.channelId) return Promise.resolve();
+    return api(`/channels/${this.channelId}/voice`, {
       method: 'PATCH',
       body: JSON.stringify({
         muted: this.muted,
@@ -833,7 +863,12 @@ class VoiceStore {
         sharing: this.sharing,
         watching: Object.keys(this.#watching),
       }),
-    }).catch(() => undefined);
+    }).then(() => undefined);
+  }
+
+  /** Fire-and-forget sync for flag changes that need no error handling. */
+  #sync(): void {
+    void this.#pushState().catch(() => undefined);
   }
 
   /** Drops everything without telling the server; used when the session ends. */

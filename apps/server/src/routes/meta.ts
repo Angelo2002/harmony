@@ -35,6 +35,10 @@ export function registerMetaRoutes(app: FastifyInstance, deps: { config: Config;
         passwordMin: LIMITS.password.min,
       },
       screenShare: { height: settings.screenShareHeight, frameRate: settings.screenShareFrameRate },
+      // This instance delivers to any registered endpoint, and UnifiedPush is
+      // the adapter the mobile shell speaks. A client that knows the block can
+      // offer notifications; an old client ignores it.
+      push: { supported: true, providers: ['unifiedpush'] },
     };
     return body;
   });

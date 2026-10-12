@@ -17,6 +17,7 @@ import type {
 import type { GifStorageMode } from './gif-hosts.ts';
 import type { ThemeSettings } from './theme.ts';
 import type { ChannelNotificationSettings } from './channel-settings.ts';
+import type { InstancePushMeta } from './push.ts';
 
 /** Response for a successful register or login. */
 export interface AuthResponse {
@@ -176,6 +177,12 @@ export interface InstanceMeta {
    * administrator turns it on.
    */
   discordAuthEnabled: boolean;
+  /**
+   * Whether, and how, this instance delivers a push to a registered device.
+   * Absent when it cannot, so an old server and an old client keep working
+   * unchanged.
+   */
+  push?: InstancePushMeta;
 }
 
 /** Response for `GET` / `PATCH /api/v1/discord/auth`, for the admin panel. */

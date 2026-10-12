@@ -518,6 +518,7 @@ Public instance information a client needs before signing in.
   "klipyConfigured": false,
   "gifStorage": "store",
   "discordAuthEnabled": false,
+  "push": { "supported": true, "providers": ["unifiedpush"] },
   "limits": {
     "messageLength": 4000,
     "attachmentsPerMessage": 10,
@@ -533,6 +534,11 @@ Public instance information a client needs before signing in.
 it on, and the instance has a public base URL — so it is the switch a client uses to decide whether
 to offer a "Sign in with Discord" button. It is off on a fresh instance. See
 [Discord sign-in](#discord-sign-in).
+
+`push` advertises whether, and how, this instance delivers to a registered device. It is absent when
+the instance cannot deliver, so an old client and an old server keep working. Today this instance
+always sends to a registered endpoint over HTTP, and `unifiedpush` is the adapter the mobile shell
+speaks.
 
 `instanceId` is a stable id for this instance, minted once at first migration and kept for its life.
 A client stores it and prefers it over the origin when routing a push notification or a `harmony://`
@@ -798,7 +804,10 @@ reaches another.
 A member may also share their screen. Every connection carries a receive-only video line for the
 member's own screen beside the microphone line, and a send-only video slot per other member, so
 starting or stopping a share negotiates nothing: the client attaches its screen to the line that is
-already there and the relay copies packets into the slots, or stops. A share is announced to the room
+already there and the relay copies packets into the slots, or stops. A room carries at most one live
+screen: the server refuses a second share with `409 screen_share_taken` while another member's is
+live (see the `PATCH` below), and the web client disables its share control and names the holder
+rather than opening a picker for a share that would be refused. A share is announced to the room
 as a `sharing` flag on the member's voice state, but watching is opt-in: the relay only forwards a
 share to the members that named the sharer in their `watching` set (see the `PATCH` below), so a
 screen costs no bandwidth until somebody asks for it. The relay is the same selective forwarder, so
@@ -915,7 +924,9 @@ into that one.
 
 Sets the caller's own mute, deafen, screen-sharing and screen-watching state; every field may be
 omitted. `sharing` tells the room this member's screen is live (the client sets it when its capture
-starts or stops). `watching` is the full set of member ids whose screens this client wants, replacing
+starts or stops). Only one screen may be live in a room at a time: a request that would turn a share
+on while another member is already sharing is refused with `409 screen_share_taken`, whose message
+names the holder. `watching` is the full set of member ids whose screens this client wants, replacing
 whatever it had before: the relay forwards a share only to the members that named its owner, which is
 the whole bandwidth opt-in. Ids that are not another member in the same channel are ignored. Returns
 the updated room and fires `VOICE_STATE_UPDATE`. `409 not_in_voice` if the caller is not in that
@@ -2151,12 +2162,19 @@ The endpoints a member's installs can be reached at. The endpoint is per install
 a client registers it with every instance the member has added and removes it on sign-out or when the
 provider rotates it.
 
-Harmony currently **records** these endpoints but does not deliver to them: no provider is wired yet.
-The routes exist so the mobile shell's registration seam has somewhere to point before push ships.
-When it does, the notification delivered to an endpoint is the `PushPayload` shape in
-[`packages/shared/src/push.ts`](../packages/shared/src/push.ts): `instanceId`, `instanceName`,
-`iconUrl`, `channelId`, `channelName`, `messageId`, `kind` (`mention` or `reply`), `authorName` and
-`snippet`. The launcher repository's `docs/PUSH.md` is the same contract from the client side.
+Harmony **delivers** to these endpoints now, provider-agnostically: when a member is mentioned or
+replied to in a channel, the notification is sent as the JSON body of an HTTP `POST` to each endpoint
+the member registered, which is the whole UnifiedPush/ntfy contract. It is not sent to a member who is
+already connected to this instance, or who has muted the channel or set it to notify nothing. The
+notification is the `PushPayload` shape in [`packages/shared/src/push.ts`](../packages/shared/src/push.ts):
+`instanceId`, `instanceName`, `iconUrl`, `channelId`, `channelName`, `messageId`, `kind` (`mention` or
+`reply`), `authorName` and `snippet`. It is self-contained, so a client routes it without calling back.
+A send that the provider answers with `404` or `410` means the endpoint is gone, and the registration
+is pruned rather than retried. The sender treats an endpoint as hostile: its host must resolve to a
+public address and a redirect is not followed, so a registration cannot aim the server at an internal
+address. `iconUrl` is set only when the instance has a public base URL, since
+that is the only origin the server knows for itself. The launcher repository's `docs/PUSH.md` is the
+same contract from the client side.
 
 #### `PUT /api/v1/users/@me/push-devices` — auth
 

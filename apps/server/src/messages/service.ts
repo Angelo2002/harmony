@@ -150,6 +150,14 @@ export interface MessageService {
   clearReactionsBridged(messageId: string, emoji: string, emojiId: string | null): void;
   /** Notified for locally created messages only, never for bridged ones. */
   onMessageCreated(listener: (message: Message) => void): void;
+  /**
+   * Notified for every message that really arrived live: a local post, and a
+   * bridged one that is not a history import. It is the seam a push hangs off.
+   * Deliberately separate from `onMessageCreated`, which the bridge listens to
+   * for mirroring and which stays local-only so a Discord message is not sent
+   * straight back to Discord.
+   */
+  onMessageReceived(listener: (message: Message) => void): void;
   onMessageEdited(listener: (message: Message) => void): void;
   onMessageDeleted(listener: (info: MessageDeletePayload) => void): void;
   onReactionAdded(listener: (event: ReactionEvent) => void): void;
@@ -481,6 +489,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
   }
 
   const createdListeners = new Set<(message: Message) => void>();
+  const receivedListeners = new Set<(message: Message) => void>();
   const editedListeners = new Set<(message: Message) => void>();
   const deletedListeners = new Set<(info: MessageDeletePayload) => void>();
   const reactionAddedListeners = new Set<(event: ReactionEvent) => void>();
@@ -499,6 +508,7 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
   function announce(message: Message): void {
     hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
     for (const listener of createdListeners) safeNotify(listener, message);
+    for (const listener of receivedListeners) safeNotify(listener, message);
   }
 
   function announceEdit(message: Message): void {
@@ -693,7 +703,10 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     createPollBridged(channelId, authorId, poll, options = {}) {
       requireChannel(channelId);
       const message = insertPollMessage(channelId, authorId, poll, null, options.createdAt);
-      if (!options.silent) hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
+      if (!options.silent) {
+        hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
+        for (const listener of receivedListeners) safeNotify(listener, message);
+      }
       return message;
     },
 
@@ -712,7 +725,12 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
       // must not be mirrored straight back. A history import is left unspoken:
       // broadcasting it would let an old, already-read message ring a client's
       // notification sound as though it had just arrived.
-      if (!options.silent) hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
+      if (!options.silent) {
+        hub.dispatch(GatewayEvent.MessageCreate, message, { channelId: message.channelId });
+        // A live Discord message is news here too, so it can be pushed; a
+        // silent import stays silent.
+        for (const listener of receivedListeners) safeNotify(listener, message);
+      }
       return message;
     },
 
@@ -727,6 +745,10 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
 
     onMessageCreated(listener) {
       createdListeners.add(listener);
+    },
+
+    onMessageReceived(listener) {
+      receivedListeners.add(listener);
     },
 
     onMessageEdited(listener) {

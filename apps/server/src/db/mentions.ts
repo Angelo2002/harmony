@@ -35,6 +35,22 @@ export function deleteNameMentions(sqlite: DatabaseSync, messageId: string): voi
 }
 
 /**
+ * Who a single message named or answered, for the live fan-out that reaches
+ * them away from the app. One row per recipient, and the row's kind tells the
+ * difference between being named and being answered. Ordered by insertion so a
+ * fan-out sends the same way every time.
+ */
+export function listMentionsForMessage(
+  sqlite: DatabaseSync,
+  messageId: string,
+): Array<{ userId: string; kind: 'mention' | 'reply' }> {
+  const rows = sqlite
+    .prepare('SELECT user_id, kind FROM mentions WHERE message_id = ? ORDER BY rowid')
+    .all(messageId) as unknown as Array<{ user_id: string; kind: string }>;
+  return rows.map((row) => ({ userId: row.user_id, kind: row.kind === 'reply' ? 'reply' : 'mention' }));
+}
+
+/**
  * How many mentions and replies this member has not read in each channel, which
  * is the number drawn beside it. Channels with none are left out. A mention
  * counts as read exactly when the channel does, so the same cursor that clears

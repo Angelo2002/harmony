@@ -336,70 +336,103 @@
 
   {#if voice.channelId}
     {@const voiceName = chat.channels.find((entry) => entry.id === voice.channelId)?.name ?? 'Voice'}
+    {@const sharer = voice.screenSharerName}
     <div class="voice-bar">
-      <div class="voice-bar-info">
-        <span class="voice-bar-title">{voiceName}</span>
-        <span class="voice-bar-status">
-          {#if voice.connecting}Connecting…
-          {:else if voice.connectionState === 'failed'}Connection failed
-          {:else if voice.connectionState === 'disconnected'}Reconnecting…
-          {:else}Voice connected{/if}
-        </span>
-        {#if voice.sharing}
-          <span class="voice-bar-sharing"><Icon name="screen" size={12} /> Sharing your screen</span>
-        {/if}
-        {#if !voice.connecting && voice.connectionState !== 'failed'}
-          <span class="voice-signal" title="Live audio: microphone sending, incoming audio">
-            <span class="voice-signal-icon" class:on={voice.sending}>
-              <Icon name={voice.muted ? 'mic-off' : 'mic'} size={12} />
-            </span>
-            <span class="voice-signal-icon" class:on={voice.receiving}>
-              <Icon name="volume" size={12} />
-            </span>
+      <div class="voice-bar-main">
+        <div class="voice-bar-info">
+          <span class="voice-bar-title">{voiceName}</span>
+          <span class="voice-bar-status">
+            {#if voice.connecting}Connecting…
+            {:else if voice.connectionState === 'failed'}Connection failed
+            {:else if voice.connectionState === 'disconnected'}Reconnecting…
+            {:else}Voice connected{/if}
           </span>
-        {/if}
-        {#if voice.error}<span class="voice-bar-error">{voice.error}</span>{/if}
+          {#if voice.error}<span class="voice-bar-error">{voice.error}</span>{/if}
+        </div>
+        <button
+          type="button"
+          class="voice-bar-button"
+          class:on={voice.muted}
+          class:speaking={myId !== null && voice.speaking[myId] === true}
+          title={voice.muted ? 'Unmute' : 'Mute'}
+          aria-label={voice.muted ? 'Unmute' : 'Mute'}
+          onclick={() => voice.setMuted(!voice.muted)}
+        >
+          <Icon name={voice.muted ? 'mic-off' : 'mic'} size={18} />
+        </button>
+        <button
+          type="button"
+          class="voice-bar-button"
+          class:on={voice.deafened}
+          title={voice.deafened ? 'Undeafen' : 'Deafen'}
+          aria-label={voice.deafened ? 'Undeafen' : 'Deafen'}
+          onclick={() => voice.setDeafened(!voice.deafened)}
+        >
+          <Icon name="headphones" size={18} />
+        </button>
+        <button
+          type="button"
+          class="voice-bar-button"
+          class:sharing={voice.sharing}
+          aria-disabled={!voice.sharing && sharer !== null}
+          title={voice.sharing
+            ? 'Stop sharing'
+            : sharer
+              ? `${sharer} is already sharing their screen`
+              : 'Share screen'}
+          aria-label={voice.sharing
+            ? 'Stop sharing your screen'
+            : sharer
+              ? `${sharer} is already sharing their screen in this channel. Sharing is unavailable until they stop.`
+              : 'Share your screen'}
+          onclick={() => (voice.sharing ? voice.stopScreen() : voice.shareScreen())}
+        >
+          <Icon name="screen" size={18} />
+        </button>
+        <button
+          type="button"
+          class="voice-bar-button danger"
+          title="Disconnect"
+          aria-label="Disconnect from voice"
+          onclick={() => voice.leave()}
+        >
+          <Icon name="phone-off" size={18} />
+        </button>
       </div>
-      <button
-        type="button"
-        class="voice-bar-button"
-        class:on={voice.muted}
-        class:speaking={myId !== null && voice.speaking[myId] === true}
-        title={voice.muted ? 'Unmute' : 'Mute'}
-        aria-label={voice.muted ? 'Unmute' : 'Mute'}
-        onclick={() => voice.setMuted(!voice.muted)}
-      >
-        <Icon name={voice.muted ? 'mic-off' : 'mic'} size={18} />
-      </button>
-      <button
-        type="button"
-        class="voice-bar-button"
-        class:on={voice.deafened}
-        title={voice.deafened ? 'Undeafen' : 'Deafen'}
-        aria-label={voice.deafened ? 'Undeafen' : 'Deafen'}
-        onclick={() => voice.setDeafened(!voice.deafened)}
-      >
-        <Icon name="headphones" size={18} />
-      </button>
-      <button
-        type="button"
-        class="voice-bar-button"
-        class:sharing={voice.sharing}
-        title={voice.sharing ? 'Stop sharing' : 'Share screen'}
-        aria-label={voice.sharing ? 'Stop sharing your screen' : 'Share your screen'}
-        onclick={() => (voice.sharing ? voice.stopScreen() : voice.shareScreen())}
-      >
-        <Icon name="screen" size={18} />
-      </button>
-      <button
-        type="button"
-        class="voice-bar-button danger"
-        title="Disconnect"
-        aria-label="Disconnect from voice"
-        onclick={() => voice.leave()}
-      >
-        <Icon name="phone-off" size={18} />
-      </button>
+      {#if voice.sharing || sharer || (!voice.connecting && voice.connectionState !== 'failed')}
+        <!--
+          The connection indicators share one full-width line under the title:
+          the live-audio readout and the screen-share note. The note belongs
+          here because a shared screen is a connection like the microphone and
+          the incoming audio, and because the ~79px info column at the 250px
+          sidebar was too narrow for even a short name beside the word screen.
+          The complete sentence still lives on the share button's aria-label and
+          in the error the share guard raises, both reachable.
+        -->
+        <div class="voice-bar-connections">
+          {#if !voice.connecting && voice.connectionState !== 'failed'}
+            <span class="voice-signal" title="Live audio: microphone sending, incoming audio">
+              <span class="voice-signal-icon" class:on={voice.sending}>
+                <Icon name={voice.muted ? 'mic-off' : 'mic'} size={12} />
+              </span>
+              <span class="voice-signal-icon" class:on={voice.receiving}>
+                <Icon name="volume" size={12} />
+              </span>
+            </span>
+          {/if}
+          {#if voice.sharing}
+            <span class="voice-bar-sharing">
+              <Icon name="screen" size={12} />
+              <span class="voice-bar-sharing-text">Sharing your screen</span>
+            </span>
+          {:else if sharer}
+            <span class="voice-bar-sharing other">
+              <Icon name="screen" size={12} />
+              <span class="voice-bar-sharing-name">{sharer}</span><span class="voice-bar-sharing-suffix">’s screen</span>
+            </span>
+          {/if}
+        </div>
+      {/if}
     </div>
   {:else if voice.error}
     <!--
@@ -408,18 +441,20 @@
       outcome nobody can act on. Stand the error on its own until it is read.
     -->
     <div class="voice-bar error" role="alert">
-      <div class="voice-bar-info">
-        <span class="voice-bar-error">{voice.error}</span>
+      <div class="voice-bar-main">
+        <div class="voice-bar-info">
+          <span class="voice-bar-error">{voice.error}</span>
+        </div>
+        <button
+          type="button"
+          class="voice-bar-button"
+          title="Dismiss"
+          aria-label="Dismiss voice error"
+          onclick={() => voice.clearError()}
+        >
+          <Icon name="close" size={18} />
+        </button>
       </div>
-      <button
-        type="button"
-        class="voice-bar-button"
-        title="Dismiss"
-        aria-label="Dismiss voice error"
-        onclick={() => voice.clearError()}
-      >
-        <Icon name="close" size={18} />
-      </button>
     </div>
   {/if}
 

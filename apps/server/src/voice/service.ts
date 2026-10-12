@@ -159,6 +159,27 @@ export function createVoiceService(deps: VoiceDeps): VoiceService {
   }
 
   /**
+   * The id of the other member already sharing a screen in this channel, or null.
+   * By design a room carries at most one live screen; this is what `update`
+   * consults before it lets a second share begin.
+   */
+  function activeSharer(channelId: string, exceptUserId: string): string | null {
+    for (const id of rooms.get(channelId) ?? []) {
+      if (id === exceptUserId) continue;
+      if (members.get(id)?.sharing) return id;
+    }
+    return null;
+  }
+
+  /** A member's name for a message about them; a fallback if the row is gone. */
+  function displayNameOf(userId: string): string {
+    const row = findUserById(sqlite, userId);
+    if (!row) return 'Another member';
+    const user = presentUser(sqlite, row);
+    return user.displayName ?? user.username;
+  }
+
+  /**
    * Replaces a member's screen subscriptions with the ones they named. The client
    * sends the whole set, so this diffs it against what the relay already forwards:
    * a dropped id stops immediately, a new one starts forwarding (and asks the
@@ -306,7 +327,23 @@ export function createVoiceService(deps: VoiceDeps): VoiceService {
       if (!membership) throw new HttpError(409, 'not_in_voice', 'You are not in a voice channel.');
       if (patch.muted !== undefined) membership.muted = patch.muted;
       if (patch.deafened !== undefined) membership.deafened = patch.deafened;
-      if (patch.sharing !== undefined) membership.sharing = patch.sharing;
+      if (patch.sharing !== undefined && patch.sharing !== membership.sharing) {
+        // A room carries at most one live screen. Turning a share on is refused
+        // while another member's screen is already live. Two members racing to
+        // start are settled here: `update` runs to completion in one turn, so
+        // the first to arrive is the sharer and the second is told who holds it.
+        if (patch.sharing) {
+          const sharerId = activeSharer(membership.channelId, userId);
+          if (sharerId) {
+            throw new HttpError(
+              409,
+              'screen_share_taken',
+              `${displayNameOf(sharerId)} is already sharing their screen in this channel.`,
+            );
+          }
+        }
+        membership.sharing = patch.sharing;
+      }
       if (patch.watching !== undefined) applyWatching(userId, membership, patch.watching);
       broadcast(membership.channelId);
     },

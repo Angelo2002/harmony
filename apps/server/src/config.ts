@@ -66,6 +66,14 @@ export interface Config {
    * matter handed out by `GET /voice/ice`.)
    */
   voiceStunUrls: string[];
+  /**
+   * When true, a push endpoint that resolves to a private, loopback or
+   * link-local address is accepted. Off unless the process runs under
+   * `NODE_ENV=test` with `HARMONY_PUSH_ALLOW_PRIVATE_HOSTS=true`, which only the
+   * smoke harness does so its loopback delivery receiver can be reached. A real
+   * deployment can never turn the SSRF guard off.
+   */
+  pushAllowPrivateHosts: boolean;
 }
 
 // Load `.env` if present, without pulling in a dotenv dependency.
@@ -147,5 +155,10 @@ export function loadConfig(): Config {
       .split(',')
       .map((url) => url.trim())
       .filter((url) => url.length > 0),
+    // Keyed on NODE_ENV so the guard cannot be relaxed in a real deployment,
+    // even if the variable is set there. The smoke harness runs the server with
+    // NODE_ENV=test to reach its loopback delivery receiver.
+    pushAllowPrivateHosts:
+      process.env.NODE_ENV === 'test' && readBoolean(process.env.HARMONY_PUSH_ALLOW_PRIVATE_HOSTS, false),
   };
 }

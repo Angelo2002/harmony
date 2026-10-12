@@ -963,14 +963,22 @@ button.server-name:hover:not(:disabled) {
   color: var(--h-ok);
 }
 
-/* The bar above the user bar while connected to a voice channel. */
+/* The bar above the user bar while connected to a voice channel. Two rows: the
+   title and the controls, then the connection indicators. */
 .voice-bar {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
+  flex-direction: column;
+  gap: 0.35rem;
   padding: 0.5rem 0.6rem;
   border-top: 1px solid var(--h-border);
   background: var(--h-bg-deep);
+}
+
+/* The title/status column and the four controls, side by side. */
+.voice-bar-main {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .voice-bar-info {
@@ -994,22 +1002,63 @@ button.server-name:hover:not(:disabled) {
   font-size: 0.74rem;
 }
 
-/* Shown while this member shares, so it is more than a button's color. */
+/* The connection indicators share one full-width line under the title: the live
+   audio readout and the screen-share note. They belong together because a shared
+   screen is a connection like the microphone and the incoming audio, and because
+   the info column is only ~79px at the 250px sidebar once the four 32px controls
+   are gone, too narrow for even a short name beside the word screen. */
+.voice-bar-connections {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* Shown while this member shares, so it is more than a button's color. A single
+   line like .voice-bar-title; the full-width row leaves room for the whole note. */
 .voice-bar-sharing {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  min-width: 0;
+  overflow: hidden;
   color: var(--h-ok);
   font-size: 0.72rem;
   font-weight: 600;
 }
 
+/* The glyph keeps its size and carries the only spacing on the row, so the name
+   and the trailing words can sit flush and a possessive stays attached. */
+.voice-bar-sharing svg {
+  flex: none;
+  margin-right: 0.3rem;
+}
+
+.voice-bar-sharing-text,
+.voice-bar-sharing-name {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The trailing words stay whole; only the name gives way as a last resort. */
+.voice-bar-sharing-suffix {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Shown while another member holds the room's one screen, so the unavailable
+   share button has a visible reason rather than a tooltip that a touch screen hides. */
+.voice-bar-sharing.other {
+  color: var(--h-text-muted);
+}
+
 /* Live audio readout: one glyph for the microphone, one for incoming audio.
    Either dark means that direction is carrying nothing, which is exactly the
-   thing a silently broken call hides. On its own line, so it never crowds the
-   buttons. */
+   thing a silently broken call hides. It leads the connection row. */
 .voice-signal {
   display: inline-flex;
+  flex: none;
   gap: 0.25rem;
 }
 
@@ -1048,6 +1097,24 @@ button.server-name:hover:not(:disabled) {
 .voice-bar-button:hover:not(:disabled) {
   color: var(--h-text);
   background: var(--h-hover);
+}
+
+/* The unavailable share control. It uses aria-disabled rather than the disabled
+   attribute so it stays in the tab order and a keyboard or screen-reader user can
+   reach it and hear why it is unavailable; a click runs the share guard, which
+   puts the reason in .voice-bar-error. It reads and behaves as disabled: dimmed,
+   not-allowed, and with the shared hover and press effects pinned off. */
+.voice-bar-button[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.voice-bar-button[aria-disabled='true']:hover,
+.voice-bar-button[aria-disabled='true']:active {
+  color: var(--h-text-muted);
+  background: none;
+  box-shadow: none;
+  transform: none;
 }
 
 .voice-bar-button.on {
@@ -1299,6 +1366,9 @@ button.server-name:hover:not(:disabled) {
    status is. */
 .voice-bar.error {
   border-top-color: var(--h-error);
+}
+
+.voice-bar.error .voice-bar-main {
   align-items: flex-start;
 }
 

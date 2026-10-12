@@ -3,6 +3,7 @@
   import type { Message } from '@harmony/shared';
   import { chat } from '../lib/chat.svelte';
   import { dragHasFiles, mediaFilesFrom } from '../lib/files';
+  import { hasLaunchTarget, parseLaunchParams, withoutLaunchParams } from '../lib/launch-params';
   import { events } from '../lib/events.svelte';
   import { saved } from '../lib/saved.svelte';
   import { scheduled } from '../lib/scheduled.svelte';
@@ -25,7 +26,27 @@
   import UnreadBadge from './UnreadBadge.svelte';
 
   onMount(() => {
-    void chat.start();
+    // A notification tap or a `harmony://` deep link arrives as query
+    // parameters naming a channel, and sometimes a message, to open. They are
+    // read here rather than beside the Discord callback in App.svelte because
+    // the channel cannot be resolved until chat.start has loaded the channel
+    // list, and stripped only once they have been handled so a reload does not
+    // replay the link.
+    const launch = parseLaunchParams(window.location.search);
+    void chat
+      .start(launch)
+      .then(() => {
+        if (!hasLaunchTarget(launch)) return;
+        window.history.replaceState(
+          null,
+          '',
+          window.location.pathname + withoutLaunchParams(window.location.search) + window.location.hash,
+        );
+      })
+      .catch(() => {
+        // Offline, or the server was unreachable. The link stays in the URL so a
+        // reload can still follow it once there is a connection.
+      });
     // Reminders have to come due whether or not the saved panel is open.
     saved.start();
     // Scheduled messages are sent by the server; this only mirrors the queue.

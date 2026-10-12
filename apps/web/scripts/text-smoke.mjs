@@ -4,7 +4,8 @@
 // the quick switcher's matching, the channel arrows, the unread tab title and
 // how mutes change it, how a channel inherits its category's settings, where
 // the "new" line and the new-messages bar land, and reading the time
-// expressions the composer turns into timestamps.
+// expressions the composer turns into timestamps, and the channel and message
+// a launch link (a notification tap or a deep link) names.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -110,6 +111,7 @@ import {
 } from '../src/lib/search-query.ts';
 import { SLASH_COMMANDS, applySlashCommand, matchSlashCommands, slashQuery } from '../src/lib/slash-commands.ts';
 import { mediaFilesFrom } from '../src/lib/files.ts';
+import { hasLaunchTarget, parseLaunchParams, withoutLaunchParams } from '../src/lib/launch-params.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -1621,6 +1623,29 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('the same image listed twice in one source is taken once', mediaFilesFrom(fake([], [image(), image()])).length === 1);
   check('a non-media file is left out', mediaFilesFrom(fake([], [image({ type: 'application/pdf', name: 'a.pdf' })])).length === 0);
   check('no clipboard means no files', mediaFilesFrom(null).length === 0);
+}
+
+// --- Launch parameters: a notification tap or a deep link ---
+{
+  const parsed = parseLaunchParams('?channel=c1&message=m1');
+  check('a launch link names its channel and message', parsed.channelId === 'c1' && parsed.messageId === 'm1');
+  const channelOnly = parseLaunchParams('?channel=c1');
+  check('a link may name only a channel', channelOnly.channelId === 'c1' && channelOnly.messageId === null);
+  check('a link naming nothing yields nothing', parseLaunchParams('').channelId === null);
+  check('a blank id is treated as absent', parseLaunchParams('?channel=&message=').messageId === null);
+  check('an id is trimmed', parseLaunchParams('?channel=%20c1%20').channelId === 'c1');
+  check('a message without a channel is still read', parseLaunchParams('?message=m1').messageId === 'm1');
+  check('an unrelated parameter is ignored', parseLaunchParams('?discord=linked').channelId === null);
+  check('hasLaunchTarget spots a channel alone', hasLaunchTarget(parseLaunchParams('?channel=c1')));
+  check('hasLaunchTarget is false when nothing is named', !hasLaunchTarget(parseLaunchParams('?voice=off')));
+
+  check('the strip takes the launch parameters out', withoutLaunchParams('?channel=c1&message=m1') === '');
+  check(
+    'the strip keeps other parameters',
+    withoutLaunchParams('?channel=c1&discord=linked&message=m1') === '?discord=linked',
+  );
+  check('the strip of a clean search changes nothing', withoutLaunchParams('?discord=linked') === '?discord=linked');
+  check('the strip of an empty search is empty', withoutLaunchParams('') === '');
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

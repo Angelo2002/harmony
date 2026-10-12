@@ -909,10 +909,13 @@ takes the `mentions` rows for it, drops anyone already connected to the gateway 
 muted in the channel, and `push/sender.ts` `POST`s the `PushPayload` JSON to each
 remaining device over HTTP — the provider-agnostic UnifiedPush/ntfy contract, no
 vendor account. An endpoint the provider answers `404`/`410` for is pruned. The
-fan-out hangs off `onMessageReceived`, which fires for a live local post and a live
-bridged one but never for a history import or an edit, so an old message cannot ring
-twice. Keep the two separate in your head: the sounds are in-app and client-side,
-while push crosses to a distributor and carries ids, not a session.
+sender treats an endpoint as hostile like every other outbound fetch: its host
+must resolve to a public address, and no redirect is followed, so a registration
+cannot aim the server at an internal address. The fan-out hangs off
+`onMessageReceived`, which fires for a live local post and a live bridged one but
+never for a history import or an edit, so an old message cannot ring twice. Keep
+the two separate in your head: the sounds are in-app and client-side, while push
+crosses to a distributor and carries ids, not a session.
 
 Which messages count as a mention is decided by the same parser that renders them,
 so a name inside a backtick block is a quotation rather than a summons.

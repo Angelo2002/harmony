@@ -49,6 +49,7 @@ import { createUpdateService } from '../src/update/service.ts';
 import { createUpdateApplier, listUpdateSnapshots, pruneUpdateSnapshots } from '../src/update/apply.ts';
 import { createUserService } from '../src/users/service.ts';
 import { sanitizeDetail, sanitizeLogText } from '../src/log/sanitize.ts';
+import { createHttpPushSender } from '../src/push/sender.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8791;
@@ -91,6 +92,12 @@ const server = spawn('node', ['src/index.ts'], {
     HARMONY_WEB_DIR: webDir,
     HARMONY_REQUIRE_INVITE: 'true',
     HARMONY_LOG_LEVEL: 'error',
+    // The push-delivery checks below stand a receiver up on loopback, so the
+    // server's outbound SSRF guard is relaxed for this run only. The config
+    // honours the flag only under NODE_ENV=test, which is set here, so a real
+    // deployment can never reach an internal host through a registration.
+    NODE_ENV: 'test',
+    HARMONY_PUSH_ALLOW_PRIVATE_HOSTS: 'true',
     // Short enough that a socket going silent is closed within a few seconds,
     // long enough that the heartbeating helper below never misses one.
     HARMONY_GATEWAY_HEARTBEAT_MS: String(HEARTBEAT_MS),
@@ -1266,6 +1273,80 @@ try {
 
   await req('/users/@me/push-devices', { method: 'DELETE', token: bobToken, body: { endpoint: `${pushReceiverOrigin}/ok` } });
   await new Promise((ready) => pushReceiver.close(ready));
+
+  // --- Push sender SSRF guard ---
+  // The running server above has the guard relaxed so its loopback receiver is
+  // reachable. The guard itself is exercised here directly, against the real
+  // sender: a member-supplied endpoint must never make the server open a socket
+  // to an internal address, and a redirect must never be followed to one.
+  const samplePushPayload = {
+    instanceId: 'smoke-instance',
+    instanceName: 'Smoke',
+    iconUrl: null,
+    channelId: 'channel-1',
+    channelName: 'general',
+    messageId: 'message-1',
+    kind: 'mention',
+    authorName: 'owner',
+    snippet: 'hello',
+  };
+
+  const guardCalls = [];
+  const guardedSender = createHttpPushSender({
+    fetchImpl: async (url, init) => {
+      guardCalls.push({ url: String(url), redirect: init?.redirect });
+      return new Response('ok', { status: 200 });
+    },
+  });
+  const linkLocal = await guardedSender.send('http://169.254.169.254/latest/meta-data/', samplePushPayload);
+  check(
+    'a link-local push endpoint is refused with no request',
+    linkLocal.ok === false && linkLocal.gone === false && linkLocal.error === 'blocked_host' && guardCalls.length === 0,
+    `result ${JSON.stringify(linkLocal)}, calls ${guardCalls.length}`,
+  );
+  const loopback = await guardedSender.send('http://127.0.0.1:9/push', samplePushPayload);
+  check(
+    'a loopback push endpoint is refused with no request',
+    loopback.ok === false && loopback.gone === false && loopback.error === 'blocked_host' && guardCalls.length === 0,
+    `result ${JSON.stringify(loopback)}, calls ${guardCalls.length}`,
+  );
+  const privateV4 = await guardedSender.send('http://10.1.2.3/push', samplePushPayload);
+  const privateV6 = await guardedSender.send('http://[::1]/push', samplePushPayload);
+  check(
+    'private and IPv6 loopback push endpoints are refused with no request',
+    privateV4.error === 'blocked_host' && privateV6.error === 'blocked_host' && guardCalls.length === 0,
+    `v4 ${JSON.stringify(privateV4)}, v6 ${JSON.stringify(privateV6)}, calls ${guardCalls.length}`,
+  );
+
+  const redirectCalls = [];
+  const redirectSender = createHttpPushSender({
+    isPublicHost: async () => true,
+    fetchImpl: async (url, init) => {
+      redirectCalls.push({ url: String(url), redirect: init?.redirect });
+      return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } });
+    },
+  });
+  const redirected = await redirectSender.send('https://distributor.example/push', samplePushPayload);
+  check(
+    'a redirect from a push endpoint is refused, not followed',
+    redirected.ok === false &&
+      redirected.gone === false &&
+      redirected.error === 'redirect_blocked' &&
+      redirectCalls.length === 1 &&
+      redirectCalls[0]?.redirect === 'manual',
+    `result ${JSON.stringify(redirected)}, calls ${JSON.stringify(redirectCalls)}`,
+  );
+
+  const goneSender = createHttpPushSender({
+    isPublicHost: async () => true,
+    fetchImpl: async () => new Response('gone', { status: 410 }),
+  });
+  const goneResult = await goneSender.send('https://distributor.example/push', samplePushPayload);
+  check(
+    'a public endpoint that answers gone is still pruned',
+    goneResult.ok === false && goneResult.gone === true && goneResult.error === 'status_410',
+    `result ${JSON.stringify(goneResult)}`,
+  );
 
   // --- Link previews ---
   check('embeddable urls are found', listEmbeddableUrls('see https://example.com/a').includes('https://example.com/a'));

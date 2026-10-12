@@ -32,9 +32,11 @@ proposal it was built from.
   takes the `mentions` rows for it, drops anyone already connected to the gateway or
   muted in the channel, and `apps/server/src/push/sender.ts` `POST`s the payload
   JSON to each of that member's registered endpoints. It is the plain HTTP contract
-  UnifiedPush/ntfy already speak, so no provider account is needed. An endpoint the
-  provider answers `404`/`410` for is pruned. `GET /api/v1/meta` advertises the
-  capability as `push: { supported: true, providers: ["unifiedpush"] }`.
+  UnifiedPush/ntfy already speak, so no provider account is needed. The sender
+  refuses an endpoint whose host does not resolve to a public address (the same
+  SSRF guard every other outbound fetch uses) and never follows a redirect. An
+  endpoint the provider answers `404`/`410` for is pruned. `GET /api/v1/meta`
+  advertises the capability as `push: { supported: true, providers: ["unifiedpush"] }`.
 
 Still unbuilt: the Web Push, FCM and APNs adapters, the per-instance on/off and
 snippet-privacy settings, and retry bookkeeping (`last_error_at`). An instance with
@@ -390,9 +392,13 @@ An instance with no registered device sends nothing, exactly as today.
   device, or its own field alongside `notifyMajor` / `notifyMinor`?
 - Do we need to cap pushes per member per minute for a busy channel?
 - An endpoint is a member-supplied URL the server will `POST` to, so a hostile
-  registration can aim the server at an internal address. Do we block private
-  targets (breaking a self-hosted LAN distributor), or accept it as a member of a
-  single-community instance probing its own host?
+  registration can aim the server at an internal address. **Decided and shipped:**
+  the sender resolves the endpoint's host through the same public-address guard
+  every other outbound fetch uses (`apps/server/src/embeds/guard.ts`) and refuses
+  anything private, loopback or link-local before a socket is opened, and it never
+  follows a redirect (which could bounce a public first hop to an internal one).
+  A distributor that lives on the instance's own LAN would need the guard relaxed
+  explicitly; a default instance refuses it.
 
 ## File map
 

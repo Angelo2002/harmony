@@ -245,7 +245,7 @@ const pushDispatcher = createPushDispatcher({
   sqlite: db.sqlite,
   hub,
   settings: settingsService,
-  sender: createHttpPushSender(),
+  sender: createHttpPushSender({ allowPrivateHosts: config.pushAllowPrivateHosts }),
   // The endpoint is a capability, so failures are logged by member and reason.
   log: (message, detail) => app.log.debug(detail ?? {}, message),
 });

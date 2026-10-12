@@ -1,4 +1,5 @@
 import type { PushPayload } from '@harmony/shared';
+import { resolvesToPublicHost } from '../embeds/guard.ts';
 
 /**
  * What one delivery attempt came back as. The sender never throws, so the
@@ -34,6 +35,19 @@ export interface HttpPushSenderOptions {
   timeoutMs?: number;
   /** Injected by tests; a real run uses the global fetch. */
   fetchImpl?: typeof fetch;
+  /**
+   * Decides whether an endpoint's host may be reached. Injected by tests; a real
+   * run uses the shared SSRF guard, which allows only hosts that resolve to
+   * public addresses.
+   */
+  isPublicHost?: (hostname: string) => Promise<boolean>;
+  /**
+   * Accept an endpoint on a private, loopback or link-local address. Off by
+   * default and never enabled outside a test: the smoke harness runs its
+   * delivery receiver on loopback, and the server entry turns it on only under
+   * `NODE_ENV=test` with `HARMONY_PUSH_ALLOW_PRIVATE_HOSTS=true`.
+   */
+  allowPrivateHosts?: boolean;
 }
 
 /** Long enough for a slow distributor, short enough not to leak a socket. */
@@ -47,6 +61,8 @@ const DEFAULT_TIMEOUT_MS = 8_000;
 export function createHttpPushSender(options: HttpPushSenderOptions = {}): PushSender {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const fetchImpl = options.fetchImpl ?? fetch;
+  const isPublicHost = options.isPublicHost ?? resolvesToPublicHost;
+  const allowPrivateHosts = options.allowPrivateHosts ?? false;
 
   return {
     async send(endpoint, payload) {
@@ -61,15 +77,37 @@ export function createHttpPushSender(options: HttpPushSenderOptions = {}): PushS
       if (target.protocol !== 'http:' && target.protocol !== 'https:') {
         return { ok: false, gone: false, error: 'unsupported_endpoint' };
       }
+      // The endpoint is member-supplied, so the server is the one aiming the
+      // request: refuse a host that resolves to a private, loopback or
+      // link-local address (or does not resolve at all) before any socket is
+      // opened, so a registration cannot reach the instance's own network or a
+      // cloud metadata endpoint. This is the same guard every other outbound
+      // fetch uses.
+      if (!allowPrivateHosts) {
+        let allowed = false;
+        try {
+          allowed = await isPublicHost(target.hostname);
+        } catch {
+          allowed = false;
+        }
+        if (!allowed) return { ok: false, gone: false, error: 'blocked_host' };
+      }
 
       try {
         const response = await fetchImpl(target, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
+          // Never follow a redirect: the next hop would bypass the host check
+          // above and could land on an internal address. A distributor that
+          // redirects is treated as a refused delivery.
+          redirect: 'manual',
           signal: AbortSignal.timeout(timeoutMs),
         });
         if (response.ok) return { ok: true };
+        if (response.status >= 300 && response.status < 400) {
+          return { ok: false, gone: false, error: 'redirect_blocked' };
+        }
         // 404 and 410 both mean "this endpoint no longer exists", which a
         // distributor answers once the registration behind it is gone.
         const gone = response.status === 404 || response.status === 410;

@@ -2170,7 +2170,9 @@ notification is the `PushPayload` shape in [`packages/shared/src/push.ts`](../pa
 `instanceId`, `instanceName`, `iconUrl`, `channelId`, `channelName`, `messageId`, `kind` (`mention` or
 `reply`), `authorName` and `snippet`. It is self-contained, so a client routes it without calling back.
 A send that the provider answers with `404` or `410` means the endpoint is gone, and the registration
-is pruned rather than retried. `iconUrl` is set only when the instance has a public base URL, since
+is pruned rather than retried. The sender treats an endpoint as hostile: its host must resolve to a
+public address and a redirect is not followed, so a registration cannot aim the server at an internal
+address. `iconUrl` is set only when the instance has a public base URL, since
 that is the only origin the server knows for itself. The launcher repository's `docs/PUSH.md` is the
 same contract from the client side.
 

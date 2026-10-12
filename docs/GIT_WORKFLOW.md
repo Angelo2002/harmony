@@ -68,8 +68,8 @@ behavior.
 Every pull request that changes code must carry a security verdict from
 **Ghislaine**, the Cyber Security Consultant, before it is opened against
 `upstream/main`. She is an independent gate - she reports to the CEO, not to the
-engineer who authored the change - and only a branch that touches Markdown
-(`*.md`) files alone skips her review.
+engineer who authored the change - and only a branch whose changed paths are all
+Markdown skips her review (the definition is in step 5).
 
 The gate sits between pushing the branch and opening the pull request:
 
@@ -83,34 +83,78 @@ The gate sits between pushing the branch and opening the pull request:
    ```
 
 2. **Open a security-review issue.** Create a child issue of the task you are
-   working (`parentId` set) assigned to Ghislaine. Make it self-contained, since
-   she may not be able to read your task: branch name and base (`upstream/main`),
-   the head commit SHA, `git diff --stat upstream/main...<branch>`, a short
-   summary of what changed, the high-risk surfaces touched (auth and sessions,
-   `apps/server/src/access/service.ts`, `bridge/`, uploads, bot tokens, anything
-   with user PII), the verification you already ran and its result, and the pull
-   request title and body you intend to open. Block your task on that review
-   issue (`blockedByIssueIds`).
+   working (`parentId` set) assigned to Ghislaine. Make it self-contained - she
+   may not be able to read your task - and give her both the base SHA at review
+   time and the head SHA under review:
+
+   ```sh
+   git rev-parse upstream/main                  # base SHA at review time
+   git rev-parse <branch>                       # head SHA under review
+   git diff --stat      upstream/main...<branch>
+   git diff --name-only upstream/main...<branch>
+   ```
+
+   Then include, in the review issue:
+
+   - a short summary of what changed, and the pull request title and body you
+     intend to open;
+   - the verification you already ran and its result, plus a **not-verified**
+     statement: what you did *not* exercise;
+   - a **per-surface yes/no checklist** of the high-risk surfaces, one line of
+     specifics for each yes:
+
+     - auth / session / account linking;
+     - `apps/server/src/access/service.ts` or the permission bitfield in
+       `packages/shared`;
+     - `bridge/` (account linking, stand-in adoption);
+     - uploads under `HARMONY_DATA_DIR`;
+     - bot tokens or slash commands;
+     - message content, moderation actions, or audit records;
+     - user PII (DTOs, gateway broadcasts, profile routes, logs);
+     - outbound fetching (link previews, avatar import, push) - SSRF;
+
+   - **dependency delta** - `package.json` / lockfile changes, new or bumped
+     packages, or "none";
+   - **route/permission delta** - new or changed HTTP routes, gateway events, or
+     permission checks, and the authorization each one enforces;
+   - **data/PII delta** - does the diff add, widen, or newly *log* user data,
+     where is it stored, and for how long;
+   - **secrets assertion** - an explicit "no tokens, credentials, or `.env`
+     values in the diff". If any are present, stop and escalate to the CEO; that
+     is an incident, not a review finding.
+
+   Block your task on that review issue (`blockedByIssueIds`).
 
 3. **Wait for the verdict.** Ghislaine reviews on her issue and posts a verdict:
    **APPROVE**, or **BLOCK** with named findings (class, evidence, blast radius,
-   concrete fix, residual risk). She marks the review issue `done` either way -
-   the verdict is the deliverable. Her protocol and verdict format live in
-   `docs/SECURITY_REVIEW.md`.
+   concrete fix, severity vs. exploitability, residual risk). She marks the
+   review issue `done` either way - the verdict is the deliverable, and `done`
+   on a BLOCK is what resolves the blocker edge and wakes you. Her protocol,
+   verdict format and SLA live in `docs/SECURITY_REVIEW.md`.
 
-4. **Open the pull request on APPROVE.** Record the verdict in the body:
+4. **Open the pull request on APPROVE.** The verdict is bound to the head SHA it
+   reviewed, so **do not rebase or force-push the branch while it is under
+   review**: a rewrite moves `origin/<branch>` to a tree she never saw, and the
+   pull request head at open must equal the SHA in the verdict. Record the
+   verdict in the body with a **link to the review issue**, so the owner can
+   check it against her comment rather than a self-written string:
 
    ```md
-   Security review: <review-issue> - approved by Ghislaine (<head-sha>).
+   Security review: <review-issue-link> - approved by Ghislaine (<head-sha>).
    ```
 
-   On **BLOCK**, fix the findings on the same branch. A new commit changes the
-   diff the verdict covered, so request a fresh verdict before opening the pull
-   request.
+   On **BLOCK**, fix the findings as new commits on the same branch, then open a
+   **fresh** review child issue for the new head SHA, with a new blocker edge. A
+   review issue that already reached `done` will not wake you again, so do not
+   reuse it. If `upstream/main` advances so the merge base changes before you
+   open the pull request, note it on the review issue: a changed merge base
+   makes the review stale and Ghislaine re-checks.
 
-5. **Docs-only changes skip steps 2-4.** If the branch touches only `*.md`
-   files, say so in the pull request body: `Docs-only: security gate not
-   required.`
+5. **Docs-only changes skip steps 2-4.** Skip the gate only when **every** path
+   in `git diff --name-only upstream/main...<branch>` is a Markdown file
+   (`*.md`) or `LICENSE`. State that file list as the evidence in the pull
+   request body: `Docs-only (paths: <list>): security gate not required.` A
+   change that also touches code is not docs-only.
 
 The gate guards *opening the pull request*, not pushing a branch to the fork,
 and it never weakens the rules above: main is only advanced by a merge upstream,

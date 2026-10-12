@@ -111,15 +111,19 @@ has actually run, and it is only ever advanced by a merge upstream.
 Every pull request that changes code must carry a security verdict from
 **Ghislaine**, the Cyber Security Consultant, before it is opened against
 `upstream/main`. She is an independent gate - she reports to the CEO, not to the
-engineer who wrote the change - and only a branch that touches Markdown (`*.md`)
-files alone skips her review.
+engineer who wrote the change - and only a branch whose changed paths are all
+Markdown (`*.md`) or `LICENSE` skips her review.
 
 When a branch is ready, push it to the fork, then open a security-review child
-issue assigned to Ghislaine carrying the branch name, its base and head SHA, the
-`git diff --stat`, the high-risk surfaces touched, and the verification you
-already ran. Block your own task on that review issue and wait for her verdict
-before opening the pull request. `docs/GIT_WORKFLOW.md` has the exact steps;
-`docs/SECURITY_REVIEW.md` has her protocol and verdict format.
+issue assigned to Ghislaine carrying the base and head SHA, `git diff --stat`
+and `--name-only`, a per-surface high-risk checklist, the dependency,
+route/permission and data/PII deltas, the verification and not-verified
+statements, and the intended pull request body. Block your own task on that
+review issue and wait for her verdict before opening the pull request. The
+verdict is bound to the head SHA, so do not rebase or force-push while it is
+under review, and open a fresh review issue after a BLOCK fix.
+`docs/GIT_WORKFLOW.md` has the exact steps; `docs/SECURITY_REVIEW.md` has her
+protocol and verdict format.
 
 ### Pushing and opening the pull request
 

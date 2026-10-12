@@ -3,6 +3,7 @@ import { loginSchema, permissionsToString, registerSchema, type MeResponse } fro
 import type { Config } from '../config.ts';
 import type { AuthService } from '../auth/service.ts';
 import { extractToken, requireAuth } from '../auth/plugin.ts';
+import { withDiscordId } from '../db/users.ts';
 import { clearSessionCookie, setSessionCookie } from '../http/cookies.ts';
 import { createRateLimiter } from '../http/rate-limit.ts';
 import { parseBody } from '../http/validation.ts';
@@ -61,7 +62,11 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
 
   app.get('/api/v1/auth/me', async (request) => {
     const auth = requireAuth(request);
-    const body: MeResponse = { user: auth.user, permissions: permissionsToString(auth.permissions) };
+    // The member's own Discord id is theirs to see, so it rides on their own DTO.
+    const body: MeResponse = {
+      user: withDiscordId(auth.user, auth.discordId),
+      permissions: permissionsToString(auth.permissions),
+    };
     return body;
   });
 }

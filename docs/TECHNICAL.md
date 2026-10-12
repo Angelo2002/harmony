@@ -20,6 +20,13 @@ A production instance is a single process: the server serves the built client, t
 API and the gateway on one origin, so there is nothing else to run and no CORS to
 configure.
 
+The session cookie is `SameSite=Lax`, so a page on another origin does not
+attach it to a WebSocket handshake. The gateway still refuses a handshake
+that authenticates with that cookie when its `Origin` is not the instance's
+own, as a second layer should the attribute ever be relaxed or stripped by a
+proxy; a client that identifies with an explicit token is not origin-bound
+and is unaffected.
+
 ## Requirements
 
 - **Node.js 24 or newer.** The project relies on Node stripping TypeScript types
@@ -101,6 +108,13 @@ sharded into subdirectories by the first byte, so identical files are stored onc
 however many times they are posted. The database rows reference blobs by hash, and
 retention pruning removes any blob nothing references any more. Backing up the
 database and the `uploads/` folder together is therefore enough.
+
+Serving one is not a plain blob read: `GET /api/v1/attachments/:id` resolves the
+attachment's message and enforces the same channel visibility as reading that
+channel's history, so a member who loses the role a channel needs loses its media
+too. A pending upload no message carries yet is served only to its uploader or an
+administrator, and a deleted message's media answers `404` like a missing id, so
+the route is not an existence oracle (see `docs/API.md`).
 
 ## Theming
 
@@ -484,6 +498,16 @@ already does the right thing: `@username` mirrors out as a real `<@id>` ping,
 and an inbound `<@id>` no longer creates a stand-in but resolves to the member.
 Only the id on the row matters; no separate link table is needed.
 
+The id itself is **sensitive PII** and is kept off every public DTO. A Discord id is a stable,
+cross-platform identifier, so serving it to every member would let anyone correlate a Harmony
+pseudonym with a real Discord account. `User` therefore carries only `discordLinked: boolean`, which
+is enough for the client to draw the linked badge. The raw id rides on `LinkedUser` alone, which is
+produced in exactly two places: the account's own responses (`AuthResponse`, `MeResponse`, the
+gateway `READY` payload) and the administrator-only `GET /api/v1/members` view that sets and clears
+the link. `AuthContext` keeps the id in its own `discordId` field rather than on `auth.user`, so a
+broadcast of `auth.user` (presence, typing, `READY` to others) can never carry it. When adding a new
+DTO, put `User` on it, not `LinkedUser`, unless the viewer owns the account or is an administrator.
+
 The stand-in that usually already exists for that Discord id is then retired
 into the member rather than left beside it. That is the point: without it,
 history would show one person twice, an old stand-in name beside the member's
@@ -510,9 +534,10 @@ its client secret write-only like the bot token. The flow carries a one-time
 forged callback cannot land and a leaked code cannot be exchanged without the
 verifier. Signing in finds the account that already carries the Discord id, or
 creates one on first use, adopting any stand-in for that id so its history follows;
-a stand-in row is never signed into on its own, since it has no real owner. On that
-first sign-in the picture from Discord is imported as the member's avatar, unless
-they already have one, so nobody arrives as a blank face.
+a stand-in row is never signed into on its own, since it has no real owner, and an
+id held by any other account type (a real member or a bot) is refused rather than
+merged. On that first sign-in the picture from Discord is imported as the member's
+avatar, unless they already have one, so nobody arrives as a blank face.
 
 ## Bots and account types
 
@@ -1017,8 +1042,18 @@ is told about the gif it wanted and then wraps it in a card instead of showing i
 picture first costs nothing when the answer really is a page, since that is still read exactly as
 before.
 
-It also makes the second and later postings of the same link free. Blobs are content-addressed, so
-the bytes were only ever stored once; the row is what is per-message, and a row is a few hundred
+Every one of those outbound fetches — the page, the preview image, the avatar import and the push
+delivery beside them — goes through `guardedFetch` in `apps/server/src/embeds/guard.ts`. The guard
+used to resolve the host with `dns.lookup` and then let `fetch` resolve it again, which left a window
+for DNS rebinding: a name that answered with a public address for the check and a private one for the
+connection would reach an internal service from the server. The fetch now resolves the host and
+connects through a dispatcher whose own lookup re-checks the address at connect time and returns the
+exact address it approved, so a socket is only ever opened to an address that passed the guard. The
+original hostname still drives `Host` and TLS SNI; only the resolved address is pinned. The type
+allowlist, SVG refusal, redirect limit and size cap are unchanged.
+
+It also makes the second and later postings of the same link free. Blobs are content-addressed, so the
+bytes were only ever stored once; the row is what is per-message, and a row is a few hundred
 bytes. What the column adds is the ability to notice before fetching that this instance already holds
 the file, so a gif posted every morning is downloaded on the first morning and copied from the shelf
 on every morning after. The trade is that a link is assumed to keep pointing at what it pointed at

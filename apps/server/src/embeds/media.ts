@@ -1,4 +1,4 @@
-import { resolvesToPublicHost } from './guard.ts';
+import { guardedFetch, resolvesToPublicHost } from './guard.ts';
 
 /** Outbound fetch limits, kept tight because the target is user-supplied. */
 const FETCH_TIMEOUT_MS = 8000;
@@ -34,7 +34,7 @@ export async function fetchPublicImage(url: string, userAgent: string): Promise<
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch(target, {
+      const response = await guardedFetch(target, {
         redirect: 'manual',
         signal: controller.signal,
         headers: { 'user-agent': userAgent, accept: 'image/*' },

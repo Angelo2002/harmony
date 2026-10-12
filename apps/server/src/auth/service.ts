@@ -19,6 +19,7 @@ import {
   insertUser,
   parsePermissionBits,
   mergeUsers,
+  presentLinkedUser,
   presentUser,
   setUserDiscordId,
   updateUserProfile,
@@ -41,7 +42,15 @@ import { resolvePermissions } from './permissions.ts';
 import type { SettingsService } from '../settings/service.ts';
 
 export interface AuthContext {
+  /** The authenticated account, in the safe public {@link User} shape. */
   user: User;
+  /**
+   * The account's own Discord id, kept apart from `user` so it is never carried
+   * on a broadcast (presence, typing, `READY`). Only the member's own responses
+   * and the gateway `READY` payload surface it, by combining it into a
+   * `LinkedUser`.
+   */
+  discordId: string | null;
   permissions: PermissionValue;
   sessionId: string;
   token: string;
@@ -60,7 +69,9 @@ export interface AuthService {
    * Signs in with a proven Discord identity, creating the account on first
    * visit. A new account has no password. A bridge stand-in for the same Discord
    * user is folded into it, so their history becomes theirs. Throws for a banned
-   * account and, where invites are required, for a missing or unusable code.
+   * account and, where invites are required, for a missing or unusable code. An
+   * id already held by any account other than a stand-in is refused rather than
+   * merged.
    */
   signInWithDiscord(
     identity: DiscordIdentity,
@@ -126,6 +137,7 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
     touchBotToken(sqlite, bot.id);
     return {
       user: presentUser(sqlite, bot),
+      discordId: bot.discord_id,
       permissions: parsePermissionBits(bot.bot_permissions),
       sessionId: `bot:${bot.id}`,
       token,
@@ -154,7 +166,7 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
       const row = findUserById(sqlite, id);
       if (!row) throw new HttpError(500, 'internal_error', 'Failed to load the new account.');
 
-      return { user: presentUser(sqlite, row), token: issueSession(row, userAgent) };
+      return { user: presentLinkedUser(sqlite, row), token: issueSession(row, userAgent) };
     },
 
     async login(input, userAgent) {
@@ -173,7 +185,7 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
         throw new HttpError(403, 'account_banned', 'You have been banned from this server.');
       }
 
-      return { user: presentUser(sqlite, row), token: issueSession(row, userAgent) };
+      return { user: presentLinkedUser(sqlite, row), token: issueSession(row, userAgent) };
     },
 
     sessionForUser(userId, userAgent) {
@@ -181,7 +193,7 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
       if (!row) return null;
       // A ban ends every session, so it also blocks signing in this way.
       if (findBan(sqlite, row.id)) return null;
-      return { user: presentUser(sqlite, row), token: issueSession(row, userAgent) };
+      return { user: presentLinkedUser(sqlite, row), token: issueSession(row, userAgent) };
     },
 
     signInWithDiscord(identity, inviteCode, userAgent) {
@@ -193,6 +205,13 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
         const auth = this.sessionForUser(existing.id, userAgent);
         if (!auth) throw banned;
         return { auth, created: false };
+      }
+
+      // Any other account holding the id (a bot, say) is not ours to fold into
+      // a new member, so treat the id as taken rather than merge it away. Only a
+      // Discord stand-in may be adopted.
+      if (existing && existing.account_type !== 'ghost') {
+        throw new HttpError(409, 'discord_id_taken', 'That Discord account is already linked to another account.');
       }
 
       // A stand-in's ban follows it into the account that replaces it.
@@ -221,7 +240,7 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
 
       const row = findUserById(sqlite, id);
       if (!row) throw new HttpError(500, 'internal_error', 'Failed to load the new account.');
-      return { auth: { user: presentUser(sqlite, row), token: issueSession(row, userAgent) }, created: true };
+      return { auth: { user: presentLinkedUser(sqlite, row), token: issueSession(row, userAgent) }, created: true };
     },
 
     logout(token) {
@@ -247,6 +266,7 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
       touchSession(sqlite, session.id);
       return {
         user: presentUser(sqlite, row),
+        discordId: row.discord_id,
         permissions: resolvePermissions(sqlite, row),
         sessionId: session.id,
         token,

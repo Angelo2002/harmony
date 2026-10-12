@@ -74,8 +74,15 @@ const BLACK: Rgb = { r: 0, g: 0, b: 0 };
 
 /** Below this luminance a background is treated as light rather than dark. */
 const LIGHT_THRESHOLD = 0.45;
-/** Above this luminance an accent takes dark text on top of it. */
-const ON_ACCENT_THRESHOLD = 0.6;
+/**
+ * The luminance at which black and white give equal contrast on a color:
+ * `(L + 0.05) / 0.05 === 1.05 / (L + 0.05)`, i.e. `L = sqrt(1.05 * 0.05) - 0.05`
+ * (about 0.179). Below it white has the higher contrast; above it black does.
+ * This is the exact crossover rather than a round number, so no band of
+ * mid-tone accents (ambers, greens, teals) is left taking the lower-contrast
+ * choice.
+ */
+const CONTRAST_CROSSOVER = Math.sqrt(1.05 * 0.05) - 0.05;
 /** Backgrounds darker than this have no room to darken further. */
 const NEAR_BLACK = 0.004;
 
@@ -176,6 +183,9 @@ export function deriveTheme(settings: Partial<ThemeSettings> | null | undefined)
   const luminance = relativeLuminance(toHex(bg));
   const light = luminance > LIGHT_THRESHOLD;
   const nearBlack = luminance < NEAR_BLACK;
+  // Picking the higher-contrast of black-or-white on the accent is what keeps
+  // text on a primary button readable whatever color an admin chooses.
+  const accentLuminance = relativeLuminance(toHex(accent));
 
   // Elevation steps toward the text color: surfaces get lighter on a dark
   // background and darker on a light one, so a panel reads as raised either way.
@@ -221,7 +231,7 @@ export function deriveTheme(settings: Partial<ThemeSettings> | null | undefined)
     accentSubtle: withAlpha(accent, 12),
     accentGlow: withAlpha(accent, 38),
     accentGradient: `linear-gradient(135deg, ${toHex(accent)} 0%, ${toHex(gradientEnd)} 100%)`,
-    onAccent: relativeLuminance(toHex(accent)) > ON_ACCENT_THRESHOLD ? '#000000' : '#ffffff',
+    onAccent: accentLuminance > CONTRAST_CROSSOVER ? '#000000' : '#ffffff',
     hover: light ? 'rgb(0 0 0 / 5%)' : 'rgb(255 255 255 / 4%)',
     active: light ? 'rgb(0 0 0 / 9%)' : 'rgb(255 255 255 / 8%)',
     border,

@@ -1,8 +1,8 @@
-import type { User } from '@harmony/shared';
+import type { LinkedUser } from '@harmony/shared';
 
 /** Shared, reactive session state for the client. */
 class SessionState {
-  user = $state<User | null>(null);
+  user = $state<LinkedUser | null>(null);
   permissions = $state('0');
 
   get isSignedIn(): boolean {

@@ -6,6 +6,7 @@ import type {
   Channel,
   Emoji,
   Invite,
+  LinkedUser,
   Mention,
   Message,
   NameColor,
@@ -21,21 +22,21 @@ import type { InstancePushMeta } from './push.ts';
 
 /** Response for a successful register or login. */
 export interface AuthResponse {
-  user: User;
+  user: LinkedUser;
   /** Raw session token, for API clients that authenticate via `Authorization: Bearer`. */
   token: string;
 }
 
 /** Response for `GET /api/v1/auth/me`. */
 export interface MeResponse {
-  user: User;
+  user: LinkedUser;
   /** Effective permissions as a decimal bitfield string. */
   permissions: string;
 }
 
 /** Response for an administrator editing another member's account. */
 export interface MemberUpdateResponse {
-  user: User;
+  user: LinkedUser;
 }
 
 /** Consistent error body returned by every API endpoint. */
@@ -254,9 +255,13 @@ export interface ServerSettingsResponse {
   turnConfigured: boolean;
 }
 
-/** A user together with the roles assigned to them. */
+/**
+ * A user together with the roles assigned to them. Only the administrator
+ * member-management view uses this, so its `user` is the {@link LinkedUser}
+ * shape: an administrator already sees and sets the Discord link.
+ */
 export interface MemberSummary {
-  user: User;
+  user: LinkedUser;
   roleIds: string[];
   /** Effective permissions as a decimal bitfield string. */
   permissions: string;

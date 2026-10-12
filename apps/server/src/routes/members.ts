@@ -25,7 +25,7 @@ import type { BridgeService } from '../bridge/service.ts';
 import type { Database } from '../db/index.ts';
 import { assignRole, findRole, listMemberRoles, unassignRole } from '../db/roles.ts';
 import { deleteSessionsForUser } from '../db/sessions.ts';
-import { findUserById, listUsers, presentUser } from '../db/users.ts';
+import { findUserById, listUsers, presentLinkedUser, presentUser } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import { parseBody } from '../http/validation.ts';
 import type { ModerationService } from '../moderation/service.ts';
@@ -52,7 +52,7 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     const rolesByUser = listMemberRoles(db.sqlite);
 
     const members: MemberSummary[] = listUsers(db.sqlite).map((row) => ({
-      user: presentUser(db.sqlite, row),
+      user: presentLinkedUser(db.sqlite, row),
       roleIds: rolesByUser.get(row.id) ?? [],
       permissions: permissionsToString(resolvePermissions(db.sqlite, row)),
     }));
@@ -172,7 +172,7 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     }
 
     hub.dispatch(GatewayEvent.MemberUpdate, { userId });
-    const body: MemberUpdateResponse = { user: presentUser(db.sqlite, row) };
+    const body: MemberUpdateResponse = { user: presentLinkedUser(db.sqlite, row) };
     return body;
   });
 
@@ -199,7 +199,7 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     const row = await users.updateAvatar(userId, { contentType: file.mimetype, data });
     audit.memberUpdated(auth.user.id, userId, ['profile picture']);
     hub.dispatch(GatewayEvent.MemberUpdate, { userId });
-    const body: MemberUpdateResponse = { user: presentUser(db.sqlite, row) };
+    const body: MemberUpdateResponse = { user: presentLinkedUser(db.sqlite, row) };
     return body;
   });
 
@@ -213,7 +213,7 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     const row = users.clearAvatar(userId);
     audit.memberUpdated(auth.user.id, userId, ['profile picture']);
     hub.dispatch(GatewayEvent.MemberUpdate, { userId });
-    const body: MemberUpdateResponse = { user: presentUser(db.sqlite, row) };
+    const body: MemberUpdateResponse = { user: presentLinkedUser(db.sqlite, row) };
     return body;
   });
 

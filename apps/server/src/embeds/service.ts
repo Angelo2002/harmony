@@ -19,7 +19,7 @@ import { HttpError } from '../http/errors.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
 import type { GifSourceService } from '../gifs/sources.ts';
-import { resolvesToPublicHost } from './guard.ts';
+import { guardedFetch, resolvesToPublicHost } from './guard.ts';
 import { verifyLinkedGif, type VerifyLinkedGif } from './linked-gif.ts';
 import { readCappedBody } from './media.ts';
 import { parseEmbedMetadata } from './metadata.ts';
@@ -448,7 +448,7 @@ async function fetchOutcome(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch(target, {
+      const response = await guardedFetch(target, {
         redirect: 'manual',
         signal: controller.signal,
         // The picture is asked for first, and the page only as a fallback. Some
@@ -561,7 +561,7 @@ async function fetchImageBytes(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch(target, {
+      const response = await guardedFetch(target, {
         redirect: 'manual',
         signal: controller.signal,
         headers: { 'user-agent': userAgent, accept: 'image/*' },

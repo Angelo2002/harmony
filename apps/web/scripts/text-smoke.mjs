@@ -99,6 +99,10 @@ import { groupedRows, isGrouped } from '../src/lib/message-grouping.ts';
 import { detectTrigger, rankMember, suggestionsFor } from '../src/lib/composer-suggest.ts';
 import {
   HOST_VOICE_EVENT,
+  HOST_VOICE_MAX_CHANNEL_NAME,
+  HOST_VOICE_MAX_ID,
+  HOST_VOICE_MAX_MEMBERS,
+  HOST_VOICE_MAX_NAME,
   askHostToJoin,
   askHostToLeave,
   parseHostVoiceMessage,
@@ -1046,6 +1050,55 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
         'u3',
     );
     check('the terminal message is read', parseHostVoiceMessage('{"version":1,"type":"left"}')?.type === 'left');
+
+    // The parser is the one place shell input becomes roster rows, so its bounds
+    // live here: the roster is capped, an over-long name is truncated, an
+    // over-long id drops its entry, and a repeated id collapses to one row.
+    const crowd = Array.from({ length: HOST_VOICE_MAX_MEMBERS + 200 }, (_, i) => ({ id: `u${i}`, name: 'many' }));
+    check(
+      'an oversized member list is clamped',
+      parseHostVoiceMessage({ version: 1, type: 'state', channelId: 'c1', members: crowd })?.members.length ===
+        HOST_VOICE_MAX_MEMBERS,
+    );
+    check(
+      'an over-long member name is bounded',
+      parseHostVoiceMessage({
+        version: 1,
+        type: 'state',
+        channelId: 'c1',
+        members: [{ id: 'u1', name: 'n'.repeat(4096) }],
+      })?.members[0].name.length === HOST_VOICE_MAX_NAME,
+    );
+    const longId = parseHostVoiceMessage({
+      version: 1,
+      type: 'state',
+      channelId: 'c1',
+      members: [{ id: 'x'.repeat(HOST_VOICE_MAX_ID + 1), name: 'ghost' }, { id: 'ok' }],
+    });
+    check('a member with an over-long id is dropped', longId?.members.length === 1 && longId.members[0].id === 'ok');
+    const repeated = parseHostVoiceMessage({
+      version: 1,
+      type: 'state',
+      channelId: 'c1',
+      members: [
+        { id: 'u1', name: 'first' },
+        { id: 'u1', name: 'second' },
+        { id: 'u2' },
+      ],
+    });
+    check(
+      'a repeated member id collapses to its first row',
+      repeated?.members.length === 2 && repeated.members[0].name === 'first',
+    );
+    check(
+      'an over-long channel name is bounded',
+      parseHostVoiceMessage({ version: 1, type: 'state', channelId: 'c1', channelName: 'c'.repeat(4096) })?.channelName
+        ?.length === HOST_VOICE_MAX_CHANNEL_NAME,
+    );
+    check(
+      'a state whose channel id is over-long is dropped',
+      parseHostVoiceMessage({ version: 1, type: 'state', channelId: 'x'.repeat(HOST_VOICE_MAX_ID + 1) }) === null,
+    );
 
     // Both delivery routes: the bridge callback, and the window event a shell
     // may dispatch instead. Node has no window, so the event is proven against

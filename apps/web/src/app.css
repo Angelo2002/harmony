@@ -103,9 +103,35 @@
                      0.991 45.7%, 1.006 50.1%, 1.015 55%, 1.017 63.9%,
                      1.001 85.7%, 1);
 
+  /* ---- Spacing scale (DESIGN.md 3.1) ----
+     One vocabulary for gaps and padding, in rem at the 15px root. When you
+     touch a component, snap an ad-hoc rem value to the nearest step rather
+     than adding a new one. */
+  --h-space-1:  0.2rem;
+  --h-space-2:  0.3rem;
+  --h-space-3:  0.4rem;
+  --h-space-4:  0.5rem;
+  --h-space-5:  0.6rem;
+  --h-space-6:  0.75rem;
+  --h-space-7:  1rem;
+  --h-space-8:  1.25rem;
+  --h-space-9:  1.5rem;
+  --h-space-10: 2rem;
+  --h-space-11: 2.5rem;
+
   /* ---- Typography ---- */
   --h-font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --h-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+
+  /* ---- Type scale (DESIGN.md 3.2) ---- */
+  --h-text-2xs:  0.62rem;
+  --h-text-xs:   0.72rem;
+  --h-text-sm:   0.8rem;
+  --h-text-base: 0.875rem;
+  --h-text-md:   0.9rem;
+  --h-text-lg:   0.925rem;
+  --h-text-xl:   1.1rem;
+  --h-text-2xl:  1.65rem;
 
   font-family: var(--h-font);
   font-size: 15px;
@@ -488,8 +514,8 @@ legend {
 }
 
 .panel {
-  margin: 1rem 0;
-  padding: 1rem 1.1rem;
+  margin: var(--h-space-7) 0;
+  padding: var(--h-space-7);
   border-radius: var(--h-radius);
   background: var(--h-bg-deep);
   border: 1px solid var(--h-border);
@@ -497,7 +523,7 @@ legend {
 
 .panel p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--h-text-md);
 }
 
 /* ============================================================
@@ -807,15 +833,15 @@ button.server-name:hover:not(:disabled) {
   display: flex;
   position: relative;
   align-items: center;
-  gap: 0.4rem;
+  gap: var(--h-space-3);
   width: 100%;
-  padding: 0.45rem 0.6rem;
+  padding: var(--h-space-4) var(--h-space-5);
   border: none;
   border-radius: var(--h-radius-sm);
   background: none;
   color: var(--h-text-muted);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: var(--h-text-base);
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -1618,16 +1644,16 @@ button.server-name:hover:not(:disabled) {
 .message {
   position: relative;
   display: flex;
-  gap: 0.85rem;
-  padding: 0.15rem 0.6rem;
-  margin: 0 -0.6rem;
+  gap: var(--h-space-6);
+  padding: var(--h-space-1) var(--h-space-5);
+  margin: 0 calc(var(--h-space-5) * -1);
   border-radius: var(--h-radius-sm);
   touch-action: manipulation;
   transition: background var(--h-duration) var(--h-ease);
 }
 
 .message + .message:not(.grouped) {
-  margin-top: 0.8rem;
+  margin-top: var(--h-space-6);
 }
 
 .message:hover {
@@ -2206,7 +2232,7 @@ img.avatar {
   border-radius: var(--h-radius-xs);
   background: none;
   color: var(--h-text-muted);
-  font-size: 0.72rem;
+  font-size: var(--h-text-xs);
   font-weight: 600;
   box-shadow: none;
 }
@@ -2397,20 +2423,20 @@ button.mention:hover {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  gap: 0.5rem;
-  padding: 0 1.1rem 1.1rem;
+  gap: var(--h-space-4);
+  padding: 0 var(--h-space-7) var(--h-space-7);
 }
 
 /* A draft's custom emoji drawn as they will look once sent; the textarea still holds the :names:. */
 .composer-preview {
   max-height: 6em;
-  padding: 0.35rem 0.75rem;
+  padding: var(--h-space-3) var(--h-space-6);
   overflow-y: auto;
   border-radius: var(--h-radius);
   border: 1px dashed var(--h-border);
   background: var(--h-bg-elevated);
   color: var(--h-text-muted);
-  font-size: 0.925rem;
+  font-size: var(--h-text-lg);
   line-height: 1.4;
 }
 
@@ -2423,7 +2449,7 @@ button.mention:hover {
 .composer form {
   display: flex;
   align-items: flex-end;
-  gap: 0.5rem;
+  gap: var(--h-space-4);
   /* Anchors the + menu, which opens upward from the button. */
   position: relative;
 }
@@ -2431,7 +2457,7 @@ button.mention:hover {
 .composer form button {
   flex-shrink: 0;
   /* Centers the 38px buttons on the field while it is one line tall (see .text-input). */
-  margin-bottom: calc((0.925rem * 1.4 + 1.5rem + 2px - 38px) / 2);
+  margin-bottom: calc((var(--h-text-lg) * 1.4 + var(--h-space-9) + 2px - 38px) / 2);
 }
 
 .file-input {
@@ -2441,13 +2467,13 @@ button.mention:hover {
 .text-input {
   flex: 1;
   min-width: 0;
-  padding: 0.75rem 1rem;
+  padding: var(--h-space-6) var(--h-space-7);
   border: 1px solid var(--h-border);
   border-radius: var(--h-radius-lg);
   background: var(--h-bg-elevated);
   color: var(--h-text);
   font: inherit;
-  font-size: 0.925rem;
+  font-size: var(--h-text-lg);
   line-height: 1.4;
   /* The composer sizes itself to its content (fitToContent) up to this cap, then scrolls. */
   max-height: min(40vh, 16rem);
@@ -2538,10 +2564,10 @@ button.mention:hover {
   flex-direction: column;
   position: absolute;
   left: 0;
-  bottom: calc(100% + 0.5rem);
+  bottom: calc(100% + var(--h-space-4));
   z-index: 91;
   min-width: 11rem;
-  padding: 0.35rem;
+  padding: var(--h-space-3);
   border-radius: var(--h-radius);
   background: var(--h-bg-overlay);
   border: 1px solid var(--h-border-strong);
@@ -2552,15 +2578,15 @@ button.mention:hover {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.6rem;
+  gap: var(--h-space-5);
   width: auto;
   height: auto;
   margin-bottom: 0;
-  padding: 0.6rem 0.7rem;
+  padding: var(--h-space-5) var(--h-space-6);
   border-radius: var(--h-radius-sm);
   background: none;
   color: var(--h-text);
-  font-size: 0.9rem;
+  font-size: var(--h-text-md);
   font-weight: 500;
   text-align: left;
 }
@@ -2771,8 +2797,8 @@ button.mention:hover {
 .roster-member {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.35rem 0.6rem;
+  gap: var(--h-space-5);
+  padding: var(--h-space-3) var(--h-space-5);
   border-radius: var(--h-radius-sm);
   transition: background var(--h-duration) var(--h-ease);
 }
@@ -2788,7 +2814,7 @@ button.mention:hover {
 .roster-name {
   overflow: hidden;
   color: var(--h-text);
-  font-size: 0.875rem;
+  font-size: var(--h-text-base);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;

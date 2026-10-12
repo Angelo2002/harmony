@@ -160,6 +160,26 @@ The bundled `github-pr-workflow` skill has the full shape.
 - Once a pull request is merged, delete the branch (locally and on the fork) and
   rebuild local `main` from `upstream/main` rather than pushing it.
 
+### Upstream publication rule (YUC-RULE-003)
+
+No change may dead-end on a local branch. Every task that changes this
+repository must publish its change upstream before it can be called done: the
+branch is pushed to the fork (`origin`) and a pull request is opened against
+`upstream/main`. Opening the pull request is ours; merging is the owner's, so
+"waiting on the owner to merge" is a valid `in_review`, but "the branch only
+exists on my machine" is never a finished state.
+
+- A change is not done until its branch is on the fork and its pull request is
+  open. Record the branch name and the pull request URL on the task.
+- If the change cannot be published yet - no push access, an unmerged
+  dependency, a security gate still pending - block the task with a named owner
+  and the exact next action instead of reporting completion.
+- A run that ends early does not drop the work: the next run publishes the
+  branch, or retires it explicitly with a recorded reason.
+- Never silently delete another agent's unpublished branch. Publish it, or
+  retire a superseded branch on purpose with the reason recorded and flag it to
+  the CTO.
+
 ## Keep the docs current
 
 The documentation is part of the work, not an afterthought. As the project

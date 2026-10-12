@@ -213,7 +213,10 @@ member joins, a receive-only video line for that member's own screen beside the
 microphone line, and a send-only video slot per other member for that member's
 screen. Nothing is negotiated when a share starts or stops: the client attaches
 its screen to the line that is already there with `replaceTrack`, and the relay
-begins or stops copying packets, so renegotiation stays on join and leave.
+begins or stops copying packets, so renegotiation stays on join and leave. Only
+one screen is live in a room at a time: `voice/service.ts` refuses a second
+`sharing` flag with `409 screen_share_taken` while another member holds it, and
+the web client disables its share control and names the holder.
 Watching a screen is opt-in. A share is announced to the room as a `sharing` flag
 on the member's voice state, but the relay only forwards a producer's screen to
 the consumers that named them in their `watching` set (sent through

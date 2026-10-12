@@ -804,7 +804,10 @@ reaches another.
 A member may also share their screen. Every connection carries a receive-only video line for the
 member's own screen beside the microphone line, and a send-only video slot per other member, so
 starting or stopping a share negotiates nothing: the client attaches its screen to the line that is
-already there and the relay copies packets into the slots, or stops. A share is announced to the room
+already there and the relay copies packets into the slots, or stops. A room carries at most one live
+screen: the server refuses a second share with `409 screen_share_taken` while another member's is
+live (see the `PATCH` below), and the web client disables its share control and names the holder
+rather than opening a picker for a share that would be refused. A share is announced to the room
 as a `sharing` flag on the member's voice state, but watching is opt-in: the relay only forwards a
 share to the members that named the sharer in their `watching` set (see the `PATCH` below), so a
 screen costs no bandwidth until somebody asks for it. The relay is the same selective forwarder, so
@@ -921,7 +924,9 @@ into that one.
 
 Sets the caller's own mute, deafen, screen-sharing and screen-watching state; every field may be
 omitted. `sharing` tells the room this member's screen is live (the client sets it when its capture
-starts or stops). `watching` is the full set of member ids whose screens this client wants, replacing
+starts or stops). Only one screen may be live in a room at a time: a request that would turn a share
+on while another member is already sharing is refused with `409 screen_share_taken`, whose message
+names the holder. `watching` is the full set of member ids whose screens this client wants, replacing
 whatever it had before: the relay forwards a share only to the members that named its owner, which is
 the whole bandwidth opt-in. Ids that are not another member in the same channel are ignored. Returns
 the updated room and fires `VOICE_STATE_UPDATE`. `409 not_in_voice` if the caller is not in that

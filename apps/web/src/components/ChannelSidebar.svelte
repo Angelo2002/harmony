@@ -336,6 +336,7 @@
 
   {#if voice.channelId}
     {@const voiceName = chat.channels.find((entry) => entry.id === voice.channelId)?.name ?? 'Voice'}
+    {@const sharer = voice.screenSharerName}
     <div class="voice-bar">
       <div class="voice-bar-info">
         <span class="voice-bar-title">{voiceName}</span>
@@ -347,6 +348,8 @@
         </span>
         {#if voice.sharing}
           <span class="voice-bar-sharing"><Icon name="screen" size={12} /> Sharing your screen</span>
+        {:else if sharer}
+          <span class="voice-bar-sharing other"><Icon name="screen" size={12} /> {sharer} is sharing</span>
         {/if}
         {#if !voice.connecting && voice.connectionState !== 'failed'}
           <span class="voice-signal" title="Live audio: microphone sending, incoming audio">
@@ -385,8 +388,17 @@
         type="button"
         class="voice-bar-button"
         class:sharing={voice.sharing}
-        title={voice.sharing ? 'Stop sharing' : 'Share screen'}
-        aria-label={voice.sharing ? 'Stop sharing your screen' : 'Share your screen'}
+        disabled={!voice.sharing && sharer !== null}
+        title={voice.sharing
+          ? 'Stop sharing'
+          : sharer
+            ? `${sharer} is already sharing their screen`
+            : 'Share screen'}
+        aria-label={voice.sharing
+          ? 'Stop sharing your screen'
+          : sharer
+            ? `${sharer} is already sharing their screen in this channel`
+            : 'Share your screen'}
         onclick={() => (voice.sharing ? voice.stopScreen() : voice.shareScreen())}
       >
         <Icon name="screen" size={18} />

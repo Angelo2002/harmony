@@ -1004,6 +1004,12 @@ button.server-name:hover:not(:disabled) {
   font-weight: 600;
 }
 
+/* Shown while another member holds the room's one screen, so the disabled share
+   button has a visible reason rather than a tooltip that a touch screen hides. */
+.voice-bar-sharing.other {
+  color: var(--h-text-muted);
+}
+
 /* Live audio readout: one glyph for the microphone, one for incoming audio.
    Either dark means that direction is carrying nothing, which is exactly the
    thing a silently broken call hides. On its own line, so it never crowds the

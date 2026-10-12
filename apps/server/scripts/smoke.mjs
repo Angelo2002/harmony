@@ -914,6 +914,55 @@ try {
   });
   check('a member can mute themselves', muted.json?.members?.[0]?.muted === true);
 
+  // --- One screen per room ---
+  // A room carries at most one live screen; a second member's share is refused
+  // until the first stops.
+  const ownerShare = await req(`/channels/${voiceId}/voice`, {
+    method: 'PATCH',
+    token: ownerToken,
+    body: { sharing: true },
+  });
+  check(
+    'a member can start sharing their screen',
+    ownerShare.status === 200 &&
+      ownerShare.json?.members?.find((m) => m.user?.id === owner.json?.user?.id)?.sharing === true,
+    JSON.stringify(ownerShare.json),
+  );
+  await req(`/channels/${voiceId}/voice`, { method: 'POST', token: bobToken });
+  const bobRefusedShare = await req(`/channels/${voiceId}/voice`, {
+    method: 'PATCH',
+    token: bobToken,
+    body: { sharing: true },
+  });
+  check(
+    'a second member cannot share while another screen is live (409)',
+    bobRefusedShare.status === 409 && bobRefusedShare.json?.error?.code === 'screen_share_taken',
+    `status ${bobRefusedShare.status} ${JSON.stringify(bobRefusedShare.json)}`,
+  );
+  const bobAfterRefusal = await req('/voice', { token: bobToken });
+  check(
+    'the refused share is not recorded on the member',
+    bobAfterRefusal.json?.channels?.some(
+      (entry) =>
+        entry.channelId === voiceId &&
+        entry.members?.find((m) => m.user?.id === bob.json?.user?.id)?.sharing === false,
+    ) === true,
+    JSON.stringify(bobAfterRefusal.json),
+  );
+  await req(`/channels/${voiceId}/voice`, { method: 'PATCH', token: ownerToken, body: { sharing: false } });
+  const bobShare = await req(`/channels/${voiceId}/voice`, {
+    method: 'PATCH',
+    token: bobToken,
+    body: { sharing: true },
+  });
+  check(
+    'a member can share once the live screen stops (200)',
+    bobShare.status === 200 &&
+      bobShare.json?.members?.find((m) => m.user?.id === bob.json?.user?.id)?.sharing === true,
+    JSON.stringify(bobShare.json),
+  );
+  await req(`/channels/${voiceId}/voice`, { method: 'DELETE', token: bobToken });
+
   // --- ICE configuration for clients, and restarting ICE after a network change ---
   const iceUnset = await req('/voice/ice', { token: bobToken });
   check(

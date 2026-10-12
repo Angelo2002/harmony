@@ -297,7 +297,15 @@ is **off by default** and configured per instance.
   servers over IPC; notification routing can extend that same channel. Web Push
   (option 2 above) can cover the "app fully closed" case later if wanted.
 - **Mobile:** the shell owns the OS subscription, registers it per server, and
-  routes an incoming notification into the right server view.
+  routes an incoming notification into the right server view. It opens the web
+  client as `?channel=<id>&message=<id>` (a `harmony://` deep link resolves to
+  the same parameters).
+- **Web client launch URL.** The web client reads `channel` and `message` on
+  load: it opens `channel`, and when `message` names a message still in history
+  it scrolls to and flashes it, then strips both parameters so a reload does not
+  replay the link. A channel or message the instance does not know falls back to
+  the normal default (the configured default channel, at its newest messages)
+  rather than leaving a blank screen.
 
 ## Security and privacy
 

@@ -164,8 +164,12 @@ async function req(path, { method = 'GET', body, cookie, token } = {}) {
  */
 function openGateway(auth = {}) {
   return new Promise((resolveGateway, reject) => {
-    const options = auth.cookie ? { headers: { cookie: auth.cookie } } : {};
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/gateway`, options);
+    const headers = {};
+    if (auth.cookie) headers.cookie = auth.cookie;
+    // A browser always sends Origin on a WebSocket handshake, and the server
+    // requires it to match the instance for cookie auth, so the harness does too.
+    headers.origin = auth.origin ?? ORIGIN;
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/gateway`, { headers });
     const events = [];
     const timer = setTimeout(() => reject(new Error('gateway ready timeout')), 5000);
     let heartbeat = null;
@@ -192,9 +196,12 @@ function openGateway(auth = {}) {
   });
 }
 
-function gatewayIdentify(token) {
+function gatewayIdentify(token, extra = {}) {
   return new Promise((resolveIdentify, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/gateway`);
+    const headers = {};
+    if (extra.cookie) headers.cookie = extra.cookie;
+    if (extra.origin !== undefined) headers.origin = extra.origin;
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/gateway`, { headers });
     const result = { ready: null, closeCode: null };
     const timer = setTimeout(() => {
       try {
@@ -205,7 +212,7 @@ function gatewayIdentify(token) {
 
     ws.on('message', (raw) => {
       const frame = JSON.parse(raw.toString());
-      if (frame.op === 10) ws.send(JSON.stringify({ op: 2, d: { token } }));
+      if (frame.op === 10) ws.send(JSON.stringify({ op: 2, d: token ? { token } : {} }));
       if (frame.t === 'READY') {
         result.ready = frame.d;
         ws.close();
@@ -277,7 +284,10 @@ try {
   const me = await req('/auth/me', { cookie: owner.cookie });
   check('cookie authenticates /auth/me', me.status === 200 && me.json?.user?.username === 'alice');
   check('bearer token authenticates /auth/me', (await req('/auth/me', { token: ownerToken })).status === 200);
-  check('a real member carries no Discord id', me.json?.user?.discordId === null);
+  check(
+    'a real member carries no Discord id',
+    me.json?.user?.discordId === null && me.json?.user?.discordLinked === false,
+  );
   check('owner has Administrator', (BigInt(me.json?.permissions ?? '0') & (1n << 14n)) !== 0n);
 
   const dup = await req('/auth/register', { method: 'POST', body: { username: 'alice', password: 'another one' } });
@@ -333,9 +343,34 @@ try {
     const emptyHistory = await req(`/channels/${general.id}/messages`, { token: ownerToken });
     check('message history starts empty', emptyHistory.json?.messages?.length === 0);
 
-    const cookieGateway = await openGateway({ cookie: owner.cookie });
+    const cookieGateway = await openGateway({ cookie: owner.cookie, origin: ORIGIN });
     check('gateway identifies via session cookie', cookieGateway.ready?.user?.username === 'alice');
     cookieGateway.ws.close();
+
+    // Cookie auth is origin-bound: a page on another site cannot borrow the
+    // session the browser attaches (cross-site WebSocket hijacking).
+    const crossSiteCookie = await gatewayIdentify(undefined, {
+      cookie: owner.cookie,
+      origin: 'http://evil.example',
+    });
+    check(
+      'gateway rejects a cross-site cookie handshake (4004)',
+      crossSiteCookie.closeCode === 4004,
+      `code ${crossSiteCookie.closeCode}`,
+    );
+    const originlessCookie = await gatewayIdentify(undefined, { cookie: owner.cookie });
+    check(
+      'gateway rejects a cookie handshake with no Origin (4004)',
+      originlessCookie.closeCode === 4004,
+      `code ${originlessCookie.closeCode}`,
+    );
+    // A non-browser client that passes an explicit token is not origin-bound.
+    const foreignToken = await gatewayIdentify(login.json?.token, { origin: 'http://evil.example' });
+    check(
+      'gateway accepts an explicit token from any origin',
+      foreignToken.ready?.user?.username === 'alice',
+      `code ${foreignToken.closeCode}`,
+    );
 
     const posted = await req(`/channels/${general.id}/messages`, {
       method: 'POST',
@@ -4667,6 +4702,28 @@ try {
     'an administrator can link a member to a Discord id',
     linkedAccount.status === 200 && linkedAccount.json?.user?.discordId === '123456789012345678',
   );
+  // The linked id is the admin's to see, but another member's public DTOs must
+  // never carry it: `discordLinked` conveys the state without the raw PII.
+  const linkedRoster = await req('/members/roster', { token: ownToken });
+  const linkedRosterEntry = linkedRoster.json?.members?.find((entry) => entry.user.id === editId);
+  check(
+    'the roster shows the linked state but never the raw Discord id',
+    linkedRosterEntry?.user?.discordLinked === true && !('discordId' in linkedRosterEntry.user),
+  );
+  const linkedDirectory = await req('/members/directory', { token: ownToken });
+  const linkedDirectoryEntry = linkedDirectory.json?.users?.find((user) => user.id === editId);
+  check(
+    'the member directory never carries the raw Discord id',
+    linkedDirectoryEntry?.discordLinked === true && !('discordId' in linkedDirectoryEntry),
+  );
+  // The administrator member view is the narrow surface that keeps the id, since
+  // an administrator sets and clears the link from it.
+  const linkedAdminView = await req('/members', { token: ownerToken });
+  const linkedAdminEntry = linkedAdminView.json?.members?.find((entry) => entry.user.id === editId);
+  check(
+    'the administrator member view still carries the Discord id for linking',
+    linkedAdminEntry?.user?.discordId === '123456789012345678',
+  );
   check(
     'a malformed Discord id is refused (400)',
     (await req(`/members/${editId}`, { method: 'PATCH', token: ownerToken, body: { discordId: 'not-a-number' } })).status ===
@@ -5532,6 +5589,15 @@ try {
   check(
     'a mention reaches a member who is linked to Discord',
     (await inboxFor(bobToken)).json.mentions.some((entry) => entry.message.content.includes('linked ping')),
+  );
+  // A linked member's message author is another public DTO and must stay free of
+  // the raw id too.
+  const linkedBobPost = await postIn(replyChannelId, bobToken, { content: 'bob while linked' });
+  const linkedBobAuthor = (await req(`/channels/${replyChannelId}/messages`, { token: ownerToken }))
+    .json?.messages?.find((message) => message.id === linkedBobPost.json?.id)?.author;
+  check(
+    'a linked member message author carries the flag but never the raw Discord id',
+    linkedBobAuthor?.discordLinked === true && !('discordId' in linkedBobAuthor),
   );
   await req(`/members/${bobId}`, { method: 'PATCH', token: ownerToken, body: { discordId: null } });
 

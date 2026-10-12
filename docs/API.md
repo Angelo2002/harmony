@@ -195,10 +195,16 @@ type User = {
   showTyping: boolean;          // typing indicators on/off for this user
   notifyMajor: boolean;         // in-app sound for a message that mentions this user
   notifyMinor: boolean;         // in-app sound for other messages
-  discordId: string | null;     // the Discord account this user is linked to, or that a stand-in represents
+  discordLinked: boolean;       // whether this account is linked to a Discord account
   syncDiscordAvatar: boolean;   // whether the picture follows the linked Discord account; see "Users and avatars"
   hasPassword: boolean;         // false for an account created through Discord sign-in until a password is set
 };
+
+// `User.discordId` is deliberately absent: a Discord id is a stable,
+// cross-platform identifier (PII), so it must never ride on a public DTO. Where
+// the viewer is entitled to it — the member's own responses (`AuthResponse`,
+// `MeResponse`, the gateway `READY` payload) and the administrator-only
+// `MemberSummary` — the DTO is a `LinkedUser`, which adds `discordId: string | null`.
 
 type Category = {
   id: string;
@@ -593,6 +599,9 @@ Invalidates the current session and clears the cookie. Returns `{ "ok": true }`.
 ```json
 { "user": { "...": "..." }, "permissions": "2081" }
 ```
+
+Your own account. Its `user` is a `LinkedUser`, so it includes your own `discordId` (and
+`discordLinked`); nobody else's `User` carries the id.
 
 ### Discord sign-in
 
@@ -2357,6 +2366,10 @@ Returns `204`, fires `ROLE_DELETE` with `{ "id": "..." }`. The `@everyone` role 
 }
 ```
 
+The administrator member-management view. Unlike the public directory and roster below, its
+`user` is a `LinkedUser` and so also carries the raw `discordId`, because the editor on this screen
+sets and clears the link. Keep it administrator-only: the id is sensitive PII.
+
 #### `GET /api/v1/members/directory` — `ViewChannels`
 
 ```json
@@ -2366,7 +2379,8 @@ Returns `204`, fires `ROLE_DELETE` with `{ "id": "..." }`. The `@everyone` role 
 Every member's public profile, with no roles or permissions. This is what clients
 use to resolve and autocomplete `@username` mentions (see
 [Mentions](#mentions)), so unlike the management view above it is readable by
-anyone with `ViewChannels`.
+anyone with `ViewChannels`. Each entry is a plain `User`, so `discordLinked`
+says whether the account is linked but the raw `discordId` is never present.
 
 #### `GET /api/v1/members/roster` — `ViewChannels`
 
@@ -2429,7 +2443,7 @@ managed like anyone else's.
 Any subset of the fields. `username` must be free (`409 username_taken` unless it is already
 this member's). `displayName` may be `null` or `""` to clear it. Setting `password` ends every session
 and connection the member has, so they sign back in with the new one. Returns
-`{ "user": { /* User */ } }` and fires `MEMBER_UPDATE`; the fields that changed are recorded as a
+`{ "user": { /* LinkedUser */ } }` and fires `MEMBER_UPDATE`; the fields that changed are recorded as a
 `member_update` entry, and a password as a `password_reset` entry.
 
 `discordId` links the member to a Discord account, which is how a member and the Discord stand-in
@@ -2442,11 +2456,11 @@ server strips the field if one is sent.
 #### `PUT /api/v1/members/:userId/avatar` — `ManageMembers`
 
 `multipart/form-data` with a single `file` field. Normalized server-side to a 256×256 WebP. Returns
-`{ "user": { /* User */ } }`, fires `MEMBER_UPDATE`, and logs a `member_update`.
+`{ "user": { /* LinkedUser */ } }`, fires `MEMBER_UPDATE`, and logs a `member_update`.
 
 #### `DELETE /api/v1/members/:userId/avatar` — `ManageMembers`
 
-Clears the member's picture and returns `{ "user": { /* User */ } }`, firing `MEMBER_UPDATE`.
+Clears the member's picture and returns `{ "user": { /* LinkedUser */ } }`, firing `MEMBER_UPDATE`.
 
 #### `DELETE /api/v1/members/:userId` — `ManageMembers`
 
@@ -3168,7 +3182,10 @@ The protocol mirrors Discord's framing: every message is a JSON object `{ op, t?
    { "op": 2, "d": { "token": "harmony_session_token" } }
    ```
    Browser clients on the same origin may send `{ "op": 2, "d": {} }` and rely on the session
-   cookie sent with the WebSocket handshake.
+   cookie sent with the WebSocket handshake. Because the cookie is attached by the browser, this
+   path also requires the handshake's `Origin` header to match the instance's own origin; a
+   handshake from another site (or with no `Origin`) is closed with **4004**. Clients that pass an
+   explicit token are not origin-bound.
 3. On success the server sends **READY** (`op: 0`, `t: "READY"`):
    ```json
    { "op": 0, "t": "READY", "d": { "user": { "...": "..." }, "gateway_version": 1 } }

@@ -462,6 +462,16 @@ already does the right thing: `@username` mirrors out as a real `<@id>` ping,
 and an inbound `<@id>` no longer creates a stand-in but resolves to the member.
 Only the id on the row matters; no separate link table is needed.
 
+The id itself is **sensitive PII** and is kept off every public DTO. A Discord id is a stable,
+cross-platform identifier, so serving it to every member would let anyone correlate a Harmony
+pseudonym with a real Discord account. `User` therefore carries only `discordLinked: boolean`, which
+is enough for the client to draw the linked badge. The raw id rides on `LinkedUser` alone, which is
+produced in exactly two places: the account's own responses (`AuthResponse`, `MeResponse`, the
+gateway `READY` payload) and the administrator-only `GET /api/v1/members` view that sets and clears
+the link. `AuthContext` keeps the id in its own `discordId` field rather than on `auth.user`, so a
+broadcast of `auth.user` (presence, typing, `READY` to others) can never carry it. When adding a new
+DTO, put `User` on it, not `LinkedUser`, unless the viewer owns the account or is an administrator.
+
 The stand-in that usually already exists for that Discord id is then retired
 into the member rather than left beside it. That is the point: without it,
 history would show one person twice, an old stand-in name beside the member's

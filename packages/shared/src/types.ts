@@ -61,10 +61,14 @@ export interface User {
   /** Whether the quieter sound plays for other messages. In-app only. */
   notifyMinor: boolean;
   /**
-   * The Discord account this stand-in represents, or null for a real member.
-   * Only ever set on accounts the bridge created for the other side of a link.
+   * Whether this account is linked to a Discord account. This is the only thing
+   * a public DTO says about a link: the raw id is deliberately not part of
+   * `User`. A Discord id is a stable, cross-platform identifier, so serving it to
+   * every member would let anyone correlate a Harmony pseudonym with a real
+   * Discord account. The id only rides on {@link LinkedUser}, which is produced
+   * for the account's own sessions or an administrator-authorized surface.
    */
-  discordId: string | null;
+  discordLinked: boolean;
   /**
    * Whether this member's profile picture follows their linked Discord account.
    * On by default. While it is on, the picture is Discord's to set and cannot be
@@ -77,6 +81,19 @@ export interface User {
    * password until the member sets one.
    */
   hasPassword: boolean;
+}
+
+/**
+ * A user DTO that also carries their Discord id. It is only ever produced for
+ * the account's own sessions (the sign-in and `/auth/me` responses, the gateway
+ * `READY` payload, and the account's own routes) or for the administrator-only
+ * member surface. It must never back another member's profile, the public
+ * directory, the roster or a message author, because the id is a sensitive,
+ * stable cross-platform identifier (PII). Treat `User` as the safe shape and
+ * reach for this one only when the viewer is entitled to the id.
+ */
+export interface LinkedUser extends User {
+  discordId: string | null;
 }
 
 /** A ban, with the user it applies to and who issued it. */

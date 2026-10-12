@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { AccountType, PermissionValue, SocialLinks, User, UserBadge, UserProfile } from '@harmony/shared';
+import type { AccountType, LinkedUser, PermissionValue, SocialLinks, User, UserBadge, UserProfile } from '@harmony/shared';
 import { hasPassword, NO_PASSWORD } from '../auth/passwords.ts';
 import { getHighestRoleColor, getUserBadge } from './roles.ts';
 import { findNameColor } from './name_colors.ts';
@@ -71,10 +71,25 @@ export function toUser(
     showTyping: row.show_typing === 1,
     notifyMajor: row.notify_major === 1,
     notifyMinor: row.notify_minor === 1,
-    discordId: row.discord_id,
+    discordLinked: row.discord_id !== null,
     syncDiscordAvatar: row.sync_discord_avatar === 1,
     hasPassword: hasPassword(row.password_hash),
   };
+}
+
+/**
+ * A user DTO that also carries the raw Discord id. Only use this where the
+ * viewer is entitled to the id: the member's own responses and the
+ * administrator member view. Everywhere else use {@link presentUser}, whose
+ * `discordLinked` tells the client enough without exposing the id (PII).
+ */
+export function presentLinkedUser(sqlite: DatabaseSync, row: UserRow): LinkedUser {
+  return withDiscordId(presentUser(sqlite, row), row.discord_id);
+}
+
+/** Adds the raw Discord id to an already-presented user, for a self-or-admin DTO. */
+export function withDiscordId(user: User, discordId: string | null): LinkedUser {
+  return { ...user, discordId };
 }
 
 /** A user DTO with their display color and badge resolved from their roles. */

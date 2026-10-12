@@ -13,7 +13,7 @@ import { resolvePermissions } from '../auth/permissions.ts';
 import { requireAuth, requirePermission } from '../auth/plugin.ts';
 import type { Database } from '../db/index.ts';
 import { deleteOtherSessionsForUser } from '../db/sessions.ts';
-import { findUserById, presentUser, presentUserProfile, type UserRow } from '../db/users.ts';
+import { findUserById, presentLinkedUser, presentUserProfile, type UserRow } from '../db/users.ts';
 import { HttpError } from '../http/errors.ts';
 import { parseBody } from '../http/validation.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
@@ -31,7 +31,7 @@ export interface UserRouteDeps {
 export function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): void {
   function present(row: UserRow): MeResponse {
     return {
-      user: presentUser(deps.db.sqlite, row),
+      user: presentLinkedUser(deps.db.sqlite, row),
       permissions: permissionsToString(resolvePermissions(deps.db.sqlite, row)),
     };
   }

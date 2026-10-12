@@ -9,6 +9,7 @@ import {
   type GatewayReady,
 } from '@harmony/shared';
 import type { AuthContext } from '../auth/service.ts';
+import { withDiscordId } from '../db/users.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 
 export interface GatewayOptions {
@@ -119,7 +120,10 @@ export function registerGateway(app: FastifyInstance, options: GatewayOptions): 
         identifiedUserId = auth.user.id;
         clearTimeout(identifyTimer);
         options.hub.authenticate(clientId, auth);
-        const ready: GatewayReady = { user: auth.user, gateway_version: GATEWAY_VERSION };
+        const ready: GatewayReady = {
+          user: withDiscordId(auth.user, auth.discordId),
+          gateway_version: GATEWAY_VERSION,
+        };
         socket.send(JSON.stringify({ op: GatewayOp.Dispatch, t: GatewayEvent.Ready, d: ready }));
       }
     });

@@ -124,7 +124,7 @@
             {user.displayName ?? user.username}
             {#if user.badge}<MemberBadge badge={user.badge} size={15} />{/if}
             {#if user.accountType === 'bot'}<BotBadge size={15} />{/if}
-            {#if user.discordId}
+            {#if user.discordLinked}
               {#if user.accountType === 'ghost'}
                 <span class="card-linked" title="A Discord account"><Icon name="link" size={13} /></span>
               {:else}
@@ -168,12 +168,6 @@
             <div class="profile-field">
               <span class="profile-field-label">Member since</span>
               <span>{new Date(user.createdAt).toLocaleDateString()}</span>
-            </div>
-          {/if}
-          {#if user.discordId}
-            <div class="profile-field">
-              <span class="profile-field-label">Discord</span>
-              <code class="profile-field-value">{user.discordId}</code>
             </div>
           {/if}
         </div>

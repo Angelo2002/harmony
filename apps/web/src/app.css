@@ -774,6 +774,39 @@ button.server-name:hover:not(:disabled) {
   transform: translateY(-50%);
 }
 
+/*
+ * WCAG 2.2 target size: the "..." keeps its 1.5rem face and a centered overlay
+ * grows its hit area to the 24x24 minimum. The control is only 22.5px, so the
+ * overlay adds 0.75px on each side, which cannot reach the channel row behind
+ * it.
+ */
+.channel-more::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 24px);
+  height: max(100%, 24px);
+  transform: translate(-50%, -50%);
+}
+
+/*
+ * Touch aims for 44x44. A sidebar row is only about 34px tall and the channel
+ * row sits directly behind the button, so the overlay is anchored to the
+ * sidebar's right edge and the row it rides: it grows left over its own row and
+ * covers the full row height rather than spilling past the sidebar's padding,
+ * where it would force a horizontal scrollbar.
+ */
+@media (hover: none) {
+  .channel-more::after {
+    left: auto;
+    right: 0;
+    width: 44px;
+    height: 44px;
+    transform: translateY(-50%);
+  }
+}
+
 .category-header .channel-more {
   top: calc(50% - 0.2rem);
   right: 0.1rem;
@@ -2228,6 +2261,7 @@ img.avatar {
 }
 
 .message-actions button {
+  position: relative;
   padding: 0.25rem 0.55rem;
   border-radius: var(--h-radius-xs);
   background: none;
@@ -2235,6 +2269,38 @@ img.avatar {
   font-size: var(--h-text-xs);
   font-weight: 600;
   box-shadow: none;
+}
+
+/*
+ * WCAG 2.2 target size: the control keeps its compact visual size, and a
+ * transparent overlay grows only its hit area to 24x24. The overlay is centered
+ * and widens past 100% only for a control narrower than 24px, which these text
+ * buttons never are, so it cannot reach a neighbour across the toolbar's gap.
+ */
+.message-actions button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 24px);
+  height: max(100%, 24px);
+  transform: translate(-50%, -50%);
+}
+
+/*
+ * On touch, aim for the 44x44 guidance. The overlays do get wide enough to meet
+ * across the gap there, so the toolbar gives them room to sit clear of each
+ * other; the button faces themselves are unchanged.
+ */
+@media (hover: none) {
+  .message-actions {
+    gap: var(--h-space-6);
+  }
+
+  .message-actions button::after {
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+  }
 }
 
 .message-actions button:hover:not(:disabled) {

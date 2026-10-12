@@ -122,9 +122,16 @@
             {#if entry.user.accountType === 'bot'}<BotBadge size={12} />{/if}
             {#if entry.user.discordLinked}
               {#if entry.user.accountType === 'ghost'}
-                <span class="roster-linked" title="A Discord account"><Icon name="link" size={12} /></span>
+                <span class="roster-linked" role="img" title="A Discord account" aria-label="A Discord account"
+                  ><Icon name="link" size={12} /></span
+                >
               {:else}
-                <span class="roster-linked linked-account" title="Linked to a Discord account">
+                <span
+                  class="roster-linked linked-account"
+                  role="img"
+                  title="Linked to a Discord account"
+                  aria-label="Linked to a Discord account"
+                >
                   <Icon name="check" size={12} />
                 </span>
               {/if}

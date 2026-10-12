@@ -2894,7 +2894,7 @@ button.mention:hover {
 }
 
 .roster-linked.linked-account {
-  color: var(--h-ok);
+  color: var(--h-accent);
 }
 
 .member-badge {
@@ -3036,7 +3036,7 @@ button.roster-member:hover {
 }
 
 .card-linked.linked-account {
-  color: var(--h-ok);
+  color: var(--h-accent);
 }
 
 .profile-card-fields {

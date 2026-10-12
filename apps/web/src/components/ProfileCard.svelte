@@ -122,9 +122,16 @@
           {#if user.accountType === 'bot'}<BotBadge size={14} />{/if}
           {#if user.discordLinked}
             {#if user.accountType === 'ghost'}
-              <span class="card-linked" title="A Discord account"><Icon name="link" size={13} /></span>
+              <span class="card-linked" role="img" title="A Discord account" aria-label="A Discord account"
+                ><Icon name="link" size={13} /></span
+              >
             {:else}
-              <span class="card-linked linked-account" title="Linked to a Discord account">
+              <span
+                class="card-linked linked-account"
+                role="img"
+                title="Linked to a Discord account"
+                aria-label="Linked to a Discord account"
+              >
                 <Icon name="check" size={13} />
               </span>
             {/if}
@@ -140,6 +147,12 @@
             <span class="profile-field-label">Member since</span>
             <span>{new Date(user.createdAt).toLocaleDateString()}</span>
           </div>
+          {#if user.discordLinked}
+            <div class="profile-field">
+              <span class="profile-field-label">Discord</span>
+              <span>Linked</span>
+            </div>
+          {/if}
         </div>
       {/if}
 

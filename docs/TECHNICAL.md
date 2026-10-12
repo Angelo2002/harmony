@@ -20,6 +20,13 @@ A production instance is a single process: the server serves the built client, t
 API and the gateway on one origin, so there is nothing else to run and no CORS to
 configure.
 
+The session cookie is `SameSite=Lax`, so a page on another origin does not
+attach it to a WebSocket handshake. The gateway still refuses a handshake
+that authenticates with that cookie when its `Origin` is not the instance's
+own, as a second layer should the attribute ever be relaxed or stripped by a
+proxy; a client that identifies with an explicit token is not origin-bound
+and is unaffected.
+
 ## Requirements
 
 - **Node.js 24 or newer.** The project relies on Node stripping TypeScript types

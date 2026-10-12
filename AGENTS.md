@@ -27,6 +27,7 @@ npm run build:web      # build the client into apps/web/dist (server serves it i
 npm start              # production: node apps/server/src/index.ts
 npm run typecheck      # tsc for server/shared, svelte-check for web
 npm run smoke          # boots a throwaway server and exercises the API end to end
+npm run smoke:auth     # login throttling: the per-account and per-address budgets
 npm run smoke:bridge   # the Discord bridge against a fake transport
 npm run smoke:sfu      # the voice SFU relays RTP between in-process WebRTC peers
 npm run smoke:text     # web client pure logic (markdown/link parser, emoji picker, catch-up)
@@ -44,7 +45,7 @@ apply:
 - Web client: `npm run build:web` (this is also what catches CSS the minifier
   would drop) and `npm run smoke:text` when parsing or pure logic is involved.
 - Server or bridge: `npm run smoke` and, when the bridge is involved,
-  `npm run smoke:bridge`.
+  `npm run smoke:bridge`. Login or auth changes: also `npm run smoke:auth`.
 
 A green build is not a substitute for exercising the feature. If the change is
 visual, you cannot see the UI: say what you changed, what you verified

@@ -160,9 +160,20 @@ you cannot edit or delete a role that already holds a permission you lack. Each 
 
 ## Rate limits
 
-Only registration and login are rate limited: **10 requests per minute per IP**, after which the
-instance replies `429 rate_limited`. The limiter is per-process and in-memory, which is fine for a
-single-instance community.
+Only registration and login are rate limited, at **10 requests per minute**, after which the
+instance replies `429 rate_limited`.
+
+Login is bounded twice, by independent budgets: **per account**, keyed on the submitted username
+folded to lower case (the same case-insensitive match the account lookup uses, so `victim`,
+`Victim` and `VICTIM` share one budget), and **per IP**. The account budget is the one that holds
+when the source address changes, so a single account cannot be guessed at quickly from many
+addresses — or by forging `X-Forwarded-For` behind a proxy that forwards the header rather than
+replacing it (see the `HARMONY_TRUST_PROXY` notes in `docs/DEPLOYMENT.md`). Registration is bounded
+by IP only.
+
+Both limiters are per-process and in-memory: a restart clears them, and instances in a
+multi-instance deployment share nothing, so neither is a substitute for an external store at that
+scale.
 
 ## Object shapes
 

@@ -55,7 +55,7 @@ Copy `.env.example` to `.env` and set what you need. Everything has a default.
 | `HARMONY_SESSION_TTL_DAYS` | `30` | How long a login lasts. |
 | `HARMONY_COOKIE_NAME` | `harmony_session` | Session cookie name. |
 | `HARMONY_COOKIE_SECURE` | `false` | **Set true when served over HTTPS.** Marks the cookie `Secure`. |
-| `HARMONY_TRUST_PROXY` | `false` | **Set true behind a reverse proxy** so client IPs come from `X-Forwarded-For`. |
+| `HARMONY_TRUST_PROXY` | `false` | **Set true only behind a reverse proxy that overwrites `X-Forwarded-For`** with the real client address. |
 | `HARMONY_PRUNE_INTERVAL_MINUTES` | `60` | How often automatic retention pruning runs. |
 | `HARMONY_GATEWAY_HEARTBEAT_MS` | `45000` | How often gateway clients must heartbeat. A silent connection is closed after about two intervals. Leave it alone unless your proxy's idle timeout is shorter than 45s. |
 | `HARMONY_LOG_LEVEL` | `info` | `fatal`…`trace`, or `silent`. |
@@ -66,10 +66,15 @@ Two of these matter for safety and are easy to get wrong:
 - `HARMONY_COOKIE_SECURE=true` **only when the browser reaches the instance over
   HTTPS** (normally via the proxy). Setting it while serving plain HTTP makes the
   browser drop the cookie, and nobody can stay logged in.
-- `HARMONY_TRUST_PROXY=true` **only when there really is a proxy in front.** With
-  it off behind a proxy, every request looks like it comes from the proxy, so
-  login rate limiting is shared by everyone. With it on and no proxy, a client
-  can forge `X-Forwarded-For` to sidestep that limit.
+- `HARMONY_TRUST_PROXY=true` **only when there really is a proxy in front, and
+  only when that proxy overwrites `X-Forwarded-For` with the real client
+  address.** With it off behind a proxy, every request looks like it comes from
+  the proxy, so login rate limiting is shared by everyone. With it on and either
+  no proxy or a proxy that passes the client's own `X-Forwarded-For` through, a
+  client can forge the header and change its apparent address on every request,
+  which lifts the per-address login limit. Login is also limited per account, so
+  a forged address no longer makes guessing at one account unlimited; the
+  address limit on its own still depends on the header being trustworthy.
 
 The server prints a warning at startup for the risky combinations it can detect.
 
@@ -78,8 +83,12 @@ The server prints a warning at startup for the risky combinations it can detect.
 Point your hostname at the proxy, and have the proxy forward to
 `127.0.0.1:8787`. Three things must be forwarded for everything to work: the
 `Host` header, the client's address (`X-Forwarded-For`) and the original scheme
-(`X-Forwarded-Proto`). WebSocket upgrades must be allowed through for `/gateway`,
-which is how live messages arrive.
+(`X-Forwarded-Proto`). The proxy must **set** `X-Forwarded-For` to the real
+client address, replacing any value the client sent: a proxy that appends to the
+incoming header instead hands the client control of its own apparent address,
+which matters because that address is what the login limiter keys on. WebSocket
+upgrades must be allowed through for `/gateway`, which is how live messages
+arrive.
 
 Clients heartbeat over that WebSocket every 45 seconds (`HARMONY_GATEWAY_HEARTBEAT_MS`) and the
 server answers each one, so a healthy connection is never idle for longer than that. Any idle or
@@ -127,7 +136,11 @@ server {
         proxy_set_header Connection "upgrade";
 
         proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # The real client address. Do not use $proxy_add_x_forwarded_for here:
+        # it appends the client's own X-Forwarded-For instead of replacing it,
+        # so with HARMONY_TRUST_PROXY on a client could forge its address and
+        # dodge the per-address login limit.
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
 
         # Clients heartbeat the gateway every 45s and the server acknowledges

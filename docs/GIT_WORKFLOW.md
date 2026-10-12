@@ -193,6 +193,25 @@ Write the body for a reviewer who has not read the diff:
 The bundled `github-pr-workflow` skill has the full conventions (title shape,
 verification evidence, replying to review comments).
 
+## Upstream publication rule (YUC-RULE-003)
+
+No change may dead-end on a local branch. A task that changes this repository is
+not done until its branch is pushed to the fork and a pull request is open
+against `upstream/main`:
+
+- Publish before done. `git push -u origin <branch>`, then open the pull
+  request, and record the branch name and the pull request URL on the task.
+- Merging is the owner's call; opening the pull request is ours. "Waiting on the
+  owner to merge" is a valid `in_review`; a branch that exists only on the
+  author's machine is a dead end and is never a valid end state.
+- If the branch cannot be published yet - no push access, an unmerged
+  dependency, a security gate still pending - block the task with a first-class
+  blocker or a named owner and the exact next action. Do not report completion.
+- A run that dies does not drop the work: the next run publishes any branch that
+  holds a real change, or retires it explicitly with a recorded reason.
+- Never delete another agent's unpublished branch - publish it or flag it to the
+  CTO. Retire a superseded branch on purpose, with the reason recorded.
+
 ## Review and merge
 
 - The owner (`YuukiEatsYou`) reviews and merges pull requests into `upstream`

@@ -636,6 +636,14 @@ try {
   const metaRes = await req('/meta');
   check('public meta is available', metaRes.status === 200 && typeof metaRes.json?.name === 'string');
   check('meta reports requireInvite', metaRes.json?.requireInvite === true);
+  check(
+    'meta carries a stable instance id',
+    typeof metaRes.json?.instanceId === 'string' && metaRes.json.instanceId.length > 0,
+  );
+  check(
+    'the instance id does not change between calls',
+    (await req('/meta')).json?.instanceId === metaRes.json?.instanceId,
+  );
   check('meta reports the upload limits', metaRes.json?.maxImageBytes > 0 && metaRes.json?.maxVideoBytes > 0);
   check('meta lists mp4 as a video type', metaRes.json?.allowedVideoTypes?.includes('video/mp4') === true);
 
@@ -1068,6 +1076,59 @@ try {
     token: ownerToken,
     body: { notifyMajor: true, notifyMinor: true },
   });
+
+  // --- Push-device registration ---
+  const pushEndpoint = 'https://ntfy.example.com/UPtest123';
+  const pushAnon = await req('/users/@me/push-devices', {
+    method: 'PUT',
+    body: { endpoint: pushEndpoint, platform: 'android' },
+  });
+  check('push registration requires auth (401)', pushAnon.status === 401, `status ${pushAnon.status}`);
+
+  const pushRegistered = await req('/users/@me/push-devices', {
+    method: 'PUT',
+    token: ownerToken,
+    body: { endpoint: pushEndpoint, platform: 'android' },
+  });
+  check('a device endpoint can be registered', pushRegistered.status === 200 && pushRegistered.json?.ok === true);
+
+  // Registering the same endpoint twice refreshes rather than duplicates, which
+  // is what lets the shell retry a registration without checking first.
+  await req('/users/@me/push-devices', {
+    method: 'PUT',
+    token: ownerToken,
+    body: { endpoint: pushEndpoint, platform: 'android' },
+  });
+  const pushDb = new DatabaseSync(join(dataDir, 'harmony.db'));
+  const pushRows = pushDb
+    .prepare('SELECT endpoint, platform FROM push_devices WHERE user_id = ?')
+    .all(owner.json.user.id);
+  pushDb.close();
+  check(
+    're-registering the same endpoint is idempotent',
+    pushRows.length === 1 && pushRows[0]?.platform === 'android',
+    `rows ${pushRows.length}`,
+  );
+
+  const pushRemoved = await req('/users/@me/push-devices', {
+    method: 'DELETE',
+    token: ownerToken,
+    body: { endpoint: pushEndpoint },
+  });
+  check('a device endpoint can be removed', pushRemoved.status === 200 && pushRemoved.json?.ok === true);
+  const pushRemovedAgain = await req('/users/@me/push-devices', {
+    method: 'DELETE',
+    token: ownerToken,
+    body: { endpoint: pushEndpoint },
+  });
+  check('removing an unknown endpoint is fine', pushRemovedAgain.status === 200 && pushRemovedAgain.json?.ok === true);
+
+  const pushBad = await req('/users/@me/push-devices', {
+    method: 'PUT',
+    token: ownerToken,
+    body: { endpoint: '', platform: 'android' },
+  });
+  check('an empty push endpoint is rejected (400)', pushBad.status === 400, `status ${pushBad.status}`);
 
   // --- Link previews ---
   check('embeddable urls are found', listEmbeddableUrls('see https://example.com/a').includes('https://example.com/a'));

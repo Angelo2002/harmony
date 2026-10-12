@@ -1,13 +1,35 @@
 # Push notifications (design)
 
-> **Status: proposed — not implemented.** Everything below is a design for a
-> feature that does not exist yet. The other docs in this folder describe what
-> ships today; this one describes what we intend to build and the contract custom
-> clients can plan against. Treat endpoint and type names here as proposals.
+> **Status: step 1 shipped — registry and identity.** The stable `instanceId` in
+> `GET /api/v1/meta` and the per-account device registry
+> (`PUT` / `DELETE /api/v1/users/@me/push-devices`) exist and are covered by the
+> smoke test; nothing is delivered to a device yet. The rest of this document —
+> the fan-out, the providers, the admin settings — is still a design for what we
+> intend to build and the contract custom clients can plan against. Treat endpoint
+> and type names there as proposals. See [What ships today](#what-ships-today).
 
 This covers **system push**: an OS-level notification raised while the app is not
 running (or is suspended). It is separate from the in-app notification *sounds*,
 which the web client already plays.
+
+## What ships today
+
+This part of the design has been implemented; the rest of the document is the
+proposal it was built from.
+
+- **Instance identity.** A stable `instanceId`, kept for the instance's life, is
+  seeded into `server_settings` by migration 41 and surfaced in
+  `GET /api/v1/meta`. A client routes a notification or a `harmony://` deep link by
+  it and falls back to the origin only when a server sends none.
+- **Device registry.** `push_devices` (migration 42) holds one row per install per
+  account. `PUT /api/v1/users/@me/push-devices` upserts by endpoint and `DELETE`
+  removes one; both are authenticated and idempotent, and the endpoint is stored,
+  never logged. See [API.md](API.md#push-devices).
+- **Payload.** `PushPayload` in `packages/shared/src/push.ts` fixes the field names
+  the client router reads. Nothing sends it yet.
+
+The provider adapters, the decision logic and the admin settings below are still
+unbuilt. An instance with push unconfigured behaves exactly as before.
 
 ## Why this is needed
 
@@ -78,8 +100,9 @@ Two things follow for push:
 A client that talks to many servers needs to tell them apart by something stable.
 The instance name can change, so add a generated, immutable id.
 
-- Store a UUID in `server_settings` (a new `KEY_INSTANCE_ID`, alongside the keys in
-  `apps/server/src/settings/service.ts`), generated once on first read.
+- Store a UUID in `server_settings` (the `instance_id` key, alongside the keys in
+  `apps/server/src/settings/service.ts`), seeded once by a migration and minted on
+  first read only if it is ever missing.
 - Surface it as `instanceId` in `GET /api/v1/meta` and in every push payload.
 - It is not a secret; it identifies an instance, not a member.
 
@@ -108,39 +131,38 @@ notifications for that server.
 
 ### 3. Device registry
 
+> **Shipped.** The table and the two endpoints below exist today, in the shape the
+> mobile shell registers with. The columns the design proposed for later stages
+> (`provider`, `keys`, `label`, error bookkeeping) are not there yet; only what the
+> shipped contract needs is.
+
 One row per app install per member. Repeated registration of the same endpoint
 updates the row rather than duplicating it.
 
 ```sql
--- Appended after the current latest migration (25). Never edit a shipped one.
+-- Migration 42, appended after 41. Never edit a shipped one.
 CREATE TABLE push_devices (
-  id            TEXT PRIMARY KEY,
-  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  provider      TEXT NOT NULL,             -- 'unifiedpush' | 'webpush' | 'fcm' | 'apns'
-  endpoint      TEXT NOT NULL,             -- capability URL, or a device token
-  keys          TEXT,                      -- JSON; Web Push p256dh/auth, else null
-  label         TEXT,                      -- device name shown in settings, may be null
-  created_at    TEXT NOT NULL,
-  last_seen_at  TEXT NOT NULL,             -- updated on each registration
-  last_error_at TEXT,
-  last_error    TEXT
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint   TEXT NOT NULL,     -- provider capability URL, e.g. an ntfy URL
+  platform   TEXT NOT NULL,     -- what the install runs on, 'android' today
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, endpoint)
 );
-CREATE UNIQUE INDEX idx_push_devices_endpoint ON push_devices(user_id, endpoint);
-CREATE INDEX idx_push_devices_user ON push_devices(user_id);
 ```
 
-Endpoints (`ViewChannels` is enough; a member manages only their own):
+Endpoints (`auth` is enough; a member manages only their own):
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/v1/users/@me/push-devices` | List this member's devices. |
-| `PUT` | `/api/v1/users/@me/push-devices` | Upsert by `endpoint`: `{ provider, endpoint, keys?, label? }`. Returns the stored record. |
-| `DELETE` | `/api/v1/users/@me/push-devices/:id` | Remove one device. |
-| `DELETE` | `/api/v1/users/@me/push-devices` | Remove all of this member's devices ("turn notifications off", and on logout). |
+| `PUT` | `/api/v1/users/@me/push-devices` | Upsert by `endpoint`: `{ endpoint, platform }`. |
+| `DELETE` | `/api/v1/users/@me/push-devices` | Remove one device: `{ endpoint }`. |
 
-Registration is rate limited, and the number of devices per member is capped
-(suggest 10). The `endpoint` is a **capability**: whoever holds it can push to the
-device. Store it, never log it, and return it only to its owner.
+Both are idempotent, so the shell can retry a registration or a removal without
+checking first. The `endpoint` is a **capability**: whoever holds it can push to
+the device. Store it, never log it, and return it only to its owner. A `GET` list,
+a per-id `DELETE`, a `DELETE`-all and a per-member cap are proposed below for when
+delivery lands; they are not built.
 
 ### 4. When to notify
 
@@ -303,8 +325,11 @@ An instance with push unconfigured behaves exactly as today.
 
 ## Rollout
 
-1. **Registry and identity.** Migration, `instanceId`, `meta.push`, and the
-   `/users/@me/push-devices` endpoints. No sending yet; cover with smoke.
+1. **Registry and identity — shipped.** Migrations 41–42, `instanceId` in `meta`,
+   and the `/users/@me/push-devices` endpoints. No sending yet; covered by the
+   smoke test. `meta.push` was left out on purpose: with no provider configured it
+   would always report unsupported, which an absent block already means, so it
+   belongs with the first adapter.
 2. **UnifiedPush/ntfy sender + fan-out.** The decision logic, the live-only seam,
    and a fake sender in the smoke tests.
 3. **Web Push (VAPID)** and the admin settings UI.
@@ -323,15 +348,20 @@ An instance with push unconfigured behaves exactly as today.
 
 ## File map
 
-- `apps/server/src/routes/meta.ts` — add `instanceId` and `push`.
-- `apps/server/src/settings/service.ts` — instance id and push provider settings.
-- `apps/server/src/db/migrations.ts` — append the `push_devices` migration.
-- `apps/server/src/db/push_devices.ts` — new, the registry queries.
-- `apps/server/src/routes/push-devices.ts` — new, the endpoints.
-- `apps/server/src/push/service.ts` — new, the decision + fan-out.
+- `apps/server/src/routes/meta.ts` — **shipped:** `instanceId`.
+- `apps/server/src/settings/service.ts` — **shipped:** instance id (`push` provider
+  settings come with the first adapter).
+- `apps/server/src/db/migrations.ts` — **shipped:** the `instance_identity` and
+  `push_devices` migrations.
+- `apps/server/src/db/push_devices.ts` — **shipped:** the registry queries.
+- `apps/server/src/routes/push-devices.ts` — **shipped:** the endpoints.
+- `apps/server/src/push/service.ts` — **shipped:** the registry service (the
+  decision and fan-out are still to come).
 - `apps/server/src/push/providers/*` — new, one adapter each (UnifiedPush first).
 - `apps/server/src/messages/service.ts` — the live-only notify seam.
 - `apps/server/src/realtime/hub.ts` — "is this member connected" for skipping.
-- `packages/shared/src/types.ts`, `api.ts`, `schemas.ts` — device and payload types.
-- `docs/API.md` — document the endpoints once they exist.
-- `apps/server/scripts/smoke.mjs` — registry, decision, and a fake sender.
+- `packages/shared/src/push.ts` — **shipped:** the payload type; `api.ts` and
+  `schemas.ts` — **shipped:** the meta field and the request schemas.
+- `docs/API.md` — **shipped:** the endpoints and the `meta` field.
+- `apps/server/scripts/smoke.mjs` — **shipped:** the registry checks (the decision
+  and a fake sender are still to come).

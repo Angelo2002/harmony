@@ -127,6 +127,14 @@ export interface SavedMessageListResponse {
 export interface InstanceMeta {
   name: string;
   apiVersion: string;
+  /**
+   * A stable id for this instance, minted once and kept for its life. A client
+   * stores it and prefers it over the origin when routing a notification or a
+   * `harmony://` deep link, so an instance that moves to a new address still
+   * resolves. Unlike the per-process id in `GET /update`, this survives a
+   * restart and a host change.
+   */
+  instanceId: string;
   requireInvite: boolean;
   /** Instance colors, so even the sign-in screen is themed. */
   theme: ThemeSettings;

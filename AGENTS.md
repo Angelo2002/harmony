@@ -106,6 +106,21 @@ has actually run, and it is only ever advanced by a merge upstream.
   this file or to `docs/`, has no version to name the branch after: use
   `docs/<slug>` or `chore/<slug>` instead.
 
+### Security review gate
+
+Every pull request that changes code must carry a security verdict from
+**Ghislaine**, the Cyber Security Consultant, before it is opened against
+`upstream/main`. She is an independent gate - she reports to the CEO, not to the
+engineer who wrote the change - and only a branch that touches Markdown (`*.md`)
+files alone skips her review.
+
+When a branch is ready, push it to the fork, then open a security-review child
+issue assigned to Ghislaine carrying the branch name, its base and head SHA, the
+`git diff --stat`, the high-risk surfaces touched, and the verification you
+already ran. Block your own task on that review issue and wait for her verdict
+before opening the pull request. `docs/GIT_WORKFLOW.md` has the exact steps;
+`docs/SECURITY_REVIEW.md` has her protocol and verdict format.
+
 ### Pushing and opening the pull request
 
 Push the branch to the fork, then open a pull request against `upstream/main`:

@@ -207,6 +207,11 @@ constant).
 Status is always carried by **at least two channels**: a border/bar plus text,
 or a color plus a label — never hue alone (§6.5).
 
+Status tokens are status **only**. Never use `--h-ok` / `--h-warn` / `--h-error`
+for an identity or relationship marker: a green check reads as “verified”, not
+“linked to Discord”. Identity and relationship use `--h-accent`, `--h-text` or
+`--h-text-muted` (see §4.10).
+
 ---
 
 ## 3. Scales
@@ -485,6 +490,39 @@ they are why §7 proposes shared primitives.
    was fixed in v2.7.0.
 7. **No skeleton, no progress convention** for the initial message load
    (`MessageView` prints text), which is the most-visited loading state.
+
+### 4.10 The Discord linked state
+
+`User.discordLinked` (`packages/shared/src/types.ts`) is the only thing a public
+DTO says about a Discord link; the raw id is deliberately absent, so the state
+has to read clearly without it. Three surfaces carry it today:
+
+- `MemberList.svelte`, and the name line of `ProfileCard.svelte` and
+  `ProfileViewer.svelte`, show a glyph after the name: `link` for a stand-in
+  (`accountType === 'ghost'`), `check` for a member who linked an account. This
+  is the at-a-glance cue and stays icon-only.
+- `ProfilePanel.svelte` (self) and `admin/MembersSection.svelte` (admin) show
+  the id itself, on the authorized surfaces that need it.
+
+**[proposal] State the link in words on the profile surfaces, and stop using a
+status color for it.** A `title`-only badge is not reliably announced (`Icon` is
+`aria-hidden`, §6.2), carries no meaning on touch, and a green check reads as
+“verified”, not “linked”. So:
+
+1. `ProfileCard.svelte` and `ProfileViewer.svelte` add a `Discord` field row
+   reading **Linked**, in the same `profile-field` slot the removed id row
+   occupied, rendered only for a linked, non-ghost member. Text makes the state
+   legible without hover and without color (Recognition over Recall, Plain
+   Language, §6.5), and keeps the card and the viewer telling the same story.
+2. The linked badge uses `--h-accent`, not `--h-ok` (§2.5): it is identity, not
+   status.
+3. The badge spans carry `role="img"` plus an `aria-label` matching the `title`,
+   so the icon has an accessible name (§6.2).
+
+Reuse: the row is the existing `.profile-field` pattern and the badge is the
+existing `.card-linked` / `.roster-linked` pattern — no new component. A ghost
+keeps the `link` badge alone, because the roster already groups stand-ins under a
+“Discord” heading and a stand-in has no other profile fields.
 
 ---
 

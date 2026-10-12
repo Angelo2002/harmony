@@ -1383,7 +1383,23 @@ try {
       isPrivateAddress('169.254.1.1') &&
       isPrivateAddress('fd00::1'),
   );
+  check(
+    'IPv6 forms that embed or translate an address are refused',
+    isPrivateAddress('::ffff:7f00:1') && // IPv4-mapped, hex form (loopback)
+      isPrivateAddress('::ffff:a00:1') && // 10.0.0.1
+      isPrivateAddress('::ffff:a9fe:a9fe') && // 169.254.169.254, cloud metadata
+      isPrivateAddress('::ffff:127.0.0.1') && // IPv4-mapped, dotted form
+      isPrivateAddress('::127.0.0.1') && // IPv4-compatible
+      isPrivateAddress('64:ff9b::a9fe:a9fe') && // NAT64
+      isPrivateAddress('2002:7f00:1::1') && // 6to4
+      isPrivateAddress('2001:0:0:0:0:0:0:1') && // Teredo
+      isPrivateAddress('100::1'), // discard prefix
+  );
   check('public addresses are allowed', isPrivateAddress('1.1.1.1') === false && isPrivateAddress('8.8.8.8') === false);
+  check(
+    'global unicast IPv6 is allowed',
+    isPrivateAddress('2606:4700:4700::1111') === false && isPrivateAddress('2001:4860:4860::8888') === false,
+  );
 
   const metadata = parseEmbedMetadata(
     '<html><head><title>Fallback</title>' +

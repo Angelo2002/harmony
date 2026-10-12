@@ -209,13 +209,24 @@ function isPrivateV4(address: string): boolean {
   return false;
 }
 
+/**
+ * Whether an IPv6 address is one the server must never fetch from.
+ *
+ * The check is a narrow allowlist rather than a denylist. Only global unicast
+ * (`2000::/3`) can be reached; loopback and the unspecified address, unique
+ * local, link-local, multicast, the address-embedding forms (IPv4-mapped
+ * `::ffff:0:0/96`, IPv4-compatible `::/96`, NAT64 `64:ff9b::/96`, the discard
+ * prefix `100::/64`) and any exotic translation form we have not enumerated all
+ * fall outside it and are refused by default. Inside the allowlist, the prefixes
+ * that carry or translate another address are refused too: 6to4 (`2002::/16`),
+ * Teredo (`2001::/32`) and the documentation range (`2001:db8::/32`). A zone id
+ * (`fe80::1%eth0`) is not part of the address that is judged.
+ */
 function isPrivateV6(address: string): boolean {
-  const lower = address.toLowerCase();
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower)?.[1];
-  if (mapped) return isPrivateV4(mapped);
-  if (lower === '::' || lower === '::1') return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique local
-  if (/^fe[89ab]/.test(lower)) return true; // link-local
-  if (lower.startsWith('ff')) return true; // multicast
+  const lower = address.toLowerCase().split('%')[0] ?? '';
+  if (!/^[23]/.test(lower)) return true;
+  if (lower.startsWith('2002:')) return true; // 6to4 embeds an IPv4 address
+  if (/^2001:0?db8:/.test(lower)) return true; // documentation
+  if (/^2001:0{0,4}:/.test(lower)) return true; // Teredo
   return false;
 }

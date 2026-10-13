@@ -303,11 +303,15 @@ server still lists it, or afresh when it was away long enough to be dropped. Onl
 channel this client itself joined is retried, so a second tab never takes a live
 call, and an explicit leave or a logout forgets it.
 
-Playback volume is per listener, not per speaker, and is entirely local. Every
-incoming track already runs through its own `GainNode` before the shared master
-gain, so the volume menu on a member in the sidebar's voice list just sets that
-one node: 0 is silence, 1 the member's own level and 2 twice as loud, offered as a
-0-200% slider with a 100% default and mute and reset beside it. The value is kept
+Playback volume is per listener, not per speaker, and is entirely local. A remote
+track plays through a hidden media element, and its level is split across two
+stages so it holds whichever one the browser actually applies: 0-100% rides the
+element's own volume, which always applies, and the >100% boost rides a `GainNode`
+the element feeds before the shared master gain. The menu sets both, so 0 is
+silence, 1 the member's own level and 2 twice as loud, offered as a 0-200% slider
+with a 100% default and mute and reset beside it. The two stages compose without
+double-counting, because the element's volume is applied before its source node.
+The value is kept
 in `localStorage` keyed by the listener, the side that owns the preference, so it
 survives a reload and a phone that recreates the webview; a member left at the
 default is not stored at all, and a different account in the same browser keeps

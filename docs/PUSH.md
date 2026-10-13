@@ -34,7 +34,8 @@ proposal it was built from.
   JSON to each of that member's registered endpoints. It is the plain HTTP contract
   UnifiedPush/ntfy already speak, so no provider account is needed. The sender
   refuses an endpoint whose host does not resolve to a public address (the same
-  SSRF guard every other outbound fetch uses) and never follows a redirect. An
+  SSRF guard every other outbound fetch uses, pinned to the address it checked)
+  and never follows a redirect. An
   endpoint the provider answers `404`/`410` for is pruned. `GET /api/v1/meta`
   advertises the capability as `push: { supported: true, providers: ["unifiedpush"] }`.
 
@@ -394,9 +395,11 @@ An instance with no registered device sends nothing, exactly as today.
 - An endpoint is a member-supplied URL the server will `POST` to, so a hostile
   registration can aim the server at an internal address. **Decided and shipped:**
   the sender resolves the endpoint's host through the same public-address guard
-  every other outbound fetch uses (`apps/server/src/embeds/guard.ts`) and refuses
-  anything private, loopback or link-local before a socket is opened, and it never
-  follows a redirect (which could bounce a public first hop to an internal one).
+  every other outbound fetch uses (`apps/server/src/embeds/guard.ts`), refuses
+  anything private, loopback or link-local before a socket is opened, and
+  connects to the address it checked rather than letting the name resolve again
+  (closing the DNS-rebinding window). It never follows a redirect (which could
+  bounce a public first hop to an internal one).
   A distributor that lives on the instance's own LAN would need the guard relaxed
   explicitly; a default instance refuses it.
 

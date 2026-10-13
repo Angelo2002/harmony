@@ -63,10 +63,13 @@ export function registerAttachmentRoutes(app: FastifyInstance, deps: AttachmentR
   });
 
   app.get('/api/v1/attachments/:id', async (request, reply) => {
-    requirePermission(request, Permission.ViewChannels);
+    const auth = requirePermission(request, Permission.ViewChannels);
     const { id } = request.params as { id: string };
 
-    const attachment = deps.service.find(id);
+    // Reading an attachment is reading the channel its message is in, so a member
+    // who cannot see that channel (or whose message is gone) is answered exactly
+    // like a missing id, so the route is not an existence oracle.
+    const attachment = deps.service.findViewable(id, auth.user.id);
     if (!attachment) throw new HttpError(404, 'attachment_not_found', 'That attachment does not exist.');
 
     const path = deps.service.filePathFor(attachment.hash);

@@ -20,12 +20,13 @@ import WebSocket from 'ws';
 import sharp from 'sharp';
 import { Permission, HARMONY_VERSION, listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
+import { guardedFetch, resolvePublicHost } from '../src/embeds/guard.ts';
 import { isDiscordAttachment, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
 import { isKlipyAddress, klipySearchUrl, normalizeKlipySearch } from '../src/gifs/klipy.ts';
 import { createServerGifService } from '../src/gifs/server-gifs.ts';
 import { parseMessageEmbed } from '../src/db/messages.ts';
 import { Database } from '../src/db/index.ts';
-import { insertGhostUser, insertUser, mergeUsers } from '../src/db/users.ts';
+import { insertBotUser, insertGhostUser, insertUser, mergeUsers } from '../src/db/users.ts';
 import { insertInvite } from '../src/db/invites.ts';
 import { insertBan } from '../src/db/bans.ts';
 import { createAuthService } from '../src/auth/service.ts';
@@ -164,8 +165,12 @@ async function req(path, { method = 'GET', body, cookie, token } = {}) {
  */
 function openGateway(auth = {}) {
   return new Promise((resolveGateway, reject) => {
-    const options = auth.cookie ? { headers: { cookie: auth.cookie } } : {};
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/gateway`, options);
+    const headers = {};
+    if (auth.cookie) headers.cookie = auth.cookie;
+    // A browser always sends Origin on a WebSocket handshake, and the server
+    // requires it to match the instance for cookie auth, so the harness does too.
+    headers.origin = auth.origin ?? ORIGIN;
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/gateway`, { headers });
     const events = [];
     const timer = setTimeout(() => reject(new Error('gateway ready timeout')), 5000);
     let heartbeat = null;
@@ -192,9 +197,12 @@ function openGateway(auth = {}) {
   });
 }
 
-function gatewayIdentify(token) {
+function gatewayIdentify(token, extra = {}) {
   return new Promise((resolveIdentify, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/gateway`);
+    const headers = {};
+    if (extra.cookie) headers.cookie = extra.cookie;
+    if (extra.origin !== undefined) headers.origin = extra.origin;
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/gateway`, { headers });
     const result = { ready: null, closeCode: null };
     const timer = setTimeout(() => {
       try {
@@ -205,7 +213,7 @@ function gatewayIdentify(token) {
 
     ws.on('message', (raw) => {
       const frame = JSON.parse(raw.toString());
-      if (frame.op === 10) ws.send(JSON.stringify({ op: 2, d: { token } }));
+      if (frame.op === 10) ws.send(JSON.stringify({ op: 2, d: token ? { token } : {} }));
       if (frame.t === 'READY') {
         result.ready = frame.d;
         ws.close();
@@ -277,7 +285,10 @@ try {
   const me = await req('/auth/me', { cookie: owner.cookie });
   check('cookie authenticates /auth/me', me.status === 200 && me.json?.user?.username === 'alice');
   check('bearer token authenticates /auth/me', (await req('/auth/me', { token: ownerToken })).status === 200);
-  check('a real member carries no Discord id', me.json?.user?.discordId === null);
+  check(
+    'a real member carries no Discord id',
+    me.json?.user?.discordId === null && me.json?.user?.discordLinked === false,
+  );
   check('owner has Administrator', (BigInt(me.json?.permissions ?? '0') & (1n << 14n)) !== 0n);
 
   const dup = await req('/auth/register', { method: 'POST', body: { username: 'alice', password: 'another one' } });
@@ -333,9 +344,34 @@ try {
     const emptyHistory = await req(`/channels/${general.id}/messages`, { token: ownerToken });
     check('message history starts empty', emptyHistory.json?.messages?.length === 0);
 
-    const cookieGateway = await openGateway({ cookie: owner.cookie });
+    const cookieGateway = await openGateway({ cookie: owner.cookie, origin: ORIGIN });
     check('gateway identifies via session cookie', cookieGateway.ready?.user?.username === 'alice');
     cookieGateway.ws.close();
+
+    // Cookie auth is origin-bound: a page on another site cannot borrow the
+    // session the browser attaches (cross-site WebSocket hijacking).
+    const crossSiteCookie = await gatewayIdentify(undefined, {
+      cookie: owner.cookie,
+      origin: 'http://evil.example',
+    });
+    check(
+      'gateway rejects a cross-site cookie handshake (4004)',
+      crossSiteCookie.closeCode === 4004,
+      `code ${crossSiteCookie.closeCode}`,
+    );
+    const originlessCookie = await gatewayIdentify(undefined, { cookie: owner.cookie });
+    check(
+      'gateway rejects a cookie handshake with no Origin (4004)',
+      originlessCookie.closeCode === 4004,
+      `code ${originlessCookie.closeCode}`,
+    );
+    // A non-browser client that passes an explicit token is not origin-bound.
+    const foreignToken = await gatewayIdentify(login.json?.token, { origin: 'http://evil.example' });
+    check(
+      'gateway accepts an explicit token from any origin',
+      foreignToken.ready?.user?.username === 'alice',
+      `code ${foreignToken.closeCode}`,
+    );
 
     const posted = await req(`/channels/${general.id}/messages`, {
       method: 'POST',
@@ -618,6 +654,56 @@ try {
       `status ${ranged.status} ${ranged.headers.get('content-range')}`,
     );
     check('clips advertise range support', ranged.headers.get('accept-ranges') === 'bytes');
+
+    // A pending upload no message carries yet is only its uploader's (or an
+    // administrator's) to fetch: nobody else has a channel to read it through.
+    check(
+      'another member cannot fetch a pending upload (404)',
+      (await fetch(`${BASE}/attachments/${clip.id}`, {
+        headers: { authorization: `Bearer ${bobToken}` },
+      })).status === 404,
+    );
+    check(
+      'the uploader can still fetch their own pending upload',
+      (await fetch(`${BASE}/attachments/${clip.id}`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })).status === 200,
+    );
+
+    // Media on a soft-deleted message is no longer on display in its channel, so
+    // it is not served either; an administrator keeps access for moderation.
+    const doomedPng = await sharp({
+      create: { width: 7, height: 5, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .png()
+      .toBuffer();
+    const doomedForm = new FormData();
+    doomedForm.append('file', new Blob([doomedPng], { type: 'image/png' }), 'doomed.png');
+    const doomed = await (
+      await fetch(`${BASE}/attachments`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${bobToken}` },
+        body: doomedForm,
+      })
+    ).json();
+    const doomedMessage = await req(`/channels/${general.id}/messages`, {
+      method: 'POST',
+      token: bobToken,
+      body: { content: 'here for a moment', attachmentIds: [doomed.id] },
+    });
+    await req(`/messages/${doomedMessage.json.id}`, { method: 'DELETE', token: bobToken });
+    check(
+      'media on a deleted message is not served to its author (404)',
+      (await fetch(`${BASE}/attachments/${doomed.id}`, {
+        headers: { authorization: `Bearer ${bobToken}` },
+      })).status === 404,
+    );
+    check(
+      'an administrator can still fetch media on a deleted message',
+      (await fetch(`${BASE}/attachments/${doomed.id}`, {
+        headers: { authorization: `Bearer ${ownerToken}` },
+      })).status === 200,
+    );
 
     const fakeVideo = new FormData();
     fakeVideo.append('file', new Blob([Buffer.from('definitely not an mp4')], { type: 'video/mp4' }), 'fake.mp4');
@@ -1383,7 +1469,76 @@ try {
       isPrivateAddress('169.254.1.1') &&
       isPrivateAddress('fd00::1'),
   );
+  check(
+    'IPv6 forms that embed or translate an address are refused',
+    isPrivateAddress('::ffff:7f00:1') && // IPv4-mapped, hex form (loopback)
+      isPrivateAddress('::ffff:a00:1') && // 10.0.0.1
+      isPrivateAddress('::ffff:a9fe:a9fe') && // 169.254.169.254, cloud metadata
+      isPrivateAddress('::ffff:127.0.0.1') && // IPv4-mapped, dotted form
+      isPrivateAddress('::127.0.0.1') && // IPv4-compatible
+      isPrivateAddress('64:ff9b::a9fe:a9fe') && // NAT64
+      isPrivateAddress('2002:7f00:1::1') && // 6to4
+      isPrivateAddress('2001:0:0:0:0:0:0:1') && // Teredo
+      isPrivateAddress('100::1'), // discard prefix
+  );
   check('public addresses are allowed', isPrivateAddress('1.1.1.1') === false && isPrivateAddress('8.8.8.8') === false);
+  check(
+    'IPv6 reserved and documentation blocks outside global unicast are refused',
+    // The first hextet is below 0x2000 even though it starts with 2 or 3, so a
+    // text test of the first character would wrongly admit these.
+    isPrivateAddress('2::1') &&
+      isPrivateAddress('20::1') &&
+      isPrivateAddress('200::1') &&
+      isPrivateAddress('3::1') &&
+      isPrivateAddress('3f::1') &&
+      isPrivateAddress('3fff::1') && // RFC 9637 documentation 3fff::/20
+      isPrivateAddress('3fff:0:0:0:0:0:0:0'), // the 3fff::/20 network address itself
+  );
+  check(
+    'global unicast IPv6 is allowed',
+    isPrivateAddress('2606:4700:4700::1111') === false && isPrivateAddress('2001:4860:4860::8888') === false,
+  );
+  check(
+    'a global unicast address just past the documentation block is still allowed',
+    // 3fff:1000:: is above 3fff::/20, and 2000:: is the bottom of global unicast.
+    isPrivateAddress('3fff:1000::1') === false && isPrivateAddress('2000::1') === false,
+  );
+
+  // --- SSRF DNS-rebinding guard ---
+  // The guard resolves a host once and the fetch is pinned to the address that
+  // was checked, so a name cannot answer with a public address for the check
+  // and a private one for the connection. Every outbound preview, gif and push
+  // request goes through the guarded fetch.
+  const publicLiteral = await resolvePublicHost('8.8.8.8');
+  check(
+    'the guard returns a public literal unchanged',
+    publicLiteral?.address === '8.8.8.8' && publicLiteral.family === 4,
+  );
+  check(
+    'the guard refuses a private literal and a name that resolves to loopback',
+    (await resolvePublicHost('127.0.0.1')) === null &&
+      (await resolvePublicHost('::1')) === null &&
+      (await resolvePublicHost('localhost')) === null,
+  );
+  check('the guard refuses a name that does not resolve', (await resolvePublicHost('nothing.invalid')) === null);
+
+  const rebound = createServer((_request, response) => response.end('internal'));
+  await new Promise((ready) => rebound.listen(0, '127.0.0.1', ready));
+  const reboundPort = rebound.address().port;
+  try {
+    // The target is genuinely reachable, so the refusal below is the guard and
+    // not a dead socket: a direct fetch reaches it, a guarded one does not.
+    check('the loopback target answers a plain fetch', (await fetch(`http://127.0.0.1:${reboundPort}/`)).status === 200);
+    let refused = false;
+    try {
+      await guardedFetch(`http://localhost:${reboundPort}/`);
+    } catch {
+      refused = true;
+    }
+    check('a guarded fetch refuses the same target reached by a name', refused === true);
+  } finally {
+    await new Promise((ready) => rebound.close(ready));
+  }
 
   const metadata = parseEmbedMetadata(
     '<html><head><title>Fallback</title>' +
@@ -2283,6 +2438,33 @@ try {
   check('a bright accent takes dark text', deriveTheme({ accent: '#ffd700' }).onAccent === '#000000');
   check('a dark accent takes light text', deriveTheme({ accent: '#1a3ea8' }).onAccent === '#ffffff');
   check('a near black background still separates its panels', deriveTheme({ background: '#050505' }).bgElevated !== '#050505');
+
+  // On-accent text must be the higher-contrast of black or white, whatever an
+  // admin picks. The old round-number threshold sent mid tones (amber, green,
+  // teal, blue) to white, which is the lower-contrast choice (DESIGN.md 6.1).
+  const relativeContrast = (a, b) => {
+    const hi = Math.max(a, b);
+    const lo = Math.min(a, b);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  for (const [name, accent, expected] of [
+    ['the default', DEFAULT_ACCENT, '#ffffff'],
+    ['an amber', '#f59e0b', '#000000'],
+    ['a green', '#22c55e', '#000000'],
+    ['a teal', '#1abc9c', '#000000'],
+    ['a blue', '#3498db', '#000000'],
+  ]) {
+    const tokens = deriveTheme({ accent });
+    const luminance = relativeLuminance(accent);
+    const onWhite = relativeContrast(luminance, 1);
+    const onBlack = relativeContrast(luminance, 0);
+    const picked = tokens.onAccent === '#ffffff' ? onWhite : onBlack;
+    check(
+      `${name} accent takes the higher-contrast on-color (${tokens.onAccent})`,
+      tokens.onAccent === expected && picked === Math.max(onWhite, onBlack),
+    );
+    check(`${name} accent reaches 4.5:1 on its on-color`, picked >= 4.5);
+  }
 
   // --- Channel locking ---
   const staffRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Staff' } });
@@ -3410,6 +3592,21 @@ try {
         body: { attachmentId: hiddenAttachment.id },
       })
     ).status === 404,
+  );
+  // Reading the bytes directly is reading the channel too: a member who cannot
+  // see the channel gets the same 404 as a missing id, so the route is not an
+  // existence oracle. An administrator (the uploader here) still gets them.
+  check(
+    'media in a channel a member cannot see is not served (404)',
+    (await fetch(`${BASE}/attachments/${hiddenAttachment.id}`, {
+      headers: { authorization: `Bearer ${bobToken}` },
+    })).status === 404,
+  );
+  check(
+    'an administrator can still fetch media in a locked channel',
+    (await fetch(`${BASE}/attachments/${hiddenAttachment.id}`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    })).status === 200,
   );
 
   // The same again for an age-gated section locked at the category, which is how
@@ -4640,6 +4837,28 @@ try {
     'an administrator can link a member to a Discord id',
     linkedAccount.status === 200 && linkedAccount.json?.user?.discordId === '123456789012345678',
   );
+  // The linked id is the admin's to see, but another member's public DTOs must
+  // never carry it: `discordLinked` conveys the state without the raw PII.
+  const linkedRoster = await req('/members/roster', { token: ownToken });
+  const linkedRosterEntry = linkedRoster.json?.members?.find((entry) => entry.user.id === editId);
+  check(
+    'the roster shows the linked state but never the raw Discord id',
+    linkedRosterEntry?.user?.discordLinked === true && !('discordId' in linkedRosterEntry.user),
+  );
+  const linkedDirectory = await req('/members/directory', { token: ownToken });
+  const linkedDirectoryEntry = linkedDirectory.json?.users?.find((user) => user.id === editId);
+  check(
+    'the member directory never carries the raw Discord id',
+    linkedDirectoryEntry?.discordLinked === true && !('discordId' in linkedDirectoryEntry),
+  );
+  // The administrator member view is the narrow surface that keeps the id, since
+  // an administrator sets and clears the link from it.
+  const linkedAdminView = await req('/members', { token: ownerToken });
+  const linkedAdminEntry = linkedAdminView.json?.members?.find((entry) => entry.user.id === editId);
+  check(
+    'the administrator member view still carries the Discord id for linking',
+    linkedAdminEntry?.user?.discordId === '123456789012345678',
+  );
   check(
     'a malformed Discord id is refused (400)',
     (await req(`/members/${editId}`, { method: 'PATCH', token: ownerToken, body: { discordId: 'not-a-number' } })).status ===
@@ -4864,6 +5083,23 @@ try {
     ghostStore.sqlite.prepare("SELECT discord_id FROM users WHERE id = 'member-1'").get()?.discord_id === null,
   );
 
+  // Only a Discord stand-in is ever merged. Another account type that somehow
+  // carries the id (a bot, say) is refused rather than folded in, since a merge
+  // would delete that account and re-own its rows.
+  insertBotUser(ghostStore.sqlite, { id: 'bot-holder', username: 'idholder', permissions: '0' });
+  ghostStore.sqlite.prepare("UPDATE users SET discord_id = '777777' WHERE id = 'bot-holder'").run();
+  let botTakenError = null;
+  try {
+    ghostUsers.linkDiscord('member-1', '777777');
+  } catch (error) {
+    botTakenError = error;
+  }
+  check('linking an id a bot holds is refused (409)', botTakenError?.statusCode === 409, String(botTakenError));
+  check(
+    'the bot holding the id is left alone',
+    ghostStore.sqlite.prepare("SELECT discord_id FROM users WHERE id = 'bot-holder'").get()?.discord_id === '777777',
+  );
+
   // Signing in with Discord creates the account the first time. Run against the
   // same throwaway database, with the invite requirement switched by hand.
   let requireInvite = false;
@@ -4939,6 +5175,22 @@ try {
     bannedSignIn = error;
   }
   check('a banned stand-in cannot sign up (403)', bannedSignIn?.code === 'account_banned');
+
+  // An account that is not a stand-in (a bot, say) holding the id is refused too,
+  // so a Discord sign-in can never delete the bot by merging it into a new member.
+  insertBotUser(ghostStore.sqlite, { id: 'bot-signin', username: 'signinbot', permissions: '0' });
+  ghostStore.sqlite.prepare("UPDATE users SET discord_id = '700000000000000010' WHERE id = 'bot-signin'").run();
+  let botSignInError = null;
+  try {
+    discordAuth.signInWithDiscord(discordIdentity('700000000000000010', 'botclash'), null, null);
+  } catch (error) {
+    botSignInError = error;
+  }
+  check('an id a bot holds cannot sign in (409)', botSignInError?.statusCode === 409, String(botSignInError));
+  check(
+    'the bot is left in place by a refused sign-in',
+    ghostStore.sqlite.prepare("SELECT account_type FROM users WHERE id = 'bot-signin'").get()?.account_type === 'bot',
+  );
 
   // Invites gate new accounts only.
   requireInvite = true;
@@ -5472,6 +5724,15 @@ try {
   check(
     'a mention reaches a member who is linked to Discord',
     (await inboxFor(bobToken)).json.mentions.some((entry) => entry.message.content.includes('linked ping')),
+  );
+  // A linked member's message author is another public DTO and must stay free of
+  // the raw id too.
+  const linkedBobPost = await postIn(replyChannelId, bobToken, { content: 'bob while linked' });
+  const linkedBobAuthor = (await req(`/channels/${replyChannelId}/messages`, { token: ownerToken }))
+    .json?.messages?.find((message) => message.id === linkedBobPost.json?.id)?.author;
+  check(
+    'a linked member message author carries the flag but never the raw Discord id',
+    linkedBobAuthor?.discordLinked === true && !('discordId' in linkedBobAuthor),
   );
   await req(`/members/${bobId}`, { method: 'PATCH', token: ownerToken, body: { discordId: null } });
 

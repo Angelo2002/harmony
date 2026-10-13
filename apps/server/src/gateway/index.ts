@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   GATEWAY_VERSION,
   GatewayCloseCode,
@@ -9,6 +9,7 @@ import {
   type GatewayReady,
 } from '@harmony/shared';
 import type { AuthContext } from '../auth/service.ts';
+import { withDiscordId } from '../db/users.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 
 export interface GatewayOptions {
@@ -22,6 +23,36 @@ export interface GatewayOptions {
    * another tab still open does not trigger it.
    */
   onUserOffline?: (userId: string) => void;
+}
+
+/**
+ * Whether a cookie-authenticated browser handshake came from this instance's
+ * own origin. Harmony serves the client, API and gateway from one origin, so
+ * the origin the handshake arrived on is the instance origin; a page on another
+ * site opens its WebSocket with that page's origin instead. Comparing the two
+ * refuses a cross-site handshake that arrives carrying the victim's session
+ * cookie (cross-site WebSocket hijacking), even if some future change to the
+ * cookie's `SameSite` attribute would otherwise let it ride along.
+ *
+ * `request.host` and `request.protocol` respect `X-Forwarded-Host` and
+ * `X-Forwarded-Proto` when `trustProxy` is on, so a reverse proxy still reports
+ * the public origin. An absent or unparseable `Origin` (including the literal
+ * "null" a sandboxed frame sends) is refused: every current browser sends one
+ * on a WebSocket handshake, and a non-browser client should identify with an
+ * explicit token instead.
+ */
+function isInstanceOrigin(request: FastifyRequest): boolean {
+  const origin = request.headers.origin;
+  if (typeof origin !== 'string' || origin.length === 0) return false;
+  let candidate: string;
+  try {
+    // Normalizes the scheme/host case and drops any path or fragment.
+    candidate = new URL(origin).origin;
+  } catch {
+    return false;
+  }
+  const expected = `${request.protocol}://${request.host}`;
+  return candidate.toLowerCase() === expected.toLowerCase();
 }
 
 /**
@@ -108,9 +139,23 @@ export function registerGateway(app: FastifyInstance, options: GatewayOptions): 
 
       if (frame.op === GatewayOp.Identify) {
         const identify = frame.d as GatewayIdentify | undefined;
+        const fromToken = Boolean(identify?.token);
         const auth = identify?.token ? options.resolveToken(identify.token) : cookieAuth;
 
         if (!auth) {
+          socket.close(GatewayCloseCode.AuthenticationFailed, 'Your session has ended. Please sign in again.');
+          return;
+        }
+
+        // Defense-in-depth against cross-site WebSocket hijacking: a handshake
+        // that leans on the session cookie must come from this instance's own
+        // origin. A client that identifies with an explicit token is not
+        // origin-bound and is unaffected.
+        if (!fromToken && !isInstanceOrigin(request)) {
+          app.log.warn(
+            { origin: request.headers.origin ?? null, expected: `${request.protocol}://${request.host}` },
+            'gateway cookie handshake rejected: cross-site origin',
+          );
           socket.close(GatewayCloseCode.AuthenticationFailed, 'Your session has ended. Please sign in again.');
           return;
         }
@@ -119,7 +164,10 @@ export function registerGateway(app: FastifyInstance, options: GatewayOptions): 
         identifiedUserId = auth.user.id;
         clearTimeout(identifyTimer);
         options.hub.authenticate(clientId, auth);
-        const ready: GatewayReady = { user: auth.user, gateway_version: GATEWAY_VERSION };
+        const ready: GatewayReady = {
+          user: withDiscordId(auth.user, auth.discordId),
+          gateway_version: GATEWAY_VERSION,
+        };
         socket.send(JSON.stringify({ op: GatewayOp.Dispatch, t: GatewayEvent.Ready, d: ready }));
       }
     });

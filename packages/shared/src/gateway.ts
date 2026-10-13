@@ -1,4 +1,4 @@
-import type { SavedMessage, User, VoiceState } from './types.ts';
+import type { LinkedUser, SavedMessage, User, VoiceState } from './types.ts';
 
 /** Gateway opcodes, mirroring Discord's layout so tooling stays familiar. */
 export const GatewayOp = {
@@ -79,7 +79,8 @@ export interface GatewayIdentify {
 
 /** First dispatch after a successful identify. */
 export interface GatewayReady {
-  user: User;
+  /** The connecting account itself, so its own Discord id is the one it may see. */
+  user: LinkedUser;
   gateway_version: number;
 }
 

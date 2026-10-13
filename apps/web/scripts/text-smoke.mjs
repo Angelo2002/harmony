@@ -4,9 +4,11 @@
 // the quick switcher's matching, the channel arrows, the unread tab title and
 // how mutes change it, how a channel inherits its category's settings, where
 // the "new" line and the new-messages bar land, and reading the time
-// expressions the composer turns into timestamps, and the channel and message
-// a launch link (a notification tap or a deep link) names, and the clamp and
-// stored map behind the per-member voice-volume control.
+// expressions the composer turns into timestamps, the channel and message a
+// launch link (a notification tap or a deep link) names, the native voice host
+// bridge (its off flag, the join/leave hand-off, and the call state it pushes
+// back), and the clamp and stored map behind the per-member voice-volume
+// control.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -96,7 +98,19 @@ import {
 import { firstUnreadIndex, muteLabel, newMessageCount, newMessagesLabel, pillCount } from '../src/lib/unread.ts';
 import { groupedRows, isGrouped } from '../src/lib/message-grouping.ts';
 import { detectTrigger, rankMember, suggestionsFor } from '../src/lib/composer-suggest.ts';
-import { askHostToJoin, voiceHost, webVoiceDisabled } from '../src/lib/voice-mode.ts';
+import {
+  HOST_VOICE_EVENT,
+  HOST_VOICE_MAX_CHANNEL_NAME,
+  HOST_VOICE_MAX_ID,
+  HOST_VOICE_MAX_MEMBERS,
+  HOST_VOICE_MAX_NAME,
+  askHostToJoin,
+  askHostToLeave,
+  parseHostVoiceMessage,
+  subscribeHostVoiceState,
+  voiceHost,
+  webVoiceDisabled,
+} from '../src/lib/voice-mode.ts';
 import { clampVolume, parseVolumes, serializeVolumes, VOICE_VOLUME_DEFAULT, VOICE_VOLUME_MAX } from '../src/lib/voice-volume.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { draftPreview } from '../src/lib/composer-preview.ts';
@@ -1003,6 +1017,127 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
       'the hand-off carries the channel id and name',
       handoff?.type === 'join' && handoff.channelId === 'c1' && handoff.channelName === 'Lounge',
     );
+
+    // The inbound half: the shell pushes call state back so the row can read it.
+    check('a non-message is ignored', parseHostVoiceMessage(null) === null && parseHostVoiceMessage('nope') === null);
+    check('an unknown version is ignored', parseHostVoiceMessage({ version: 2, type: 'state', channelId: 'c1' }) === null);
+    check('an unknown type is ignored', parseHostVoiceMessage({ version: 1, type: 'join' }) === null);
+    check('a state without a channel id is useless', parseHostVoiceMessage({ version: 1, type: 'state' }) === null);
+
+    const parsed = parseHostVoiceMessage({
+      version: 1,
+      type: 'state',
+      channelId: 'c1',
+      channelName: 'Lounge',
+      self: { muted: true, deafened: false, sharing: false },
+      members: [
+        { id: 'u1', name: 'Nanahoshi', muted: true, sharing: false, speaking: true },
+        { id: 'u2', name: 'Eris', muted: false, sharing: true, speaking: false },
+        { id: '' },
+        null,
+      ],
+    });
+    check(
+      'a state message is read',
+      parsed?.type === 'state' && parsed.channelId === 'c1' && parsed.channelName === 'Lounge',
+    );
+    check('self flags are read', parsed?.self.muted === true && parsed?.self.deafened === false);
+    check(
+      'members mirror the roster and drop the unusable',
+      parsed?.members.length === 2 && parsed.members[0].speaking === true && parsed.members[1].sharing === true,
+    );
+    check(
+      'a missing name falls back to the id',
+      parseHostVoiceMessage({ version: 1, type: 'state', channelId: 'c1', members: [{ id: 'u3' }] })?.members[0].name ===
+        'u3',
+    );
+    check('the terminal message is read', parseHostVoiceMessage('{"version":1,"type":"left"}')?.type === 'left');
+
+    // The parser is the one place shell input becomes roster rows, so its bounds
+    // live here: the roster is capped, an over-long name is truncated, an
+    // over-long id drops its entry, and a repeated id collapses to one row.
+    const crowd = Array.from({ length: HOST_VOICE_MAX_MEMBERS + 200 }, (_, i) => ({ id: `u${i}`, name: 'many' }));
+    check(
+      'an oversized member list is clamped',
+      parseHostVoiceMessage({ version: 1, type: 'state', channelId: 'c1', members: crowd })?.members.length ===
+        HOST_VOICE_MAX_MEMBERS,
+    );
+    check(
+      'an over-long member name is bounded',
+      parseHostVoiceMessage({
+        version: 1,
+        type: 'state',
+        channelId: 'c1',
+        members: [{ id: 'u1', name: 'n'.repeat(4096) }],
+      })?.members[0].name.length === HOST_VOICE_MAX_NAME,
+    );
+    const longId = parseHostVoiceMessage({
+      version: 1,
+      type: 'state',
+      channelId: 'c1',
+      members: [{ id: 'x'.repeat(HOST_VOICE_MAX_ID + 1), name: 'ghost' }, { id: 'ok' }],
+    });
+    check('a member with an over-long id is dropped', longId?.members.length === 1 && longId.members[0].id === 'ok');
+    const repeated = parseHostVoiceMessage({
+      version: 1,
+      type: 'state',
+      channelId: 'c1',
+      members: [
+        { id: 'u1', name: 'first' },
+        { id: 'u1', name: 'second' },
+        { id: 'u2' },
+      ],
+    });
+    check(
+      'a repeated member id collapses to its first row',
+      repeated?.members.length === 2 && repeated.members[0].name === 'first',
+    );
+    check(
+      'an over-long channel name is bounded',
+      parseHostVoiceMessage({ version: 1, type: 'state', channelId: 'c1', channelName: 'c'.repeat(4096) })?.channelName
+        ?.length === HOST_VOICE_MAX_CHANNEL_NAME,
+    );
+    check(
+      'a state whose channel id is over-long is dropped',
+      parseHostVoiceMessage({ version: 1, type: 'state', channelId: 'x'.repeat(HOST_VOICE_MAX_ID + 1) }) === null,
+    );
+
+    // Both delivery routes: the bridge callback, and the window event a shell
+    // may dispatch instead. Node has no window, so the event is proven against
+    // a stand-in listener target.
+    const delivered = [];
+    const unsubscribe = subscribeHostVoiceState((message) => delivered.push(message));
+    check('the client assigns the bridge callback', typeof globalThis.HarmonyVoiceHost?.onState === 'function');
+    globalThis.HarmonyVoiceHost.onState('{"version":1,"type":"left"}');
+    check('a callback message reaches the handler', delivered.length === 1 && delivered[0].type === 'left');
+    unsubscribe();
+    check('unsubscribing clears the callback', globalThis.HarmonyVoiceHost.onState === undefined);
+
+    const eventListeners = new Map();
+    const savedAdd = globalThis.addEventListener;
+    const savedRemove = globalThis.removeEventListener;
+    globalThis.addEventListener = (type, listener) => eventListeners.set(type, listener);
+    globalThis.removeEventListener = (type) => eventListeners.delete(type);
+    try {
+      const seen = [];
+      const stop = subscribeHostVoiceState((message) => seen.push(message));
+      check('the event route is registered', eventListeners.has(HOST_VOICE_EVENT));
+      eventListeners.get(HOST_VOICE_EVENT)({ detail: { version: 1, type: 'left' } });
+      check('an event message reaches the handler', seen.length === 1 && seen[0].type === 'left');
+      stop();
+      check('unsubscribing removes the event route', !eventListeners.has(HOST_VOICE_EVENT));
+    } finally {
+      if (savedAdd === undefined) delete globalThis.addEventListener;
+      else globalThis.addEventListener = savedAdd;
+      if (savedRemove === undefined) delete globalThis.removeEventListener;
+      else globalThis.removeEventListener = savedRemove;
+    }
+
+    // Leaving from the row goes through the same bridge.
+    check('a leave tap reaches the host', askHostToLeave() === true);
+    check('the leave carries the terminal type', posted.length === 2 && JSON.parse(posted[1]).type === 'leave');
+    delete globalThis.HarmonyVoiceHost;
+    check('a leave without a host falls back', askHostToLeave() === false);
   } finally {
     if (savedFlag === undefined) delete globalThis.__harmonyVoiceDisabled;
     else globalThis.__harmonyVoiceDisabled = savedFlag;

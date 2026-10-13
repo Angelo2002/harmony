@@ -209,13 +209,39 @@ function isPrivateV4(address: string): boolean {
   return false;
 }
 
+/**
+ * Whether an IPv6 address is one the server must never fetch from.
+ *
+ * The check is a narrow allowlist rather than a denylist. The first hextet is
+ * compared by value, not text: global unicast is the top three bits `001`
+ * (`2000::/3`), so `(hextet & 0xe000) === 0x2000` is required. Testing the first
+ * character instead would admit shorthand forms whose leading hextet is
+ * numerically below `0x2000` but textually begins with `2` or `3` (`2::1`,
+ * `20::1`, `200::1`, `3::1`, `3f::1`). Loopback and the unspecified address,
+ * unique local, link-local, multicast, the address-embedding forms (IPv4-mapped
+ * `::ffff:0:0/96`, IPv4-compatible `::/96`, NAT64 `64:ff9b::/96`, the discard
+ * prefix `100::/64`) and any exotic translation form we have not enumerated all
+ * fall outside the allowlist and are refused by default. Inside the allowlist,
+ * the prefixes that carry, translate or document another range are refused too:
+ * 6to4 (`2002::/16`), Teredo (`2001::/32`), the documentation ranges
+ * (`2001:db8::/32` and `3fff::/20`, RFC 9637). A zone id (`fe80::1%eth0`) is not
+ * part of the address that is judged.
+ */
 function isPrivateV6(address: string): boolean {
-  const lower = address.toLowerCase();
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower)?.[1];
-  if (mapped) return isPrivateV4(mapped);
-  if (lower === '::' || lower === '::1') return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique local
-  if (/^fe[89ab]/.test(lower)) return true; // link-local
-  if (lower.startsWith('ff')) return true; // multicast
+  const lower = address.toLowerCase().split('%')[0] ?? '';
+  const first = lower.split(':')[0] ?? '';
+  // A hextet is one to four hex digits; anything else fails closed. This keeps
+  // the predicate safe on its own, not only behind the isIP gate in the caller.
+  if (!/^[0-9a-f]{1,4}$/.test(first)) return true;
+  if ((Number.parseInt(first, 16) & 0xe000) !== 0x2000) return true;
+  if (lower.startsWith('2002:')) return true; // 6to4 embeds an IPv4 address
+  if (/^2001:0?db8:/.test(lower)) return true; // documentation (2001:db8::/32)
+  if (/^2001:0{0,4}:/.test(lower)) return true; // Teredo
+  if (lower.startsWith('3fff:')) {
+    // Documentation (3fff::/20, RFC 9637): the top 20 bits are fixed, so the
+    // second hextet must be below 0x1000. An empty group is an all-zero hextet.
+    const second = Number.parseInt(lower.split(':')[1] ?? '', 16);
+    if (Number.isNaN(second) || second < 0x1000) return true;
+  }
   return false;
 }

@@ -14,7 +14,9 @@
   import Icon from './Icon.svelte';
   import VoiceMemberMenu from './VoiceMemberMenu.svelte';
   import { voice } from '../lib/voice.svelte';
-  import { askHostToJoin, voiceHost, webVoiceDisabled } from '../lib/voice-mode';
+  import { hostVoice } from '../lib/host-voice.svelte';
+  import { members } from '../lib/members.svelte';
+  import { askHostToJoin, askHostToLeave, voiceHost, webVoiceDisabled } from '../lib/voice-mode';
 
   const permissions = $derived(permissionsFromString(session.permissions || '0'));
   // The button appears for anyone who could use at least one tab, moderators
@@ -29,9 +31,26 @@
 
   /** What a voice channel's tap does, for the tooltip. */
   function voiceTitle(channel: Channel): string {
+    if (hostVoice.channelId === channel.id) return `Leave ${channel.name}`;
     if (voice.channelId === channel.id) return `Disconnect from ${channel.name}`;
     if (voiceOff && !host) return 'Voice is handled by the app';
     return `Join ${channel.name}`;
+  }
+
+  /** What the native call's connected indicator says, for the tooltip. */
+  function hostStatusLabel(channel: Channel): string {
+    if (hostVoice.self.deafened) return `Deafened — connected to ${channel.name}`;
+    if (hostVoice.self.muted) return `Muted — connected to ${channel.name}`;
+    return `Connected to ${channel.name}`;
+  }
+
+  /**
+   * The letter to draw for a host-call member the directory does not know. The
+   * shell only sends an id and a name, so there is no avatar to point at; the
+   * name's initial matches the fallback the rest of the sidebar uses.
+   */
+  function hostInitial(name: string): string {
+    return name.charAt(0).toUpperCase() || '?';
   }
 
   /** Categories that demand a role; every channel inside one is locked too. */
@@ -174,16 +193,24 @@
 {#snippet channelRow(channel: Channel)}
   {@const settings = channelSettings.resolve(channel)}
   {@const mentions = chat.mentionsShown(channel)}
+  {@const hostConnected = hostVoice.channelId === channel.id}
+  {@const connected = hostConnected || voice.channelId === channel.id}
   {#if channel.type === 'voice'}
-    <div class="channel-item" class:active={voice.channelId === channel.id}>
+    <div class="channel-item" class:active={connected}>
       <button
         class="channel"
-        class:active={voice.channelId === channel.id}
+        class:active={connected}
         class:connecting={voice.joining === channel.id}
         type="button"
         disabled={voiceOff && !host}
         title={voiceTitle(channel)}
         onclick={() => {
+          // The shell owns a native call, so the row's own tap ends it through
+          // the same bridge that started it.
+          if (hostConnected) {
+            askHostToLeave();
+            return;
+          }
           // With voice off and a host present, the tap starts the native call
           // rather than the web client's own, which the host has taken over.
           if (voiceOff && askHostToJoin(channel.id, channel.name)) return;
@@ -204,6 +231,27 @@
         <span class="tail">
           {#if voice.joining === channel.id}
             <span class="voice-joining" title="Connecting…" aria-label="Connecting"></span>
+          {:else if hostConnected}
+            <!--
+              The native call has no web voice bar underneath, so its row carries
+              the state itself: a steady dot while connected, the muted mark when
+              the shell says this member is muted or deafened.
+            -->
+            <span
+              class="voice-live"
+              class:muted={hostVoice.self.muted || hostVoice.self.deafened}
+              role="img"
+              title={hostStatusLabel(channel)}
+              aria-label={hostStatusLabel(channel)}
+            >
+              {#if hostVoice.self.deafened}
+                <Icon name="headphones" size={13} />
+              {:else if hostVoice.self.muted}
+                <Icon name="mic-off" size={13} />
+              {:else}
+                <span class="voice-live-dot"></span>
+              {/if}
+            </span>
           {:else if isLocked(channel)}
             <span class="lock" title="Only members with a certain role can see this">
               <Icon name="lock" size={13} />
@@ -221,39 +269,64 @@
         <Icon name="more" size={16} />
       </button>
     </div>
-    {#each voice.rosters[channel.id] ?? [] as entry (entry.user.id)}
-      <!-- A passive row: its one interaction is the volume menu, opened with the
-           same right-click and long-press gestures as the channel rows. -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="voice-member"
-        class:speaking={voice.speaking[entry.user.id]}
-        oncontextmenu={(event) => {
-          event.preventDefault();
-          cancelPress();
-          openVoiceMemberMenu(entry, event.clientX, event.clientY);
-        }}
-        onpointerdown={(event) => startPress(event, (x, y) => openVoiceMemberMenu(entry, x, y))}
-        onpointerup={cancelPress}
-        onpointercancel={cancelPress}
-        onpointerleave={cancelPress}
-      >
-        {#if avatarUrl(entry.user)}
-          <img class="avatar small" src={avatarUrl(entry.user)} alt="" />
-        {:else}
-          <span class="avatar small fallback">{initial(entry.user)}</span>
-        {/if}
-        <span class="voice-member-name">{entry.user.displayName ?? entry.user.username}</span>
-        <span class="voice-member-tail">
-          {#if entry.sharing}
-            <span class="voice-member-sharing" title="Sharing their screen"><Icon name="screen" size={12} /></span>
+    {#if hostConnected}
+      <!-- The host is the only party with a roster for its native call. -->
+      {#each hostVoice.members as member (member.id)}
+        {@const user = members.byId.get(member.id) ?? null}
+        <div class="voice-member" class:speaking={member.speaking}>
+          {#if avatarUrl(user)}
+            <img class="avatar small" src={avatarUrl(user)} alt="" />
+          {:else if user}
+            <span class="avatar small fallback">{initial(user)}</span>
+          {:else}
+            <span class="avatar small fallback">{hostInitial(member.name)}</span>
           {/if}
-          {#if entry.muted}
-            <span class="voice-member-muted"><Icon name="mic-off" size={12} /></span>
+          <span class="voice-member-name">{member.name}</span>
+          <span class="voice-member-tail">
+            {#if member.sharing}
+              <span class="voice-member-sharing" title="Sharing their screen"><Icon name="screen" size={12} /></span>
+            {/if}
+            {#if member.muted}
+              <span class="voice-member-muted"><Icon name="mic-off" size={12} /></span>
+            {/if}
+          </span>
+        </div>
+      {/each}
+    {:else}
+      {#each voice.rosters[channel.id] ?? [] as entry (entry.user.id)}
+        <!-- A passive row: its one interaction is the volume menu, opened with the
+             same right-click and long-press gestures as the channel rows. -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="voice-member"
+          class:speaking={voice.speaking[entry.user.id]}
+          oncontextmenu={(event) => {
+            event.preventDefault();
+            cancelPress();
+            openVoiceMemberMenu(entry, event.clientX, event.clientY);
+          }}
+          onpointerdown={(event) => startPress(event, (x, y) => openVoiceMemberMenu(entry, x, y))}
+          onpointerup={cancelPress}
+          onpointercancel={cancelPress}
+          onpointerleave={cancelPress}
+        >
+          {#if avatarUrl(entry.user)}
+            <img class="avatar small" src={avatarUrl(entry.user)} alt="" />
+          {:else}
+            <span class="avatar small fallback">{initial(entry.user)}</span>
           {/if}
-        </span>
-      </div>
-    {/each}
+          <span class="voice-member-name">{entry.user.displayName ?? entry.user.username}</span>
+          <span class="voice-member-tail">
+            {#if entry.sharing}
+              <span class="voice-member-sharing" title="Sharing their screen"><Icon name="screen" size={12} /></span>
+            {/if}
+            {#if entry.muted}
+              <span class="voice-member-muted"><Icon name="mic-off" size={12} /></span>
+            {/if}
+          </span>
+        </div>
+      {/each}
+    {/if}
   {:else}
     <div class="channel-item" class:active={channel.id === chat.activeChannelId}>
       <button

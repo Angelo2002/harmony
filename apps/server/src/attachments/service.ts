@@ -11,6 +11,7 @@ import {
   type VideoContentType,
 } from '@harmony/shared';
 import type { Config } from '../config.ts';
+import { canAccessChannel, channelAccessFor } from '../access/service.ts';
 import type { AuthContext } from '../auth/service.ts';
 import { assertNotTimedOut } from '../auth/guards.ts';
 import {
@@ -21,6 +22,7 @@ import {
   toAttachment,
   type AttachmentRow,
 } from '../db/attachments.ts';
+import { findMessage } from '../db/messages.ts';
 import { HttpError } from '../http/errors.ts';
 import type { SettingsService } from '../settings/service.ts';
 import { createBlobStore } from '../storage/blobs.ts';
@@ -94,6 +96,17 @@ export interface AttachmentService {
     stored: StoredImage;
   }): Attachment;
   find(id: string): AttachmentRow | null;
+  /**
+   * The attachment, if this viewer is allowed to read its bytes, else null.
+   *
+   * An attachment belongs to the channel its message is in, so reading it is
+   * reading that channel: a member may only fetch it if they can see the channel
+   * and the message is still on display. A pending upload that no message carries
+   * yet is nobody else's business, so only its uploader or an administrator may
+   * read it. Missing, forbidden, deleted and somebody else's pending upload all
+   * answer the same way, so the route cannot be used to probe which ids exist.
+   */
+  findViewable(id: string, viewerId: string): AttachmentRow | null;
   /** Absolute path of the on-disk blob for a content hash. */
   filePathFor(hash: string): string;
 }
@@ -167,6 +180,29 @@ export function createAttachmentService(
 
     find(id) {
       return findAttachment(sqlite, id);
+    },
+
+    findViewable(id, viewerId) {
+      const row = findAttachment(sqlite, id);
+      if (!row) return null;
+
+      const access = channelAccessFor(sqlite, viewerId);
+
+      // An upload no message carries yet has no channel to read it through, so it
+      // is only its uploader's or an administrator's to fetch.
+      if (row.message_id === null) {
+        return access.bypass || row.uploader_id === viewerId ? row : null;
+      }
+
+      const message = findMessage(sqlite, row.message_id);
+      // An orphaned message has no channel left to authorize against; an
+      // administrator's gallery still shows its media, so only they may fetch it.
+      if (!message) return access.bypass ? row : null;
+      // A soft-deleted message's media is no longer on display in the channel, so
+      // it is not served either; an administrator keeps access for moderation.
+      if (message.deleted_at && !access.bypass) return null;
+
+      return canAccessChannel(sqlite, access, message.channel_id) ? row : null;
     },
 
     async storeLinkedImage(input) {

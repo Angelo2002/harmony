@@ -172,6 +172,7 @@ export function createScheduledMessageService(deps: ScheduledMessageDeps): Sched
     }
     const auth: AuthContext = {
       user: presentUser(sqlite, user),
+      discordId: user.discord_id,
       permissions: resolvePermissions(sqlite, user),
       sessionId: '',
       token: '',

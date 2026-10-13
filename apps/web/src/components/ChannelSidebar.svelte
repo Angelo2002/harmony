@@ -143,9 +143,25 @@
     menu = { target: { kind: 'category', category }, x, y };
   }
 
+  /**
+   * The control that opened the menu, when one did, so focus can return to it
+   * when the menu closes. A bare pointer gesture (right-click, long-press)
+   * leaves it null: there is nothing to hand focus back to.
+   */
+  let menuTrigger: HTMLElement | null = null;
+
   /** A voice member's own menu: their playback volume, local to this client. */
-  function openVoiceMemberMenu(entry: VoiceState, x: number, y: number): void {
+  function openVoiceMemberMenu(entry: VoiceState, x: number, y: number, trigger: HTMLElement | null = null): void {
+    menuTrigger = trigger;
     menu = { target: { kind: 'voice-member', entry }, x, y };
+  }
+
+  /** Close the open menu, returning focus to the control that opened it. */
+  function closeMenu(): void {
+    const trigger = menuTrigger;
+    menu = null;
+    menuTrigger = null;
+    if (trigger?.isConnected) trigger.focus();
   }
 
   /** The "…" button opens the menu just below itself. */
@@ -294,36 +310,48 @@
       {/each}
     {:else}
       {#each voice.rosters[channel.id] ?? [] as entry (entry.user.id)}
-        <!-- A passive row: its one interaction is the volume menu, opened with the
-             same right-click and long-press gestures as the channel rows. -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="voice-member"
-          class:speaking={voice.speaking[entry.user.id]}
-          oncontextmenu={(event) => {
-            event.preventDefault();
-            cancelPress();
-            openVoiceMemberMenu(entry, event.clientX, event.clientY);
-          }}
-          onpointerdown={(event) => startPress(event, (x, y) => openVoiceMemberMenu(entry, x, y))}
-          onpointerup={cancelPress}
-          onpointercancel={cancelPress}
-          onpointerleave={cancelPress}
-        >
-          {#if avatarUrl(entry.user)}
-            <img class="avatar small" src={avatarUrl(entry.user)} alt="" />
-          {:else}
-            <span class="avatar small fallback">{initial(entry.user)}</span>
-          {/if}
-          <span class="voice-member-name">{entry.user.displayName ?? entry.user.username}</span>
-          <span class="voice-member-tail">
-            {#if entry.sharing}
-              <span class="voice-member-sharing" title="Sharing their screen"><Icon name="screen" size={12} /></span>
+        <!-- A row whose one interaction is the volume menu: right-click or
+             long-press on the row itself, or the focusable "…" that mirrors the
+             channel row and gives the keyboard and assistive tech a way in. -->
+        <div class="voice-member-item">
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="voice-member"
+            class:speaking={voice.speaking[entry.user.id]}
+            oncontextmenu={(event) => {
+              event.preventDefault();
+              cancelPress();
+              openVoiceMemberMenu(entry, event.clientX, event.clientY);
+            }}
+            onpointerdown={(event) => startPress(event, (x, y) => openVoiceMemberMenu(entry, x, y))}
+            onpointerup={cancelPress}
+            onpointercancel={cancelPress}
+            onpointerleave={cancelPress}
+          >
+            {#if avatarUrl(entry.user)}
+              <img class="avatar small" src={avatarUrl(entry.user)} alt="" />
+            {:else}
+              <span class="avatar small fallback">{initial(entry.user)}</span>
             {/if}
-            {#if entry.muted}
-              <span class="voice-member-muted"><Icon name="mic-off" size={12} /></span>
-            {/if}
-          </span>
+            <span class="voice-member-name">{entry.user.displayName ?? entry.user.username}</span>
+            <span class="voice-member-tail">
+              {#if entry.sharing}
+                <span class="voice-member-sharing" title="Sharing their screen"><Icon name="screen" size={12} /></span>
+              {/if}
+              {#if entry.muted}
+                <span class="voice-member-muted"><Icon name="mic-off" size={12} /></span>
+              {/if}
+            </span>
+          </div>
+          <button
+            class="channel-more"
+            type="button"
+            aria-label={`Volume options for ${entry.user.displayName ?? entry.user.username}`}
+            title="Volume options"
+            onclick={(event) => openVoiceMemberMenu(entry, ...fromButton(event), event.currentTarget)}
+          >
+            <Icon name="more" size={16} />
+          </button>
         </div>
       {/each}
     {/if}
@@ -582,7 +610,7 @@
 -->
 {#if menu}
   {#if menu.target.kind === 'voice-member'}
-    <VoiceMemberMenu entry={menu.target.entry} x={menu.x} y={menu.y} onclose={() => (menu = null)} />
+    <VoiceMemberMenu entry={menu.target.entry} x={menu.x} y={menu.y} onclose={closeMenu} />
   {:else}
     <ChannelMenu target={menu.target} x={menu.x} y={menu.y} onclose={() => (menu = null)} />
   {/if}

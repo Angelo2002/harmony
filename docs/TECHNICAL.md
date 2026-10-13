@@ -316,6 +316,13 @@ record or anyone else's audio. Deafening still wins: it closes the master gain t
 per-member gains feed into. A member's row for yourself has no gain of your own to
 set, so its menu offers your own mute instead.
 
+The menu opens three ways, so it is not pointer-only: right-click a member, long
+press their row on touch, or tab to the row's "…" button and press Enter or Space.
+That button is the keyboard and assistive-tech path — the row itself is not
+focusable — and it stays in the tab order while fading in on hover or focus.
+Opening the menu moves focus to its first control and closing it, by Escape or
+otherwise, hands focus back to that button.
+
 A host that runs voice itself — the Android shell, whose native client captures the
 microphone — can switch the web client's voice off entirely: setting
 `window.__harmonyVoiceDisabled = true` in its document-start script, or opening the

@@ -11,7 +11,7 @@ import { api } from './api';
 import { meta } from './meta.svelte';
 import { session } from './session.svelte';
 import { playSound } from './sounds';
-import { clampVolume, parseVolumes, serializeVolumes, volumeOverride, VOICE_VOLUME_DEFAULT } from './voice-volume';
+import { clampVolume, elementVolumeFor, graphGainFor, parseVolumes, serializeVolumes, volumeOverride, VOICE_VOLUME_DEFAULT } from './voice-volume';
 import { webVoiceDisabled } from './voice-mode';
 
 /**
@@ -166,14 +166,20 @@ class VoiceStore {
   /**
    * Per-member playback gain, only for the members this client adjusted. It is
    * local: it never reaches the server and never changes anyone else's audio.
-   * Read it through volumeFor, which supplies the default for the rest.
+   * Read it through volumeFor, which supplies the default for the rest; while
+   * deafened the level is silenced by driving the element, not by clearing this.
    */
   volumes = $state<Record<string, number>>({});
 
   #pc: RTCPeerConnection | null = null;
   #mic: MediaStream | null = null;
   #ctx: AudioContext | null = null;
-  /** Everything remote is played through this, so deafening is one gain. */
+  /**
+   * Everything remote is played through this, so the graph stage of deafening is
+   * one gain. It is not the only stage: a browser whose Web Audio tap does not
+   * pull the element never reaches it, so deafening also rides each element's
+   * own volume (see #applyVolume).
+   */
   #master: GainNode | null = null;
   #remote = new Map<string, RemoteAudio>();
   /** One analyser per speaker, the local microphone included. */
@@ -442,18 +448,15 @@ class VoiceStore {
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
     const gain = ctx.createGain();
-    // The member's remembered volume is applied as the line is wired, so a
-    // stream that appears after an adjustment still plays at the chosen level.
-    // 0-100% rides the element's own volume, which applies even when the Web
-    // Audio tap does not pull the element; the >100% boost rides the graph gain.
-    const level = this.volumeFor(userId);
-    element.volume = Math.min(1, level);
-    gain.gain.value = Math.max(1, level);
     source.connect(analyser);
     analyser.connect(gain);
     gain.connect(master);
     this.#remote.set(userId, { element, source, analyser, gain });
     this.#analysers.set(userId, analyser);
+    // The remembered level is applied through the same path a live adjustment
+    // uses, so a stream that appears after an adjustment, or while deafened,
+    // still lands at the right level without a second code path.
+    this.#applyVolume(userId);
   }
 
   /** Root-mean-square of one analyser's current window. */
@@ -576,9 +579,11 @@ class VoiceStore {
       });
       this.#mic = mic;
 
-      // Everything remote plays through the master gain, so deafening is one
-      // change; the local microphone runs through an analyser only, into a silent
-      // sink so the meter is pulled without echoing you back.
+      // Everything remote plays through the master gain; the local microphone
+      // runs through an analyser only, into a silent sink so the meter is pulled
+      // without echoing you back. Deafening closes this gain and each element's
+      // own volume, because in a browser whose Web Audio tap does not pull the
+      // element this gain is a dead branch.
       const master = ctx.createGain();
       master.gain.value = this.deafened ? 0 : 1;
       master.connect(ctx.destination);
@@ -731,7 +736,13 @@ class VoiceStore {
 
   setDeafened(next: boolean): void {
     this.deafened = next;
+    // The shared master gain is a dead branch in a browser whose Web Audio tap
+    // does not pull the element, so it cannot be the only stage: the element's
+    // own volume is what the browser actually applies there. Driving both from
+    // the same effective level keeps the reported state and the enforced one
+    // from disagreeing (Fail Securely / Complete Mediation).
     if (this.#master) this.#master.gain.value = next ? 0 : 1;
+    for (const userId of this.#remote.keys()) this.#applyVolume(userId);
     this.#applyMic();
     this.#sync();
   }
@@ -784,14 +795,15 @@ class VoiceStore {
    * Points one member's live level at the remembered volume, if they are playing.
    * The 0-100% part rides the element's own volume and the >100% boost rides the
    * graph gain, so the level holds whether or not the Web Audio tap pulls the
-   * element.
+   * element. While deafened the effective level is 0, so both stages go silent
+   * and undeafening restores each member's own level.
    */
   #applyVolume(userId: string): void {
     const remote = this.#remote.get(userId);
     if (!remote) return;
-    const level = this.volumeFor(userId);
-    remote.element.volume = Math.min(1, level);
-    remote.gain.gain.value = Math.max(1, level);
+    const level = this.deafened ? 0 : this.volumeFor(userId);
+    remote.element.volume = elementVolumeFor(level);
+    remote.gain.gain.value = graphGainFor(level);
   }
 
   /**

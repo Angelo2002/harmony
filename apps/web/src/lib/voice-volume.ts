@@ -20,6 +20,26 @@ export function clampVolume(value: number): number {
 }
 
 /**
+ * The 0-100% part of a level, which rides the media element's own `volume`.
+ * The element applies that property itself, so it attenuates and silences even
+ * in a browser whose Web Audio tap does not pull the element, where the graph
+ * `GainNode` is a dead branch. Capped at 1: the element cannot amplify its own
+ * decoded signal, so the boost above full volume belongs to the graph stage.
+ */
+export function elementVolumeFor(level: number): number {
+  return Math.min(1, level);
+}
+
+/**
+ * The 1x-2x boost part of a level, which rides the graph `GainNode` the element
+ * feeds. Held at unity through the whole 0-100% range so the element's own
+ * volume is not applied twice, and only lifts past full volume.
+ */
+export function graphGainFor(level: number): number {
+  return Math.max(1, level);
+}
+
+/**
  * Reads a stored volume map. Malformed JSON, the wrong shape, or entries that
  * are not numbers all read as nothing stored; a number outside the range is
  * clamped, so a hand-edited or older value can never push the gain past its

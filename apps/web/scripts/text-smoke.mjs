@@ -111,7 +111,7 @@ import {
   voiceHost,
   webVoiceDisabled,
 } from '../src/lib/voice-mode.ts';
-import { clampVolume, parseVolumes, serializeVolumes, VOICE_VOLUME_DEFAULT, VOICE_VOLUME_MAX } from '../src/lib/voice-volume.ts';
+import { clampVolume, parseVolumes, serializeVolumes, volumeOverride, VOICE_VOLUME_DEFAULT, VOICE_VOLUME_MAX } from '../src/lib/voice-volume.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { draftPreview } from '../src/lib/composer-preview.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
@@ -1806,6 +1806,16 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
 
   const roundTrip = parseVolumes(serializeVolumes({ u2: 0.25, u3: 0 }));
   check('a written map reads back the same', roundTrip['u2'] === 0.25 && roundTrip['u3'] === 0);
+
+  // A member id that names an Object.prototype property must not resolve to the
+  // inherited value: the reads are by own key, so such a key is simply unset.
+  for (const key of ['constructor', 'toString', 'valueOf', '__proto__']) {
+    check(`a prototype-name key (${key}) reads as no override`, volumeOverride({}, key) === undefined);
+    check(`a prototype-name key (${key}) supplies the default`, (volumeOverride({}, key) ?? VOICE_VOLUME_DEFAULT) === VOICE_VOLUME_DEFAULT);
+    check(`a prototype-name key (${key}) is not adjusted`, (volumeOverride({}, key) !== undefined) === false);
+  }
+  check('an ordinary stored key still reads back', volumeOverride({ u2: 0.5 }, 'u2') === 0.5);
+  check('a key absent from the stored map is undefined', volumeOverride(parseVolumes(null), 'u9') === undefined);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

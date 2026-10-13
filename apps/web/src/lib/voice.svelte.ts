@@ -11,7 +11,7 @@ import { api } from './api';
 import { meta } from './meta.svelte';
 import { session } from './session.svelte';
 import { playSound } from './sounds';
-import { clampVolume, parseVolumes, serializeVolumes, VOICE_VOLUME_DEFAULT } from './voice-volume';
+import { clampVolume, parseVolumes, serializeVolumes, volumeOverride, VOICE_VOLUME_DEFAULT } from './voice-volume';
 import { webVoiceDisabled } from './voice-mode';
 
 /**
@@ -734,12 +734,12 @@ class VoiceStore {
 
   /** The playback gain for one member: the default unless this client changed it. */
   volumeFor(userId: string): number {
-    return this.volumes[userId] ?? VOICE_VOLUME_DEFAULT;
+    return volumeOverride(this.volumes, userId) ?? VOICE_VOLUME_DEFAULT;
   }
 
   /** Whether this client has adjusted one member away from the default. */
   volumeAdjusted(userId: string): boolean {
-    return this.volumes[userId] !== undefined;
+    return volumeOverride(this.volumes, userId) !== undefined;
   }
 
   /**

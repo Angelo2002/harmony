@@ -137,6 +137,26 @@ export function deleteRole(sqlite: DatabaseSync, id: string): void {
   sqlite.prepare('DELETE FROM roles WHERE id = ?').run(id);
 }
 
+/**
+ * Whether a role gates visibility: some channel or category names it as its
+ * `required_role_id`. Such a role is not cosmetic. Handing it out grants read
+ * access to whatever it locks, and deleting it clears the requirement - both
+ * foreign keys are `ON DELETE SET NULL` - and opens the channel to everyone.
+ * Used to decide that managing one takes ManageChannels, not ManageRoles alone.
+ */
+export function roleControlsAccess(sqlite: DatabaseSync, roleId: string): boolean {
+  const row = sqlite
+    .prepare(
+      `SELECT EXISTS(
+         SELECT 1 FROM channels WHERE required_role_id = ?
+         UNION ALL
+         SELECT 1 FROM categories WHERE required_role_id = ?
+       ) AS in_use`,
+    )
+    .get(roleId, roleId) as { in_use: number };
+  return row.in_use === 1;
+}
+
 /** Permissions granted to the implicit `@everyone` role. */
 export function getDefaultRolePermissions(sqlite: DatabaseSync): PermissionValue {
   const row = sqlite.prepare('SELECT permissions FROM roles WHERE is_default = 1').get() as

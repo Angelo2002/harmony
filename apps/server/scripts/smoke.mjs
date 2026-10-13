@@ -2979,6 +2979,39 @@ try {
       .status === 403,
   );
   check(
+    'a role manager cannot assign a role to an administrator (403)',
+    (await req(`/members/${guardOwnerId}/roles/${plainRole.json.id}`, { method: 'PUT', token: bobToken }))
+      .status === 403,
+  );
+
+  // A role that gates a channel is not cosmetic: handing it out changes who can
+  // read the channel, and deleting it clears required_role_id and opens the
+  // channel to everyone, so it needs ManageChannels rather than ManageRoles
+  // alone. A delegated role manager must be able to reach neither.
+  const accessRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Locked access' } });
+  const guardedChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'guarded', requiredRoleId: accessRole.json.id },
+  });
+  check(
+    'a role manager cannot self-assign a channel access role (403)',
+    (await req(`/members/${bobId}/roles/${accessRole.json.id}`, { method: 'PUT', token: bobToken })).status === 403,
+  );
+  check(
+    'a role manager cannot delete a channel access role (403)',
+    (await req(`/roles/${accessRole.json.id}`, { method: 'DELETE', token: bobToken })).status === 403,
+  );
+  check(
+    'the locked channel stays hidden from the role manager',
+    (await req('/channels', { token: bobToken })).json?.channels?.every(
+      (channel) => channel.id !== guardedChannel.json.id,
+    ) === true,
+  );
+  await req(`/channels/${guardedChannel.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${accessRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
+  check(
     "a member manager cannot reset the owner's password (403)",
     (await req(`/members/${guardOwnerId}`, { method: 'PATCH', token: bobToken, body: { password: 'taken-over-now' } }))
       .status === 403,

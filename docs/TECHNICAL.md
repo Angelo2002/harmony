@@ -316,9 +316,11 @@ in `localStorage` keyed by the listener, the side that owns the preference, so i
 survives a reload and a phone that recreates the webview; a member left at the
 default is not stored at all, and a different account in the same browser keeps
 its own set. Nothing about it reaches the server, so it cannot change the room's
-record or anyone else's audio. Deafening still wins: it closes the master gain the
-per-member gains feed into. A member's row for yourself has no gain of your own to
-set, so its menu offers your own mute instead.
+record or anyone else's audio. Deafening wins over it: it closes the master gain
+the per-member gains feed into and drives every element's own volume to zero, so
+the reported state holds whether or not the browser applies the graph stage; with
+deafen off, each member resumes their own level. A member's row for yourself has
+no gain of your own to set, so its menu offers your own mute instead.
 
 The menu opens three ways, so it is not pointer-only: right-click a member, long
 press their row on touch, or tab to the row's "…" button and press Enter or Space.

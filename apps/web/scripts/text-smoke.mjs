@@ -7,8 +7,8 @@
 // expressions the composer turns into timestamps, the channel and message a
 // launch link (a notification tap or a deep link) names, the native voice host
 // bridge (its off flag, the join/leave hand-off, and the call state it pushes
-// back), and the clamp and stored map behind the per-member voice-volume
-// control.
+// back), and the clamp, stored map and two-stage element/graph split behind the
+// per-member voice-volume control.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -111,7 +111,7 @@ import {
   voiceHost,
   webVoiceDisabled,
 } from '../src/lib/voice-mode.ts';
-import { clampVolume, parseVolumes, serializeVolumes, volumeOverride, VOICE_VOLUME_DEFAULT, VOICE_VOLUME_MAX } from '../src/lib/voice-volume.ts';
+import { clampVolume, elementVolumeFor, graphGainFor, parseVolumes, serializeVolumes, volumeOverride, VOICE_VOLUME_DEFAULT, VOICE_VOLUME_MAX } from '../src/lib/voice-volume.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { draftPreview } from '../src/lib/composer-preview.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
@@ -1798,6 +1798,26 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('a stored number is read back', parseVolumes('{"u2":0.5}')['u2'] === 0.5);
   check('a stored out-of-range number is clamped on read', parseVolumes('{"u2":9}')['u2'] === VOICE_VOLUME_MAX);
   check('a stored non-number entry is dropped', parseVolumes('{"u2":"loud"}')['u2'] === undefined);
+
+  check(
+    'the element stage carries the level up to full and caps at 1',
+    elementVolumeFor(0.5) === 0.5 && elementVolumeFor(1) === 1 && elementVolumeFor(2) === 1,
+  );
+  check(
+    'the graph stage is unity through the range and only lifts the boost',
+    graphGainFor(0.5) === 1 && graphGainFor(1) === 1 && graphGainFor(2) === VOICE_VOLUME_MAX,
+  );
+  // The two stages must compose back to the level in range with no double
+  // counting: the element's volume is applied before its source node, so the
+  // net playback is the product. 0 fully silences, 1 is unity, >1 only boosts.
+  for (const level of [0, 0.25, 0.5, 1, 1.5, 2]) {
+    check(
+      `the element volume and graph gain compose back to the level (${level})`,
+      elementVolumeFor(level) * graphGainFor(level) === level,
+    );
+  }
+  check('a deafened element is fully silent', elementVolumeFor(0) === 0);
+  check('a deafened graph gain stays at unity', graphGainFor(0) === 1);
 
   check('only overrides are written', serializeVolumes({ u1: VOICE_VOLUME_DEFAULT, u2: 0 }) === '{"u2":0}');
   check('a map with no overrides writes nothing', serializeVolumes({ u1: VOICE_VOLUME_DEFAULT }) === null);

@@ -530,10 +530,12 @@ Only the id on the row matters; no separate link table is needed.
 The id itself is **sensitive PII** and is kept off every public DTO. A Discord id is a stable,
 cross-platform identifier, so serving it to every member would let anyone correlate a Harmony
 pseudonym with a real Discord account. `User` therefore carries only `discordLinked: boolean`, which
-is enough for the client to draw the linked badge. The raw id rides on `LinkedUser` alone, which is
-produced in exactly two places: the account's own responses (`AuthResponse`, `MeResponse`, the
-gateway `READY` payload) and the administrator-only `GET /api/v1/members` view that sets and clears
-the link. `AuthContext` keeps the id in its own `discordId` field rather than on `auth.user`, so a
+is enough for the client to draw the linked badge. The raw id rides on `LinkedUser`, which is
+produced in exactly one place: the account's own responses (`AuthResponse`, `MeResponse`, the
+gateway `READY` payload). The member-management view is the one exception that is not a `LinkedUser`:
+`GET /api/v1/members` returns a plain `User` per member and puts the raw id in an optional top-level
+`discordId` field, present only to a viewer who holds `ManageMembers` or is an administrator.
+`AuthContext` keeps the id in its own `discordId` field rather than on `auth.user`, so a
 broadcast of `auth.user` (presence, typing, `READY` to others) can never carry it. When adding a new
 DTO, put `User` on it, not `LinkedUser`, unless the viewer owns the account or is an administrator.
 
@@ -1026,6 +1028,14 @@ how the bridge knows not to hand Discord a file for a link Discord can unfurl it
 resolution is skipped when the link has not actually changed. Anything with a null `source_url` was
 uploaded by a person and belongs to the message; anything else is a copy of somebody else's file and
 follows the text.
+
+The same link comes round again far more often than a community finds a new one, so a message whose
+link this instance already holds is given that copy rather than fetched a second time. The copy is
+reused only when the poster may read the channel it was cached from. A copy sitting on a message in a
+channel the poster cannot see is passed over, and the resolver falls through to the ordinary guarded
+fetch; otherwise a member who learned a link that had been posted privately could hand its stored
+bytes to a message of their own and then fetch them. `AttachmentService.reusableForUrl` takes the
+viewer's id and checks each candidate with `canAccessChannel`, mirroring what the read path serves.
 
 A message whose whole text is that link shows the picture and nothing else, the way Discord does: the
 address is behind the picture for anyone who wants it, and printing it above would only be noise. A

@@ -78,16 +78,16 @@ export function listLinkedAttachments(sqlite: DatabaseSync, messageId: string): 
 }
 
 /**
- * Something already copied from this link, newest first, whoever posted it. Used
+ * Every attachment copied from this link, newest first, whoever posted it. Used
  * to avoid fetching a file this instance is already holding: the same gif comes
- * round again far more often than a community finds a new one.
+ * round again far more often than a community finds a new one. The caller must
+ * still decide which of them, if any, its viewer is allowed to read: the newest
+ * copy may sit in a channel the viewer cannot see.
  */
-export function findAttachmentBySourceUrl(sqlite: DatabaseSync, url: string): AttachmentRow | null {
-  return (
-    (sqlite
-      .prepare('SELECT * FROM attachments WHERE source_url = ? ORDER BY created_at DESC, rowid DESC LIMIT 1')
-      .get(url) as AttachmentRow | undefined) ?? null
-  );
+export function listAttachmentsBySourceUrl(sqlite: DatabaseSync, url: string): AttachmentRow[] {
+  return sqlite
+    .prepare('SELECT * FROM attachments WHERE source_url = ? ORDER BY created_at DESC, rowid DESC')
+    .all(url) as unknown as AttachmentRow[];
 }
 
 export function findAttachment(sqlite: DatabaseSync, id: string): AttachmentRow | null {

@@ -256,15 +256,30 @@ export interface ServerSettingsResponse {
 }
 
 /**
- * A user together with the roles assigned to them. Only the administrator
- * member-management view uses this, so its `user` is the {@link LinkedUser}
- * shape: an administrator already sees and sets the Discord link.
+ * A user together with the roles assigned to them, for the member-management
+ * view. The list itself is readable by anyone holding a single management
+ * permission (so a moderator who can only kick still sees who they can kick),
+ * but the two sensitive extras are not: `permissions` would hand a narrow
+ * moderator the full privilege map of every account, including who holds
+ * Administrator, and `discordId` is PII. Both are present only when the viewer
+ * may manage members or is an administrator.
  */
 export interface MemberSummary {
-  user: LinkedUser;
+  user: User;
   roleIds: string[];
-  /** Effective permissions as a decimal bitfield string. */
-  permissions: string;
+  /**
+   * Effective permissions as a decimal bitfield string. Present only to a viewer
+   * who may manage members or is an administrator; absent otherwise.
+   */
+  permissions?: string;
+  /**
+   * The account's raw Discord id, present only to a viewer who may manage
+   * members or is an administrator (who already sees and sets the link). Absent,
+   * rather than null, when the viewer is not entitled to it: `null` means "not
+   * linked", so the two must not be conflated. `user.discordLinked` still tells
+   * any viewer whether the account has a link.
+   */
+  discordId?: string | null;
 }
 
 export interface MemberListResponse {

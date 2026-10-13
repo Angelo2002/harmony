@@ -256,8 +256,11 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
     if (linked.some((attachment) => attachment.source_url === url)) return;
 
     // Nor must a second message. A community posts the same handful of gifs
-    // over and over, and this instance is very likely already holding it.
-    const reusable = deps.attachments.reusableForUrl(url);
+    // over and over, and this instance is very likely already holding it. The
+    // copy is scoped to the poster: one cached in a channel they cannot see is
+    // not theirs to fetch, so it falls through to the guarded fetch below.
+    const viewerId = deps.renderMessage(messageId)?.author?.id ?? null;
+    const reusable = deps.attachments.reusableForUrl(url, viewerId);
     if (reusable) {
       await applyOutcome(messageId, { kind: 'copy', url, from: reusable });
       return;

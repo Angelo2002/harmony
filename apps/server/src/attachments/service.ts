@@ -17,7 +17,7 @@ import { assertNotTimedOut } from '../auth/guards.ts';
 import {
   attachToMessage,
   findAttachment,
-  findAttachmentBySourceUrl,
+  listAttachmentsBySourceUrl,
   insertAttachment,
   toAttachment,
   type AttachmentRow,
@@ -74,8 +74,14 @@ export interface AttachmentService {
    * to be fetched a second time. The same gif comes round again far more often
    * than a community finds a new one, and refetching it costs bandwidth and a
    * visible wait for a file this instance is already holding.
+   *
+   * Scoped to what `viewerId` may read: a cached copy is only reused when the
+   * message it sits on is in a channel the viewer can see. Otherwise a member who
+   * learns a link that was posted in a private channel could hand its stored
+   * bytes to a message of their own and fetch them, so an inaccessible copy falls
+   * through to the ordinary guarded fetch instead. A null viewer reuses nothing.
    */
-  reusableForUrl(url: string): AttachmentRow | null;
+  reusableForUrl(url: string, viewerId: string | null): AttachmentRow | null;
   /** Gives another message a picture this instance already holds. No download. */
   copyLinkedImage(input: {
     messageId: string;
@@ -225,12 +231,30 @@ export function createAttachmentService(
       return row ? toAttachment(row) : null;
     },
 
-    reusableForUrl(url) {
-      const row = findAttachmentBySourceUrl(sqlite, url);
-      // A row can only outlive its file if somebody pruned the blob by hand.
-      // Pointing a message at nothing would be worse than fetching again.
-      if (!row || !existsSync(blobs.pathFor(row.hash))) return null;
-      return row;
+    reusableForUrl(url, viewerId) {
+      // Nothing to authorize against, so reuse nothing rather than hand back the
+      // unchecked copy.
+      if (viewerId === null) return null;
+
+      const access = channelAccessFor(sqlite, viewerId);
+
+      // Newest first, but only a copy the viewer may read. A copy cached from a
+      // channel they cannot see is skipped, so the message falls through to the
+      // guarded fetch instead of being handed bytes it should not reach.
+      for (const row of listAttachmentsBySourceUrl(sqlite, url)) {
+        // A row can only outlive its file if somebody pruned the blob by hand.
+        // Pointing a message at nothing would be worse than fetching again.
+        if (!existsSync(blobs.pathFor(row.hash))) continue;
+        if (!row.message_id) continue;
+        const message = findMessage(sqlite, row.message_id);
+        if (!message) continue;
+        // A soft-deleted message's media is no longer on display in its channel,
+        // so it is not reused either, matching what the read path serves.
+        if (message.deleted_at && !access.bypass) continue;
+        if (!canAccessChannel(sqlite, access, message.channel_id)) continue;
+        return row;
+      }
+      return null;
     },
 
     copyLinkedImage(input) {

@@ -32,6 +32,7 @@ import { insertBan } from '../src/db/bans.ts';
 import { createAuthService } from '../src/auth/service.ts';
 import { createDiscordOAuthService } from '../src/auth/discord-oauth.ts';
 import { insertChannel } from '../src/db/channels.ts';
+import { insertRole } from '../src/db/roles.ts';
 import { insertMessage } from '../src/db/messages.ts';
 import { listLinkedAttachments } from '../src/db/attachments.ts';
 import { createEmbedService } from '../src/embeds/service.ts';
@@ -1876,11 +1877,72 @@ try {
     // The same gif comes round again far more often than a community finds a new
     // one, so a second message should get the one already here rather than
     // fetching it all over again.
-    const reusable = pictures.reusableForUrl('https://example.com/cat.gif');
+    const reusable = pictures.reusableForUrl('https://example.com/cat.gif', 'u1');
     check('a picture already held can be found for its link', reusable?.hash === stored?.hash);
     check(
       'a link nothing was ever fetched from has nothing to reuse',
-      pictures.reusableForUrl('https://example.com/never-seen.gif') === null,
+      pictures.reusableForUrl('https://example.com/never-seen.gif', 'u1') === null,
+    );
+
+    // A copy cached from a channel the viewer cannot see must not be reused:
+    // otherwise a member who learns a link posted in a private channel could
+    // hand its stored bytes to a message of their own and fetch them. A plain
+    // member is refused the private copy but still reuses a public one.
+    insertUser(pictureDb.sqlite, { id: 'u3', username: 'plain', passwordHash: 'x', isOwner: false });
+    // The channel lock names a role; the column is a foreign key, so it has to
+    // exist even though no member holds it.
+    insertRole(pictureDb.sqlite, {
+      id: 'role-hidden',
+      name: 'Hidden',
+      color: null,
+      position: 0,
+      permissions: '0',
+      hoist: false,
+      mentionable: false,
+      createdAt: new Date().toISOString(),
+    });
+    insertChannel(pictureDb.sqlite, {
+      id: 'c-private',
+      name: 'secret',
+      topic: null,
+      categoryId: null,
+      type: 'text',
+      position: 1,
+      createdAt: new Date().toISOString(),
+      discordChannelId: null,
+      requiredRoleId: 'role-hidden',
+    });
+    const SECRET = 'https://example.com/secret.gif';
+    insertMessage(pictureDb.sqlite, {
+      id: 'pm1',
+      channelId: 'c-private',
+      authorId: 'u1',
+      content: SECRET,
+      createdAt: new Date().toISOString(),
+    });
+    await pictures.storeLinkedImage({
+      messageId: 'pm1',
+      uploaderId: 'u1',
+      sourceUrl: SECRET,
+      filename: 'secret.png',
+      contentType: 'image/png',
+      data: gifBytes,
+    });
+    check(
+      'a copy cached from a channel the viewer cannot see is not reused',
+      pictures.reusableForUrl(SECRET, 'u3') === null,
+    );
+    check(
+      'but a viewer who can see that channel still reuses it',
+      pictures.reusableForUrl(SECRET, 'u1')?.source_url === SECRET,
+    );
+    check(
+      'a public-channel copy is still reused by any member',
+      pictures.reusableForUrl('https://example.com/cat.gif', 'u3')?.hash === stored?.hash,
+    );
+    check(
+      'a null viewer reuses nothing',
+      pictures.reusableForUrl('https://example.com/cat.gif', null) === null,
     );
 
     insertMessage(pictureDb.sqlite, {
@@ -2906,6 +2968,33 @@ try {
   check('a kick-only moderator cannot list members yet (403)', (await req('/members', { token: bobToken })).status === 403);
   await req(`/members/${bobId}/roles/${kickRole.json?.id}`, { method: 'PUT', token: ownerToken });
   check('a kick-only moderator can list members', (await req('/members', { token: bobToken })).status === 200);
+
+  // The list stays readable by a single-permission moderator, but the full
+  // permission map of every account (who holds Administrator) and each raw
+  // Discord id (PII) are for a member manager or an administrator only. A
+  // kick-only moderator gets neither.
+  const kickMembers = await req('/members', { token: bobToken });
+  check(
+    'a kick-only moderator gets no permission map',
+    kickMembers.json?.members?.length >= 3 &&
+      kickMembers.json.members.every((member) => !('permissions' in member)),
+  );
+  check(
+    'and no raw Discord id',
+    kickMembers.json?.members?.every((member) => !('discordId' in member)) === true,
+  );
+  check(
+    'and the member shape carries no nested discord id',
+    kickMembers.json?.members?.every((member) => !('discordId' in member.user)) === true,
+  );
+  const privilegedMembers = await req('/members', { token: ownerToken });
+  check(
+    'a member manager sees the permission map and the Discord id',
+    privilegedMembers.json?.members?.every(
+      (member) => typeof member.permissions === 'string' && member.permissions.length > 0 && 'discordId' in member,
+    ) === true,
+  );
+
   await req(`/members/${bobId}/roles/${kickRole.json?.id}`, { method: 'DELETE', token: ownerToken });
   await req(`/roles/${kickRole.json?.id}`, { method: 'DELETE', token: ownerToken });
 
@@ -4886,12 +4975,13 @@ try {
     linkedDirectoryEntry?.discordLinked === true && !('discordId' in linkedDirectoryEntry),
   );
   // The administrator member view is the narrow surface that keeps the id, since
-  // an administrator sets and clears the link from it.
+  // an administrator sets and clears the link from it. It carries it as a
+  // top-level field, present only to a member manager or an administrator.
   const linkedAdminView = await req('/members', { token: ownerToken });
   const linkedAdminEntry = linkedAdminView.json?.members?.find((entry) => entry.user.id === editId);
   check(
     'the administrator member view still carries the Discord id for linking',
-    linkedAdminEntry?.user?.discordId === '123456789012345678',
+    linkedAdminEntry?.discordId === '123456789012345678' && !('discordId' in linkedAdminEntry.user),
   );
   check(
     'a malformed Discord id is refused (400)',

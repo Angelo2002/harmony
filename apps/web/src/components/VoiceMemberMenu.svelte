@@ -50,7 +50,12 @@
     top = Math.max(8, Math.min(y, window.innerHeight - height - 8));
 
     const onPointerDown = (event: PointerEvent): void => {
-      if (!menu?.contains(event.target as Node)) onclose();
+      const target = event.target;
+      // A Node for real pointer input, but not necessarily for a synthetic or
+      // non-element event; Node.contains throws on anything that is not a Node,
+      // and the throw would skip onclose(). Treat anything that is not a Node
+      // inside the menu as an outside press and close.
+      if (!(target instanceof Node) || !menu?.contains(target)) onclose();
     };
     // Captured, so a press on anything else closes the menu before it acts. A
     // resize is deliberately left alone: a phone fires one whenever its toolbar

@@ -757,6 +757,12 @@ button.server-name:hover:not(:disabled) {
   position: relative;
 }
 
+/* A voice member row is a channel row without the label, so its "…" trigger
+   anchors to a wrapper the same way. */
+.voice-member-item {
+  position: relative;
+}
+
 /* The "…" that opens a channel's or category's menu, shown on hover and focus. */
 .channel-more {
   display: none;
@@ -833,6 +839,33 @@ button.server-name:hover:not(:disabled) {
 .channel-item:hover .channel .tail,
 .channel-item:focus-within .channel .tail,
 .channel-item.active .channel .tail {
+  margin-right: 1.5rem;
+}
+
+/*
+ * The voice member row has no focusable label of its own, so its "…" cannot be
+ * revealed by focus-within from a sibling the way the channel row's is. It stays
+ * in the tab order and is only faded out, then fades back in on hover or focus:
+ * opacity keeps it reachable by Tab and visible to assistive tech, which
+ * display:none would not.
+ */
+.voice-member-item .channel-more {
+  display: inline-flex;
+  opacity: 0;
+  /* Invisible but still in the tab order. Pointer events are off so a stray
+     tap on an invisible trigger cannot open the menu; hover or focus turns
+     them back on. */
+  pointer-events: none;
+}
+
+.voice-member-item:hover .channel-more,
+.voice-member-item:focus-within .channel-more {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.voice-member-item:hover .voice-member-tail,
+.voice-member-item:focus-within .voice-member-tail {
   margin-right: 1.5rem;
 }
 

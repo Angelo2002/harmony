@@ -49,6 +49,14 @@
     left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
     top = Math.max(8, Math.min(y, window.innerHeight - height - 8));
 
+    /*
+     * Move focus into the menu, so Escape closes it and the controls are
+     * reachable without a pointer. This focuses the first control and leaves
+     * the rest to Tab: a range input needs the arrow keys for its own value,
+     * so a roving arrow-key focus (as the channel menu uses) would fight it.
+     */
+    menu?.querySelector<HTMLElement>('input:not([disabled]), button:not([disabled])')?.focus();
+
     const onPointerDown = (event: PointerEvent): void => {
       const target = event.target;
       // A Node for real pointer input, but not necessarily for a synthetic or

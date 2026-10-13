@@ -271,6 +271,24 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
     // A copy held under the address (made while the instance linked, or by an
     // archive run) is given to the message as it is: the same gif is never
     // fetched twice, and one whose source has since died still arrives.
+    //
+    // This lookup is deliberately instance-wide, not scoped to the channel or
+    // the poster. gif_sources only ever holds addresses that passed
+    // isGifLinkUrl - media.tenor.com, the giphy media hosts, klipy.com
+    // subdomains (see packages/shared/src/gif-hosts.ts) - all public CDNs, so
+    // handing over the copy discloses at most "this public gif URL was seen on
+    // this instance". The globality is the point: it is what dedupes the same
+    // public gif across channels, and lets a copy outlive a source that has
+    // died.
+    //
+    // That safety rests on one condition. Were the allowlist
+    // (GIF_LINK_EXACT_HOSTS / GIF_LINK_SUFFIX_HOSTS) ever to grow a host that
+    // can serve non-public content, reuse would stop being about public CDNs
+    // and become a cross-channel disclosure, handing one channel bytes another
+    // cannot see. This fallback must then become viewer-scoped: resolve the
+    // viewer and require canAccessChannel before handing out the copy, the same
+    // gate the poster-scoped attachment reuse applies. See YUC-99 / YUC-97
+    // finding C.
     const held = deps.sources?.copyFor(url);
     if (held && held.content_type) {
       await applyOutcome(messageId, {

@@ -2068,6 +2068,9 @@ try {
         verifyCalls.push({ url, limits });
         return { contentType: 'image/gif', width: null, height: null };
       },
+      // Reuse of a stored copy still asks the fetch guard, which would resolve the
+      // host; stand it in so this block does not depend on DNS.
+      isFetchable: async () => true,
     });
     const embedOf = (id) => parseMessageEmbed(pictureDb.sqlite.prepare('SELECT embed FROM messages WHERE id = ?').get(id)?.embed ?? null);
     const addMessage = (id, content) =>

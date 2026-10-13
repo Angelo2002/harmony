@@ -19,7 +19,7 @@ import { HttpError } from '../http/errors.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
 import type { GifSourceService } from '../gifs/sources.ts';
-import { guardedFetch, isFetchableUrl, resolvesToPublicHost } from './guard.ts';
+import { guardedFetch, isFetchableUrl as defaultIsFetchable, resolvesToPublicHost } from './guard.ts';
 import { verifyLinkedGif, type VerifyLinkedGif } from './linked-gif.ts';
 import { readCappedBody } from './media.ts';
 import { parseEmbedMetadata } from './metadata.ts';
@@ -65,6 +65,11 @@ export interface EmbedServiceDeps {
   log?: (message: string, detail?: unknown) => void;
   /** Replaces the check made before a gif is linked; for tests, which cannot reach a gif host. */
   verifyLinkedGif?: VerifyLinkedGif;
+  /**
+   * Replaces the address check the resolver runs before reusing a stored copy or
+   * fetching. Defaults to the real guard; for tests, which cannot resolve a host.
+   */
+  isFetchable?: (url: string) => Promise<boolean>;
   /**
    * Pairs each gif address with the copy held of it. Optional so a resolver can
    * be built without one (it then behaves as it did before the pairing existed).
@@ -114,6 +119,7 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
   const cards = new Map<string, LinkEmbed | null>();
   const inFlight = new Map<string, Promise<Outcome>>();
   const log = deps.log ?? ((): void => {});
+  const isFetchable = deps.isFetchable ?? defaultIsFetchable;
   /**
    * Set by useDiscordRefresher once the bridge exists. Null while it does not,
    * which is also the honest answer for an instance with no bridge at all.
@@ -265,13 +271,12 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
     // every hop. An address the resolver would refuse (an internal host, one
     // that no longer resolves publicly) gets no reuse either, so a row cached
     // before a guard tightened is never handed out. The fetch then refuses that
-    // address too, so nothing is fetched or stored when reuse is skipped.
-    if (await isFetchableUrl(url)) {
-      const reusable = deps.attachments.reusableForUrl(url);
-      if (reusable) {
-        await applyOutcome(messageId, { kind: 'copy', url, from: reusable });
-        return;
-      }
+    // address too, so nothing is fetched or stored when reuse is skipped. The
+    // lookup comes first so the guard only runs when there is a copy to hand over.
+    const reusable = deps.attachments.reusableForUrl(url);
+    if (reusable && (await isFetchable(url))) {
+      await applyOutcome(messageId, { kind: 'copy', url, from: reusable });
+      return;
     }
 
     // A gif on a known gif host is pointed at instead of copied, when the

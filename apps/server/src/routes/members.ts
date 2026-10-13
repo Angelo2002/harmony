@@ -18,7 +18,7 @@ import {
   type MemberUpdateResponse,
   type UserDirectoryResponse,
 } from '@harmony/shared';
-import { assertCanActOn, assertCanGrant } from '../auth/guards.ts';
+import { assertCanActOn, assertCanManageRole } from '../auth/guards.ts';
 import { resolvePermissions } from '../auth/permissions.ts';
 import { requireAnyPermission, requirePermission } from '../auth/plugin.ts';
 import type { AuditService } from '../audit/service.ts';
@@ -117,7 +117,8 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     const auth = requirePermission(request, Permission.ManageRoles);
     const { userId, roleId } = request.params as { userId: string; roleId: string };
 
-    if (!findUserById(db.sqlite, userId)) {
+    const target = findUserById(db.sqlite, userId);
+    if (!target) {
       throw new HttpError(404, 'user_not_found', 'That member does not exist.');
     }
 
@@ -126,8 +127,12 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     if (role.is_default === 1) {
       throw new HttpError(400, 'default_role', 'Everyone already has the @everyone role.');
     }
-    // Giving a role is granting its permissions, to yourself as much as anyone.
-    assertCanGrant(auth, permissionsFromString(role.permissions));
+    // Giving a role is granting its permissions, to yourself as much as anyone,
+    // and a role that gates a channel takes ManageChannels besides. Holding it
+    // to the same rule as taking one away also stops a delegated manager from
+    // placing a role on an administrator.
+    assertCanManageRole(db.sqlite, auth, role);
+    assertCanActOn(db.sqlite, auth, target);
 
     assignRole(db.sqlite, userId, roleId);
     audit.roleChange(auth.user.id, userId, roleId, true);

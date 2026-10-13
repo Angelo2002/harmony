@@ -10,7 +10,7 @@ import {
   updateRoleSchema,
   type RoleListResponse,
 } from '@harmony/shared';
-import { assertCanGrant } from '../auth/guards.ts';
+import { assertCanGrant, assertCanManageRole } from '../auth/guards.ts';
 import { requirePermission } from '../auth/plugin.ts';
 import type { Database } from '../db/index.ts';
 import {
@@ -123,7 +123,10 @@ export function registerRoleRoutes(app: FastifyInstance, deps: RoleRouteDeps): v
     const auth = requirePermission(request, Permission.ManageRoles);
     const { id } = request.params as { id: string };
     const row = requireRoleRow(id);
-    assertCanGrant(auth, permissionsFromString(row.permissions));
+    // Deleting a role that gates a channel clears the requirement (the foreign
+    // keys are ON DELETE SET NULL) and opens it to everyone, so the subset rule
+    // alone is not enough: it needs ManageChannels or Administrator.
+    assertCanManageRole(db.sqlite, auth, row);
 
     if (row.is_default === 1) {
       throw new HttpError(403, 'immutable_role', 'The @everyone role cannot be deleted.');

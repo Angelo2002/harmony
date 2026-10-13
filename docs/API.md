@@ -109,7 +109,7 @@ status codes and their codes:
 | --- | --- |
 | 400 | `validation_error`, `bad_request`, `invalid_reply`, `invalid_emoji`, `invalid_attachment`, `invalid_upload`, `default_role`, `cannot_moderate_self`, `cannot_moderate_bot` |
 | 401 | `unauthorized`, `invalid_credentials` |
-| 403 | `forbidden`, `timed_out`, `account_banned`, `target_is_admin`, `invite_required`, `invalid_invite`, `invite_expired`, `invite_exhausted`, `immutable_role`, `permission_escalation` |
+| 403 | `forbidden`, `timed_out`, `account_banned`, `target_is_admin`, `invite_required`, `invalid_invite`, `invite_expired`, `invite_exhausted`, `immutable_role`, `permission_escalation`, `access_role` |
 | 404 | `not_found`, `channel_not_found`, `message_not_found`, `role_not_found`, `user_not_found`, `bot_not_found`, `emoji_not_found`, `sticker_not_found`, `sticker_missing`, `attachment_not_found`, `avatar_not_found`, `not_banned` |
 | 409 | `username_taken`, `emoji_exists`, `discord_channel_taken`, `bot_offline` |
 | 413 | `payload_too_large` |
@@ -157,6 +157,13 @@ guard): not by creating or editing a role, not by assigning a role to anyone (yo
 you cannot edit or delete a role that already holds a permission you lack. Each returns
 `403 permission_escalation`. Likewise only an administrator can act on an administrator or the owner
 — remove their roles, or edit their account — which returns `403 target_is_admin`.
+
+The permission subset is not the whole rule for *managing* a role. A role that a channel or category
+requires in order to be seen is an access control, not a cosmetic one: assigning it changes who can
+read that channel, and deleting it clears the requirement and opens the channel to everyone. So
+assigning or deleting an access role needs `ManageChannels` (or `Administrator`); a delegated
+`ManageRoles` holder who lacks it gets `403 access_role`. Purely cosmetic, low-permission roles stay
+delegable, which is the point of handing out `ManageRoles`.
 
 ## Rate limits
 
@@ -976,6 +983,9 @@ one requirement per resource and no overwrites.
   inside it. A channel can tighten that further, but never loosen it: a channel whose category is
   hidden is hidden too.
 - Anyone with `Administrator` — which includes the instance owner — bypasses every requirement.
+- A role that gates a channel or category can only be assigned or deleted by someone with
+  `ManageChannels` (or `Administrator`), so a delegated `ManageRoles` holder cannot hand it to
+  themselves or delete it to open the channel (`403 access_role`).
 - `GET /api/v1/channels` leaves out locked channels and categories a member cannot see, rather than
   listing them and refusing access.
 - Reading, posting, editing, deleting, reacting and typing in a locked channel all fail with
@@ -2363,6 +2373,9 @@ be reordered. Returns the full `{ "roles": [...] }` list.
 #### `DELETE /api/v1/roles/:id` — `ManageRoles`
 
 Returns `204`, fires `ROLE_DELETE` with `{ "id": "..." }`. The `@everyone` role cannot be deleted.
+Deleting a role that a channel or category requires in order to be seen needs `ManageChannels` (or
+`Administrator`), or the requirement is cleared and the resource opens to everyone (`403
+access_role` otherwise).
 
 ### Members
 
@@ -2434,7 +2447,10 @@ nothing.
 
 Assigns a role. Returns `204` and fires `MEMBER_UPDATE` with `{ "userId": "..." }`. The `@everyone`
 role is implicit and cannot be assigned (`400 default_role`). A role holding a permission you lack is
-`403 permission_escalation` unless you are an administrator.
+`403 permission_escalation` unless you are an administrator; a role that a channel or category
+requires to be seen needs `ManageChannels` (`403 access_role`); and assigning any role to an
+administrator or the owner needs `Administrator` yourself (`403 target_is_admin`), the same rule as
+removing one, so a delegated manager cannot place a role on someone above them.
 
 #### `DELETE /api/v1/members/:userId/roles/:roleId` — `ManageRoles`
 

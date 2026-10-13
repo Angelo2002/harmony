@@ -377,7 +377,16 @@ export function createMessageService(sqlite: DatabaseSync, hub: GatewayHub, audi
     if (replyToId) {
       const parent = findMessage(sqlite, replyToId);
       const target = parent?.author_id ? findUserById(sqlite, parent.author_id) : null;
-      if (target && target.id !== authorId && target.account_type === 'user') {
+      // Being answered is not the same as being able to see the answer: a reply
+      // in a channel the parent's author can no longer see must not leave a row
+      // that a notification could later read a snippet out of. The name half
+      // below keeps its rows, which the inbox already filters by visibility.
+      if (
+        target &&
+        target.id !== authorId &&
+        target.account_type === 'user' &&
+        canAccessChannel(sqlite, channelAccessFor(sqlite, target.id), channelId)
+      ) {
         insertMention(sqlite, { messageId, userId: target.id, channelId, kind: 'reply', createdAt });
       }
     }

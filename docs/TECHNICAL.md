@@ -724,7 +724,11 @@ the notification does.
 
 Like the read marker, an inbox is one member's own list — it is not a public record of who was
 summoned by whom — and it is filtered to the channels the member can see, so a mention in a channel
-that has since been locked away disappears from it. Nothing is collected for a member's own message,
+that has since been locked away disappears from it. A name still leaves a row for a member the
+channel is locked away from, because hiding it is the inbox's job and the row should surface if they
+later gain access; a reply row, by contrast, is skipped when the one answered can no longer see the
+channel. The push fan-out holds to the same visibility rule before it sends, so a notification is
+never the back door into a locked channel's text. Nothing is collected for a member's own message,
 and nothing is collected for the Discord stand-in accounts, since they can never sign in.
 
 There is deliberately **no second read cursor**. A mention is unread while the channel it landed in
@@ -981,9 +985,9 @@ What does reach a closed app is **system push**, the registry-and-delivery half 
 [PUSH.md](PUSH.md): an instance has a stable `instanceId` in `GET /api/v1/meta`, a
 member registers a device endpoint at `/users/@me/push-devices` (the `push_devices`
 table), and the server sends to it. When a message is created live, `push/dispatch.ts`
-takes the `mentions` rows for it, drops anyone already connected to the gateway or
-muted in the channel, and `push/sender.ts` `POST`s the `PushPayload` JSON to each
-remaining device over HTTP — the provider-agnostic UnifiedPush/ntfy contract, no
+takes the `mentions` rows for it, drops anyone already connected to the gateway, muted
+in the channel, or unable to see the channel at all, and `push/sender.ts` `POST`s the
+`PushPayload` JSON to each remaining device over HTTP — the provider-agnostic UnifiedPush/ntfy contract, no
 vendor account. An endpoint the provider answers `404`/`410` for is pruned. The
 sender treats an endpoint as hostile like every other outbound fetch: its host
 must resolve to a public address, and no redirect is followed, so a registration

@@ -113,6 +113,11 @@ export function createGifSourceService(
   function copyFor(url: string): (GifSourceRow & { hash: string }) | null {
     const key = normalizeGifSourceUrl(url);
     if (key === null) return null;
+    // The YUC-99 invariant, repeated at the point of reuse: only an allowlisted
+    // public gif-host address is ever handed out, even if a row reached the
+    // table outside the guarded writers (record, recordCopy, ensureCopy,
+    // archive).
+    if (!isGifLinkUrl(key)) return null;
     const row = findGifSource(sqlite, key);
     if (!row || row.hash === null) return null;
     if (!existsSync(blobs.pathFor(row.hash))) {

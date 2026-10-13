@@ -2205,6 +2205,15 @@ try {
     // Switching modes back and forth loses nothing.
     settings.update({ gifStorage: 'link' });
     check('store to link: the copy is kept and still found', sources.copyFor(G1)?.hash === sha(gifA) && blobCount() === 1 && rowCount() === 1);
+
+    // A row planted outside the guarded writers is still refused at the point of
+    // reuse: only an allowlisted gif-host address is ever handed out (YUC-99).
+    // The blob exists, so without the guard copyFor would hand the row over.
+    const PLANTED = 'https://intranet.example/planted.gif';
+    sql.prepare('INSERT INTO gif_sources (url, hash, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)')
+      .run(PLANTED, sha(gifA), new Date().toISOString(), new Date().toISOString());
+    check('reuse: a non-gif address is refused even with a row and a real blob', sources.copyFor(PLANTED) === null);
+    sql.prepare('DELETE FROM gif_sources WHERE url = ?').run(PLANTED);
     await gifs.link(auth, G1);
     check('linking the same gif again neither refetches nor drops the copy', fetchedCount(G1) === 1 && rowOf(G1)?.hash === sha(gifA));
     settings.update({ gifStorage: 'store' });

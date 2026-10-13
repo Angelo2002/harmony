@@ -17,7 +17,7 @@ import { assertNotTimedOut } from '../auth/guards.ts';
 import {
   attachToMessage,
   findAttachment,
-  findAttachmentBySourceUrl,
+  listAttachmentsBySourceUrl,
   insertAttachment,
   toAttachment,
   type AttachmentRow,
@@ -74,6 +74,15 @@ export interface AttachmentService {
    * to be fetched a second time. The same gif comes round again far more often
    * than a community finds a new one, and refetching it costs bandwidth and a
    * visible wait for a file this instance is already holding.
+   *
+   * Which channel the copy came from is deliberately not consulted. The bytes
+   * live on an external host, so anyone who knows the address can fetch them
+   * directly: refusing reuse behind channel visibility protects nothing and only
+   * makes the instance fetch and store a second copy of the same file. The
+   * caller gates reuse on the resolver's own fetch guard instead; this method
+   * only skips a copy the fetch path could not have produced (a row whose type or
+   * size a tightened limit would now refuse, a missing blob, an orphaned or
+   * soft-deleted message).
    */
   reusableForUrl(url: string): AttachmentRow | null;
   /** Gives another message a picture this instance already holds. No download. */
@@ -226,11 +235,29 @@ export function createAttachmentService(
     },
 
     reusableForUrl(url) {
-      const row = findAttachmentBySourceUrl(sqlite, url);
-      // A row can only outlive its file if somebody pruned the blob by hand.
-      // Pointing a message at nothing would be worse than fetching again.
-      if (!row || !existsSync(blobs.pathFor(row.hash))) return null;
-      return row;
+      const limits = settings.get();
+
+      // Newest first. From each row this only asks whether the ordinary fetch
+      // path could have produced it today: the caller has already cleared the
+      // address with the same guard it applies before fetching, so no channel is
+      // consulted here.
+      for (const row of listAttachmentsBySourceUrl(sqlite, url)) {
+        // A limit tightened since the row was cached would make the fetch refuse
+        // this file now, so it is not handed out either.
+        if (!ALLOWED_IMAGE_TYPES.includes(row.content_type as ImageContentType)) continue;
+        if (row.size > limits.maxImageBytes) continue;
+        // A row can only outlive its file if somebody pruned the blob by hand.
+        // Pointing a message at nothing would be worse than fetching again.
+        if (!existsSync(blobs.pathFor(row.hash))) continue;
+        if (!row.message_id) continue;
+        const message = findMessage(sqlite, row.message_id);
+        if (!message) continue;
+        // A soft-deleted message's media is no longer on display in its channel,
+        // so it is not reused either, matching what the read path serves.
+        if (message.deleted_at) continue;
+        return row;
+      }
+      return null;
     },
 
     copyLinkedImage(input) {

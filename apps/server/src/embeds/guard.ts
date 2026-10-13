@@ -51,6 +51,29 @@ export async function resolvesToPublicHost(hostname: string): Promise<boolean> {
   return (await resolvePublicHost(hostname)) !== null;
 }
 
+/**
+ * Whether the resolver would attempt to fetch an address at all: a well-formed
+ * http or https URL whose host resolves only to public addresses.
+ *
+ * This is the synchronous-to-first-await half of the same guard the fetch loop
+ * runs before every hop. The reuse fast path asks it before handing a message a
+ * copy this instance already holds, so a URL the resolver would refuse (an
+ * internal address, a host that no longer resolves publicly) gets no reuse
+ * either: a row cached before a guard tightened is never served. When it
+ * refuses, the ordinary fetch below refuses the same address, so nothing is
+ * fetched or stored.
+ */
+export async function isFetchableUrl(url: string): Promise<boolean> {
+  let target: URL;
+  try {
+    target = new URL(url);
+  } catch {
+    return false;
+  }
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') return false;
+  return resolvesToPublicHost(target.hostname);
+}
+
 /** The lookup signature `node:net` and undici's connector expect. */
 type ConnectorLookup = NonNullable<TcpNetConnectOpts['lookup']>;
 

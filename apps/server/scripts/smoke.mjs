@@ -1883,6 +1883,106 @@ try {
       pictures.reusableForUrl('https://example.com/never-seen.gif') === null,
     );
 
+    // Reuse no longer depends on which channel the cached copy came from: the
+    // bytes live on an external host, so anyone who knows the address can fetch
+    // them directly. What it depends on is the same guard the fetch path applies
+    // (isFetchableUrl), so a URL the resolver would refuse gets no reuse either.
+    // A public and a private literal host stand in for a fetchable and an
+    // unfetchable address, so the resolver decides without any lookup or request
+    // leaving the machine; the bytes are already stored, so the guard is the only
+    // thing that can change the outcome.
+    pictureSettings.update({ embedsEnabled: true });
+    const guardEmbeds = createEmbedService({
+      sqlite: pictureDb.sqlite,
+      settings: pictureSettings,
+      hub: { dispatch: () => {} },
+      attachments: pictures,
+      renderMessage: (id) => ({ id, channelId: 'c1', author: { id: 'u1' }, attachments: [] }),
+    });
+    const PUBLIC = 'http://198.51.100.7/shared.png';
+    const PRIVATE = 'http://127.0.0.1:9/secret.png';
+    for (const [id, url] of [
+      ['gp', PUBLIC],
+      ['gn', PRIVATE],
+    ]) {
+      insertMessage(pictureDb.sqlite, {
+        id,
+        channelId: 'c1',
+        authorId: 'u1',
+        content: url,
+        createdAt: new Date().toISOString(),
+      });
+      await pictures.storeLinkedImage({
+        messageId: id,
+        uploaderId: 'u1',
+        sourceUrl: url,
+        filename: 'held.png',
+        contentType: 'image/png',
+        data: gifBytes,
+      });
+    }
+    insertMessage(pictureDb.sqlite, {
+      id: 'gp2',
+      channelId: 'c1',
+      authorId: 'u1',
+      content: PUBLIC,
+      createdAt: new Date().toISOString(),
+    });
+    guardEmbeds.resolve('gp2', PUBLIC);
+    await sleep(150);
+    check(
+      'a link the guard would fetch is reused, whatever channel cached it',
+      listLinkedAttachments(pictureDb.sqlite, 'gp2').length === 1,
+    );
+    insertMessage(pictureDb.sqlite, {
+      id: 'gn2',
+      channelId: 'c1',
+      authorId: 'u1',
+      content: PRIVATE,
+      createdAt: new Date().toISOString(),
+    });
+    guardEmbeds.resolve('gn2', PRIVATE);
+    await sleep(150);
+    check(
+      'an address the guard refuses is not reused, and nothing is stored',
+      listLinkedAttachments(pictureDb.sqlite, 'gn2').length === 0,
+    );
+
+    // A row cached before a guard tightened must not be handed out either. Both
+    // start as valid rows on a real blob, then one is given a type and one a size
+    // the fetch path would now refuse, so only those checks can skip them.
+    insertMessage(pictureDb.sqlite, {
+      id: 'held',
+      channelId: 'c1',
+      authorId: 'u1',
+      content: '',
+      createdAt: new Date().toISOString(),
+    });
+    for (const url of ['https://example.com/legacy-type.png', 'https://example.com/legacy-size.png']) {
+      await pictures.storeLinkedImage({
+        messageId: 'held',
+        uploaderId: 'u1',
+        sourceUrl: url,
+        filename: 'legacy.png',
+        contentType: 'image/png',
+        data: gifBytes,
+      });
+    }
+    pictureDb.sqlite
+      .prepare('UPDATE attachments SET content_type = ? WHERE source_url = ?')
+      .run('image/svg+xml', 'https://example.com/legacy-type.png');
+    pictureDb.sqlite
+      .prepare('UPDATE attachments SET size = ? WHERE source_url = ?')
+      .run(pictureSettings.get().maxImageBytes + 1, 'https://example.com/legacy-size.png');
+    check(
+      'a copy whose type a tightened guard would refuse is not reused',
+      pictures.reusableForUrl('https://example.com/legacy-type.png') === null,
+    );
+    check(
+      'a copy larger than the limit is not reused',
+      pictures.reusableForUrl('https://example.com/legacy-size.png') === null,
+    );
+
     insertMessage(pictureDb.sqlite, {
       id: 'm2',
       channelId: 'c1',
@@ -1968,6 +2068,9 @@ try {
         verifyCalls.push({ url, limits });
         return { contentType: 'image/gif', width: null, height: null };
       },
+      // Reuse of a stored copy still asks the fetch guard, which would resolve the
+      // host; stand it in so this block does not depend on DNS.
+      isFetchable: async () => true,
     });
     const embedOf = (id) => parseMessageEmbed(pictureDb.sqlite.prepare('SELECT embed FROM messages WHERE id = ?').get(id)?.embed ?? null);
     const addMessage = (id, content) =>
@@ -2906,6 +3009,33 @@ try {
   check('a kick-only moderator cannot list members yet (403)', (await req('/members', { token: bobToken })).status === 403);
   await req(`/members/${bobId}/roles/${kickRole.json?.id}`, { method: 'PUT', token: ownerToken });
   check('a kick-only moderator can list members', (await req('/members', { token: bobToken })).status === 200);
+
+  // The list stays readable by a single-permission moderator, but the full
+  // permission map of every account (who holds Administrator) and each raw
+  // Discord id (PII) are for a member manager or an administrator only. A
+  // kick-only moderator gets neither.
+  const kickMembers = await req('/members', { token: bobToken });
+  check(
+    'a kick-only moderator gets no permission map',
+    kickMembers.json?.members?.length >= 3 &&
+      kickMembers.json.members.every((member) => !('permissions' in member)),
+  );
+  check(
+    'and no raw Discord id',
+    kickMembers.json?.members?.every((member) => !('discordId' in member)) === true,
+  );
+  check(
+    'and the member shape carries no nested discord id',
+    kickMembers.json?.members?.every((member) => !('discordId' in member.user)) === true,
+  );
+  const privilegedMembers = await req('/members', { token: ownerToken });
+  check(
+    'a member manager sees the permission map and the Discord id',
+    privilegedMembers.json?.members?.every(
+      (member) => typeof member.permissions === 'string' && member.permissions.length > 0 && 'discordId' in member,
+    ) === true,
+  );
+
   await req(`/members/${bobId}/roles/${kickRole.json?.id}`, { method: 'DELETE', token: ownerToken });
   await req(`/roles/${kickRole.json?.id}`, { method: 'DELETE', token: ownerToken });
 
@@ -4886,12 +5016,13 @@ try {
     linkedDirectoryEntry?.discordLinked === true && !('discordId' in linkedDirectoryEntry),
   );
   // The administrator member view is the narrow surface that keeps the id, since
-  // an administrator sets and clears the link from it.
+  // an administrator sets and clears the link from it. It carries it as a
+  // top-level field, present only to a member manager or an administrator.
   const linkedAdminView = await req('/members', { token: ownerToken });
   const linkedAdminEntry = linkedAdminView.json?.members?.find((entry) => entry.user.id === editId);
   check(
     'the administrator member view still carries the Discord id for linking',
-    linkedAdminEntry?.user?.discordId === '123456789012345678',
+    linkedAdminEntry?.discordId === '123456789012345678' && !('discordId' in linkedAdminEntry.user),
   );
   check(
     'a malformed Discord id is refused (400)',

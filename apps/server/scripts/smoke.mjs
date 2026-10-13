@@ -32,7 +32,6 @@ import { insertBan } from '../src/db/bans.ts';
 import { createAuthService } from '../src/auth/service.ts';
 import { createDiscordOAuthService } from '../src/auth/discord-oauth.ts';
 import { insertChannel } from '../src/db/channels.ts';
-import { insertRole } from '../src/db/roles.ts';
 import { insertMessage } from '../src/db/messages.ts';
 import { listLinkedAttachments } from '../src/db/attachments.ts';
 import { createEmbedService } from '../src/embeds/service.ts';
@@ -1877,72 +1876,111 @@ try {
     // The same gif comes round again far more often than a community finds a new
     // one, so a second message should get the one already here rather than
     // fetching it all over again.
-    const reusable = pictures.reusableForUrl('https://example.com/cat.gif', 'u1');
+    const reusable = pictures.reusableForUrl('https://example.com/cat.gif');
     check('a picture already held can be found for its link', reusable?.hash === stored?.hash);
     check(
       'a link nothing was ever fetched from has nothing to reuse',
-      pictures.reusableForUrl('https://example.com/never-seen.gif', 'u1') === null,
+      pictures.reusableForUrl('https://example.com/never-seen.gif') === null,
     );
 
-    // A copy cached from a channel the viewer cannot see must not be reused:
-    // otherwise a member who learns a link posted in a private channel could
-    // hand its stored bytes to a message of their own and fetch them. A plain
-    // member is refused the private copy but still reuses a public one.
-    insertUser(pictureDb.sqlite, { id: 'u3', username: 'plain', passwordHash: 'x', isOwner: false });
-    // The channel lock names a role; the column is a foreign key, so it has to
-    // exist even though no member holds it.
-    insertRole(pictureDb.sqlite, {
-      id: 'role-hidden',
-      name: 'Hidden',
-      color: null,
-      position: 0,
-      permissions: '0',
-      hoist: false,
-      mentionable: false,
-      createdAt: new Date().toISOString(),
+    // Reuse no longer depends on which channel the cached copy came from: the
+    // bytes live on an external host, so anyone who knows the address can fetch
+    // them directly. What it depends on is the same guard the fetch path applies
+    // (isFetchableUrl), so a URL the resolver would refuse gets no reuse either.
+    // A public and a private literal host stand in for a fetchable and an
+    // unfetchable address, so the resolver decides without any lookup or request
+    // leaving the machine; the bytes are already stored, so the guard is the only
+    // thing that can change the outcome.
+    pictureSettings.update({ embedsEnabled: true });
+    const guardEmbeds = createEmbedService({
+      sqlite: pictureDb.sqlite,
+      settings: pictureSettings,
+      hub: { dispatch: () => {} },
+      attachments: pictures,
+      renderMessage: (id) => ({ id, channelId: 'c1', author: { id: 'u1' }, attachments: [] }),
     });
-    insertChannel(pictureDb.sqlite, {
-      id: 'c-private',
-      name: 'secret',
-      topic: null,
-      categoryId: null,
-      type: 'text',
-      position: 1,
-      createdAt: new Date().toISOString(),
-      discordChannelId: null,
-      requiredRoleId: 'role-hidden',
-    });
-    const SECRET = 'https://example.com/secret.gif';
+    const PUBLIC = 'http://198.51.100.7/shared.png';
+    const PRIVATE = 'http://127.0.0.1:9/secret.png';
+    for (const [id, url] of [
+      ['gp', PUBLIC],
+      ['gn', PRIVATE],
+    ]) {
+      insertMessage(pictureDb.sqlite, {
+        id,
+        channelId: 'c1',
+        authorId: 'u1',
+        content: url,
+        createdAt: new Date().toISOString(),
+      });
+      await pictures.storeLinkedImage({
+        messageId: id,
+        uploaderId: 'u1',
+        sourceUrl: url,
+        filename: 'held.png',
+        contentType: 'image/png',
+        data: gifBytes,
+      });
+    }
     insertMessage(pictureDb.sqlite, {
-      id: 'pm1',
-      channelId: 'c-private',
+      id: 'gp2',
+      channelId: 'c1',
       authorId: 'u1',
-      content: SECRET,
+      content: PUBLIC,
       createdAt: new Date().toISOString(),
     });
-    await pictures.storeLinkedImage({
-      messageId: 'pm1',
-      uploaderId: 'u1',
-      sourceUrl: SECRET,
-      filename: 'secret.png',
-      contentType: 'image/png',
-      data: gifBytes,
+    guardEmbeds.resolve('gp2', PUBLIC);
+    await sleep(150);
+    check(
+      'a link the guard would fetch is reused, whatever channel cached it',
+      listLinkedAttachments(pictureDb.sqlite, 'gp2').length === 1,
+    );
+    insertMessage(pictureDb.sqlite, {
+      id: 'gn2',
+      channelId: 'c1',
+      authorId: 'u1',
+      content: PRIVATE,
+      createdAt: new Date().toISOString(),
     });
+    guardEmbeds.resolve('gn2', PRIVATE);
+    await sleep(150);
     check(
-      'a copy cached from a channel the viewer cannot see is not reused',
-      pictures.reusableForUrl(SECRET, 'u3') === null,
+      'an address the guard refuses is not reused, and nothing is stored',
+      listLinkedAttachments(pictureDb.sqlite, 'gn2').length === 0,
+    );
+
+    // A row cached before a guard tightened must not be handed out either. Both
+    // start as valid rows on a real blob, then one is given a type and one a size
+    // the fetch path would now refuse, so only those checks can skip them.
+    insertMessage(pictureDb.sqlite, {
+      id: 'held',
+      channelId: 'c1',
+      authorId: 'u1',
+      content: '',
+      createdAt: new Date().toISOString(),
+    });
+    for (const url of ['https://example.com/legacy-type.png', 'https://example.com/legacy-size.png']) {
+      await pictures.storeLinkedImage({
+        messageId: 'held',
+        uploaderId: 'u1',
+        sourceUrl: url,
+        filename: 'legacy.png',
+        contentType: 'image/png',
+        data: gifBytes,
+      });
+    }
+    pictureDb.sqlite
+      .prepare('UPDATE attachments SET content_type = ? WHERE source_url = ?')
+      .run('image/svg+xml', 'https://example.com/legacy-type.png');
+    pictureDb.sqlite
+      .prepare('UPDATE attachments SET size = ? WHERE source_url = ?')
+      .run(pictureSettings.get().maxImageBytes + 1, 'https://example.com/legacy-size.png');
+    check(
+      'a copy whose type a tightened guard would refuse is not reused',
+      pictures.reusableForUrl('https://example.com/legacy-type.png') === null,
     );
     check(
-      'but a viewer who can see that channel still reuses it',
-      pictures.reusableForUrl(SECRET, 'u1')?.source_url === SECRET,
-    );
-    check(
-      'a public-channel copy is still reused by any member',
-      pictures.reusableForUrl('https://example.com/cat.gif', 'u3')?.hash === stored?.hash,
-    );
-    check(
-      'a null viewer reuses nothing',
-      pictures.reusableForUrl('https://example.com/cat.gif', null) === null,
+      'a copy larger than the limit is not reused',
+      pictures.reusableForUrl('https://example.com/legacy-size.png') === null,
     );
 
     insertMessage(pictureDb.sqlite, {

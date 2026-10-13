@@ -1031,12 +1031,16 @@ uploaded by a person and belongs to the message; anything else is a copy of some
 follows the text.
 
 The same link comes round again far more often than a community finds a new one, so a message whose
-link this instance already holds is given that copy rather than fetched a second time. The copy is
-reused only when the poster may read the channel it was cached from. A copy sitting on a message in a
-channel the poster cannot see is passed over, and the resolver falls through to the ordinary guarded
-fetch; otherwise a member who learned a link that had been posted privately could hand its stored
-bytes to a message of their own and then fetch them. `AttachmentService.reusableForUrl` takes the
-viewer's id and checks each candidate with `canAccessChannel`, mirroring what the read path serves.
+link this instance already holds is given that copy rather than fetched a second time. Reuse is
+deliberately not scoped to a channel: the bytes live on an external host, so anyone who knows the
+address can fetch them directly, and refusing reuse behind channel visibility would only make the
+instance fetch and store a second copy of the same file. What reuse is gated on is the same guard the
+fetch path applies before every hop (`isFetchableUrl`): an address the resolver would refuse — an
+internal host, one that no longer resolves publicly — is not reused either, so a row cached before a
+guard tightened is never handed out, and the fetch refuses it too, so nothing is fetched or stored.
+`AttachmentService.reusableForUrl` skips only a copy the fetch path could not have produced today: a
+missing blob, an orphaned or soft-deleted message, or a row whose type or size a tightened limit
+would now refuse.
 
 A message whose whole text is that link shows the picture and nothing else, the way Discord does: the
 address is behind the picture for anyone who wants it, and printing it above would only be noise. A

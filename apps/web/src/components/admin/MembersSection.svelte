@@ -79,10 +79,12 @@
     if (member.user.accountType !== 'user') return false;
     if (member.user.id === session.user?.id) return false;
     // The permission map is only sent to a viewer who may manage members or is
-    // an administrator. Without it the member's Administratorship is unknown, so
-    // treat them as ordinary here; the server refuses to act on an administrator
-    // regardless, so the worst case is a control that reports it could not.
-    return !hasPermission(BigInt(member.permissions ?? '0'), Permission.Administrator);
+    // an administrator, so a kick-only moderator cannot read who holds
+    // Administrator out of it. The badge is resolved server-side from the
+    // member's roles for every viewer, so it is what tells an administrator
+    // apart here; the server refuses to act on one regardless, so the worst
+    // case is a control that reports it could not.
+    return member.user.badge !== 'admin' && !member.user.isOwner;
   }
 
   async function run(action: () => Promise<unknown>): Promise<void> {

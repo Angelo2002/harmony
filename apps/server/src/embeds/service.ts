@@ -19,7 +19,7 @@ import { HttpError } from '../http/errors.ts';
 import type { GatewayHub } from '../realtime/hub.ts';
 import type { SettingsService } from '../settings/service.ts';
 import type { GifSourceService } from '../gifs/sources.ts';
-import { guardedFetch, resolvesToPublicHost } from './guard.ts';
+import { guardedFetch, isFetchableUrl, resolvesToPublicHost } from './guard.ts';
 import { verifyLinkedGif, type VerifyLinkedGif } from './linked-gif.ts';
 import { readCappedBody } from './media.ts';
 import { parseEmbedMetadata } from './metadata.ts';
@@ -257,13 +257,21 @@ export function createEmbedService(deps: EmbedServiceDeps): EmbedService {
 
     // Nor must a second message. A community posts the same handful of gifs
     // over and over, and this instance is very likely already holding it. The
-    // copy is scoped to the poster: one cached in a channel they cannot see is
-    // not theirs to fetch, so it falls through to the guarded fetch below.
-    const viewerId = deps.renderMessage(messageId)?.author?.id ?? null;
-    const reusable = deps.attachments.reusableForUrl(url, viewerId);
-    if (reusable) {
-      await applyOutcome(messageId, { kind: 'copy', url, from: reusable });
-      return;
+    // bytes live on an outside host, so anyone who knows the address can fetch
+    // them directly: reuse does not depend on which channel the copy came from,
+    // and refusing it would only fetch and store a second copy of the same file.
+    //
+    // What it does depend on is the same guard the fetch below applies before
+    // every hop. An address the resolver would refuse (an internal host, one
+    // that no longer resolves publicly) gets no reuse either, so a row cached
+    // before a guard tightened is never handed out. The fetch then refuses that
+    // address too, so nothing is fetched or stored when reuse is skipped.
+    if (await isFetchableUrl(url)) {
+      const reusable = deps.attachments.reusableForUrl(url);
+      if (reusable) {
+        await applyOutcome(messageId, { kind: 'copy', url, from: reusable });
+        return;
+      }
     }
 
     // A gif on a known gif host is pointed at instead of copied, when the

@@ -80,9 +80,10 @@ export function listLinkedAttachments(sqlite: DatabaseSync, messageId: string): 
 /**
  * Every attachment copied from this link, newest first, whoever posted it. Used
  * to avoid fetching a file this instance is already holding: the same gif comes
- * round again far more often than a community finds a new one. The caller must
- * still decide which of them, if any, its viewer is allowed to read: the newest
- * copy may sit in a channel the viewer cannot see.
+ * round again far more often than a community finds a new one. Which channel a
+ * copy came from is not part of the decision (the bytes are on an external host,
+ * so the address is the whole exposure): the caller keeps only the first copy
+ * the fetch path would still have produced.
  */
 export function listAttachmentsBySourceUrl(sqlite: DatabaseSync, url: string): AttachmentRow[] {
   return sqlite

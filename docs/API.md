@@ -2387,8 +2387,10 @@ are absent otherwise:
 - `discordId` — the account's raw Discord id (PII), which the editor on this screen sets and clears.
   `user.discordLinked` still tells any viewer whether the account has a link. Absent, not `null`,
   when the viewer is not entitled to it, so "not linked" stays distinguishable from "not shown".
-- `permissions` — the account's effective permission bitfield, which would otherwise let a narrow
-  moderator read the full privilege map of every account and see who holds `Administrator`.
+- `permissions` — the account's effective permission bitfield. Withholding it keeps a narrow
+  moderator from reading the full privilege map of every account (who can ban, manage roles, and so
+  on). Administratorship is not part of that secret: the `admin` badge is derived from the same flag
+  and already rides on every `User` through the roster and directory.
 
 #### `GET /api/v1/members/directory` — `ViewChannels`
 

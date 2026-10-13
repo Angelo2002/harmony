@@ -530,9 +530,10 @@ Only the id on the row matters; no separate link table is needed.
 The id itself is **sensitive PII** and is kept off every public DTO. A Discord id is a stable,
 cross-platform identifier, so serving it to every member would let anyone correlate a Harmony
 pseudonym with a real Discord account. `User` therefore carries only `discordLinked: boolean`, which
-is enough for the client to draw the linked badge. The raw id rides on `LinkedUser`, which is
-produced in exactly one place: the account's own responses (`AuthResponse`, `MeResponse`, the
-gateway `READY` payload). The member-management view is the one exception that is not a `LinkedUser`:
+is enough for the client to draw the linked badge. The raw id rides on `LinkedUser`, produced for the
+account's own responses (`AuthResponse`, `MeResponse`, the gateway `READY` payload) and for the
+administrator member mutations (`PATCH`/`PUT`/`DELETE /api/v1/members/:userId`, the avatar routes),
+which set and clear the link. The list is the one member surface that is not a `LinkedUser`:
 `GET /api/v1/members` returns a plain `User` per member and puts the raw id in an optional top-level
 `discordId` field, present only to a viewer who holds `ManageMembers` or is an administrator.
 `AuthContext` keeps the id in its own `discordId` field rather than on `auth.user`, so a

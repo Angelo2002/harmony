@@ -210,8 +210,10 @@ type User = {
 // `User.discordId` is deliberately absent: a Discord id is a stable,
 // cross-platform identifier (PII), so it must never ride on a public DTO. Where
 // the viewer is entitled to it — the member's own responses (`AuthResponse`,
-// `MeResponse`, the gateway `READY` payload) and the administrator-only
-// `MemberSummary` — the DTO is a `LinkedUser`, which adds `discordId: string | null`.
+// `MeResponse`, the gateway `READY` payload) — the DTO is a `LinkedUser`, which
+// adds `discordId: string | null`. The member list is the one place the id is
+// returned without it: see `MemberSummary`, which carries an optional top-level
+// `discordId` present only to a member manager or an administrator.
 
 type Category = {
   id: string;
@@ -2377,19 +2379,31 @@ access_role` otherwise).
 
 ### Members
 
-#### `GET /api/v1/members` — `ManageRoles`
+#### `GET /api/v1/members` — any one member-management permission
 
 ```json
 {
   "members": [
-    { "user": { "...": "..." }, "roleIds": ["..."], "permissions": "2081" }
+    { "user": { "...": "..." }, "roleIds": ["..."], "permissions": "2081", "discordId": "1398164034464776202" }
   ]
 }
 ```
 
-The administrator member-management view. Unlike the public directory and roster below, its
-`user` is a `LinkedUser` and so also carries the raw `discordId`, because the editor on this screen
-sets and clears the link. Keep it administrator-only: the id is sensitive PII.
+The member-management view. Reading the list needs any one of `ManageRoles`, `ManageMembers`,
+`KickMembers`, `BanMembers` or `ModerateMembers`, because the moderation controls live on this same
+screen and a kick-only moderator still needs to see who they can kick. Its `user` is a plain `User`,
+like the directory and roster below, so it never carries a nested `discordId`.
+
+Two fields are restricted further, to a viewer who holds `ManageMembers` or is an administrator, and
+are absent otherwise:
+
+- `discordId` — the account's raw Discord id (PII), which the editor on this screen sets and clears.
+  `user.discordLinked` still tells any viewer whether the account has a link. Absent, not `null`,
+  when the viewer is not entitled to it, so "not linked" stays distinguishable from "not shown".
+- `permissions` — the account's effective permission bitfield. Withholding it keeps a narrow
+  moderator from reading the full privilege map of every account (who can ban, manage roles, and so
+  on). Administratorship is not part of that secret: the `admin` badge is derived from the same flag
+  and already rides on every `User` through the roster and directory.
 
 #### `GET /api/v1/members/directory` — `ViewChannels`
 

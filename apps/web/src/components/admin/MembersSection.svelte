@@ -78,7 +78,13 @@
   function moderatable(member: MemberSummary): boolean {
     if (member.user.accountType !== 'user') return false;
     if (member.user.id === session.user?.id) return false;
-    return !hasPermission(BigInt(member.permissions), Permission.Administrator);
+    // The permission map is only sent to a viewer who may manage members or is
+    // an administrator, so a kick-only moderator cannot read who holds
+    // Administrator out of it. The badge is resolved server-side from the
+    // member's roles for every viewer, so it is what tells an administrator
+    // apart here; the server refuses to act on one regardless, so the worst
+    // case is a control that reports it could not.
+    return member.user.badge !== 'admin' && !member.user.isOwner;
   }
 
   async function run(action: () => Promise<unknown>): Promise<void> {
@@ -152,7 +158,7 @@
     editUsername = member.user.username;
     editDisplayName = member.user.displayName ?? '';
     editPassword = '';
-    editDiscordId = member.user.discordId ?? '';
+    editDiscordId = member.discordId ?? '';
     editError = null;
   }
 
@@ -168,7 +174,7 @@
     if (displayName !== (member.user.displayName ?? '')) body.displayName = displayName || null;
     if (editPassword) body.password = editPassword;
     const discordId = editDiscordId.trim();
-    if (discordId !== (member.user.discordId ?? '')) body.discordId = discordId || null;
+    if (discordId !== (member.discordId ?? '')) body.discordId = discordId || null;
 
     if (Object.keys(body).length === 0) {
       editingId = null;
@@ -235,7 +241,7 @@
         <strong>{member.user.displayName ?? member.user.username}</strong>
         {#if member.user.displayName}<span class="muted">@{member.user.username}</span>{/if}
         {#if member.user.isOwner}<span class="badge">owner</span>{/if}
-        {#if member.user.discordId}<span class="badge" title="Linked to a Discord account">Discord</span>{/if}
+        {#if member.user.discordLinked}<span class="badge" title="Linked to a Discord account">Discord</span>{/if}
         {#if canEdit && member.user.accountType === 'user'}
           <button
             type="button"

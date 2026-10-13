@@ -6,6 +6,8 @@ import {
   Permission,
   adminUpdateUserSchema,
   banSchema,
+  hasPermission,
+  permissionsFromString,
   permissionsToString,
   timeoutSchema,
   type BanListResponse,
@@ -47,13 +49,28 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     // Any one member-management permission is enough to read the list: the
     // moderation controls live on this same screen, so someone who can only
     // kick still needs to see who they can kick.
-    requireAnyPermission(request, MEMBER_MANAGEMENT_PERMISSIONS);
+    const auth = requireAnyPermission(request, MEMBER_MANAGEMENT_PERMISSIONS);
     const rolesByUser = listMemberRoles(db.sqlite);
 
+    // The account's raw Discord id is PII, and its full permission map reveals
+    // who holds Administrator. Neither is a narrow moderator's to read, so both
+    // ride along only for a viewer who may manage members or is an
+    // administrator: exactly the role the account editor belongs to. The rest
+    // of the list is still readable by anyone with a single management
+    // permission, so a kick-only moderator keeps the screen they work on.
+    const maySeePrivate =
+      hasPermission(auth.permissions, Permission.ManageMembers) ||
+      hasPermission(auth.permissions, Permission.Administrator);
+
     const members: MemberSummary[] = listUsers(db.sqlite).map((row) => ({
-      user: presentLinkedUser(db.sqlite, row),
+      user: presentUser(db.sqlite, row),
       roleIds: rolesByUser.get(row.id) ?? [],
-      permissions: permissionsToString(resolvePermissions(db.sqlite, row)),
+      ...(maySeePrivate
+        ? {
+            permissions: permissionsToString(resolvePermissions(db.sqlite, row)),
+            discordId: row.discord_id,
+          }
+        : {}),
     }));
 
     const body: MemberListResponse = { members };

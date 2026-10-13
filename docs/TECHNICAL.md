@@ -530,10 +530,13 @@ Only the id on the row matters; no separate link table is needed.
 The id itself is **sensitive PII** and is kept off every public DTO. A Discord id is a stable,
 cross-platform identifier, so serving it to every member would let anyone correlate a Harmony
 pseudonym with a real Discord account. `User` therefore carries only `discordLinked: boolean`, which
-is enough for the client to draw the linked badge. The raw id rides on `LinkedUser` alone, which is
-produced in exactly two places: the account's own responses (`AuthResponse`, `MeResponse`, the
-gateway `READY` payload) and the administrator-only `GET /api/v1/members` view that sets and clears
-the link. `AuthContext` keeps the id in its own `discordId` field rather than on `auth.user`, so a
+is enough for the client to draw the linked badge. The raw id rides on `LinkedUser`, produced for the
+account's own responses (`AuthResponse`, `MeResponse`, the gateway `READY` payload) and for the
+administrator member mutations (`PATCH`/`PUT`/`DELETE /api/v1/members/:userId`, the avatar routes),
+which set and clear the link. The list is the one member surface that is not a `LinkedUser`:
+`GET /api/v1/members` returns a plain `User` per member and puts the raw id in an optional top-level
+`discordId` field, present only to a viewer who holds `ManageMembers` or is an administrator.
+`AuthContext` keeps the id in its own `discordId` field rather than on `auth.user`, so a
 broadcast of `auth.user` (presence, typing, `READY` to others) can never carry it. When adding a new
 DTO, put `User` on it, not `LinkedUser`, unless the viewer owns the account or is an administrator.
 
@@ -1026,6 +1029,18 @@ how the bridge knows not to hand Discord a file for a link Discord can unfurl it
 resolution is skipped when the link has not actually changed. Anything with a null `source_url` was
 uploaded by a person and belongs to the message; anything else is a copy of somebody else's file and
 follows the text.
+
+The same link comes round again far more often than a community finds a new one, so a message whose
+link this instance already holds is given that copy rather than fetched a second time. Reuse is
+deliberately not scoped to a channel: the bytes live on an external host, so anyone who knows the
+address can fetch them directly, and refusing reuse behind channel visibility would only make the
+instance fetch and store a second copy of the same file. What reuse is gated on is the same guard the
+fetch path applies before every hop (`isFetchableUrl`): an address the resolver would refuse — an
+internal host, one that no longer resolves publicly — is not reused either, so a row cached before a
+guard tightened is never handed out, and the fetch refuses it too, so nothing is fetched or stored.
+`AttachmentService.reusableForUrl` skips only a copy the fetch path could not have produced today: a
+missing blob, an orphaned or soft-deleted message, or a row whose type or size a tightened limit
+would now refuse.
 
 A message whose whole text is that link shows the picture and nothing else, the way Discord does: the
 address is behind the picture for anyone who wants it, and printing it above would only be noise. A

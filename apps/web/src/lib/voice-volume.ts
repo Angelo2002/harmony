@@ -25,18 +25,39 @@ export function clampVolume(value: number): number {
  * in a browser whose Web Audio tap does not pull the element, where the graph
  * `GainNode` is a dead branch. Capped at 1: the element cannot amplify its own
  * decoded signal, so the boost above full volume belongs to the graph stage.
+ *
+ * The level is clamped first, so the result is always a finite value in [0, 1].
+ * A negative level would make `element.volume` negative and throw an
+ * `IndexSizeError` the moment it is assigned, which mid-loop would leave later
+ * members unwritten; a non-number would assign `NaN`. Callers are expected to
+ * pass a level already in range, but the helper does not rely on it.
  */
 export function elementVolumeFor(level: number): number {
-  return Math.min(1, level);
+  return Math.min(1, clampVolume(level));
 }
 
 /**
  * The 1x-2x boost part of a level, which rides the graph `GainNode` the element
  * feeds. Held at unity through the whole 0-100% range so the element's own
  * volume is not applied twice, and only lifts past full volume.
+ *
+ * The level is clamped first, so the result is always a finite value in [1, 2];
+ * a negative or non-number level would otherwise reach `gain.value` and mute or
+ * poison the whole remote graph.
  */
 export function graphGainFor(level: number): number {
-  return Math.max(1, level);
+  return Math.max(1, clampVolume(level));
+}
+
+/**
+ * The playback level for one member once the listener's own deafen is taken
+ * into account. Deafening wins over any per-member gain, so it cannot be
+ * bypassed by turning a member up, and the effective level is what both stages
+ * are driven from; this is the rule that keeps the reported state and the
+ * enforced one from disagreeing, including across a rebuilt connection.
+ */
+export function effectiveLevel(deafened: boolean, volume: number): number {
+  return deafened ? 0 : volume;
 }
 
 /**

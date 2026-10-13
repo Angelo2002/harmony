@@ -7,8 +7,8 @@
 // expressions the composer turns into timestamps, the channel and message a
 // launch link (a notification tap or a deep link) names, the native voice host
 // bridge (its off flag, the join/leave hand-off, and the call state it pushes
-// back), and the clamp, stored map and two-stage element/graph split behind the
-// per-member voice-volume control.
+// back), and the clamp, stored map, deafen-over-volume rule and two-stage
+// element/graph split behind the per-member voice-volume control.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -111,7 +111,7 @@ import {
   voiceHost,
   webVoiceDisabled,
 } from '../src/lib/voice-mode.ts';
-import { clampVolume, elementVolumeFor, graphGainFor, parseVolumes, serializeVolumes, volumeOverride, VOICE_VOLUME_DEFAULT, VOICE_VOLUME_MAX } from '../src/lib/voice-volume.ts';
+import { clampVolume, effectiveLevel, elementVolumeFor, graphGainFor, parseVolumes, serializeVolumes, volumeOverride, VOICE_VOLUME_DEFAULT, VOICE_VOLUME_MAX } from '../src/lib/voice-volume.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { draftPreview } from '../src/lib/composer-preview.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
@@ -1818,6 +1818,35 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   }
   check('a deafened element is fully silent', elementVolumeFor(0) === 0);
   check('a deafened graph gain stays at unity', graphGainFor(0) === 1);
+  // The helpers must not trust their caller to pre-clamp: a level outside
+  // [0, 2] used to reach element.volume and throw IndexSizeError mid-loop (or
+  // poison gain.value with NaN), so each one clamps on the way in.
+  check(
+    'the element stage never returns a negative or non-finite volume',
+    elementVolumeFor(-1) === 0 &&
+      elementVolumeFor(-Infinity) === VOICE_VOLUME_DEFAULT &&
+      elementVolumeFor(Number.NaN) === VOICE_VOLUME_DEFAULT,
+  );
+  check('the element stage still caps an inflated level at 1', elementVolumeFor(9) === 1 && elementVolumeFor(Infinity) === 1);
+  check(
+    'the graph stage never returns below unity or a non-finite gain',
+    graphGainFor(-1) === 1 &&
+      graphGainFor(-Infinity) === 1 &&
+      graphGainFor(Number.NaN) === 1 &&
+      graphGainFor(Infinity) === 1,
+  );
+  check('the graph stage still caps an inflated level at the maximum', graphGainFor(9) === VOICE_VOLUME_MAX);
+
+  // Deafening must win over any per-member gain, so a member turned up cannot
+  // be heard through it; that rule is what a rebuilt connection now preserves.
+  check('deafening silences a member who was boosted', effectiveLevel(true, VOICE_VOLUME_MAX) === 0);
+  check('deafening silences a member at a partial level', effectiveLevel(true, 0.5) === 0);
+  check('undeafened, the member keeps their own level', effectiveLevel(false, 0.5) === 0.5);
+  check('deafening silences even an out-of-range volume', effectiveLevel(true, 9) === 0);
+  check(
+    'a deafened member is silent through both stages',
+    elementVolumeFor(effectiveLevel(true, VOICE_VOLUME_MAX)) === 0 && graphGainFor(effectiveLevel(true, VOICE_VOLUME_MAX)) === 1,
+  );
 
   check('only overrides are written', serializeVolumes({ u1: VOICE_VOLUME_DEFAULT, u2: 0 }) === '{"u2":0}');
   check('a map with no overrides writes nothing', serializeVolumes({ u1: VOICE_VOLUME_DEFAULT }) === null);

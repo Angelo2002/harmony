@@ -11,7 +11,7 @@ import { api } from './api';
 import { meta } from './meta.svelte';
 import { session } from './session.svelte';
 import { playSound } from './sounds';
-import { clampVolume, elementVolumeFor, graphGainFor, parseVolumes, serializeVolumes, volumeOverride, VOICE_VOLUME_DEFAULT } from './voice-volume';
+import { clampVolume, effectiveLevel, elementVolumeFor, graphGainFor, parseVolumes, serializeVolumes, volumeOverride, VOICE_VOLUME_DEFAULT } from './voice-volume';
 import { webVoiceDisabled } from './voice-mode';
 
 /**
@@ -551,8 +551,13 @@ class VoiceStore {
     await this.#establish(channelId);
   }
 
-  /** The join handshake. It leaves the intended channel alone for recovery. */
-  async #establish(channelId: string): Promise<void> {
+  /**
+   * The join handshake. It leaves the intended channel alone for recovery.
+   * `preserveSelf` is set by `#recover`: a lost connection must not silently
+   * undeafen or unmute the listener (Fail Securely / Complete Mediation), so a
+   * rebuilt call carries the member's own mute and deafen across it.
+   */
+  async #establish(channelId: string, preserveSelf = false): Promise<void> {
     /*
      * The audio context is made and resumed here, inside the click that started
      * this, before anything is awaited. iOS only lets a context start from a
@@ -563,7 +568,7 @@ class VoiceStore {
     const ctx = this.#ctx ?? new AudioContext();
     this.#ctx = ctx;
     void ctx.resume().catch(() => undefined);
-    await this.#disconnect();
+    await this.#disconnect(preserveSelf);
     this.connecting = true;
     this.joining = channelId;
     this.error = null;
@@ -578,6 +583,12 @@ class VoiceStore {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       this.#mic = mic;
+      // A recovery keeps the member's own mute and deafen, so the fresh capture
+      // has to start in the state the member left: a new microphone track is
+      // enabled by default, and without this a client that reports itself muted
+      // would still send voice (Complete Mediation). A fresh join has both flags
+      // false, so this is a no-op there.
+      this.#applyMic();
 
       // Everything remote plays through the master gain; the local microphone
       // runs through an analyser only, into a silent sink so the meter is pulled
@@ -642,7 +653,7 @@ class VoiceStore {
       this.#sync();
     } catch (cause) {
       this.error = describeFailure(cause);
-      await this.#disconnect();
+      await this.#disconnect(preserveSelf);
     } finally {
       this.connecting = false;
       this.joining = null;
@@ -660,8 +671,13 @@ class VoiceStore {
     await this.#disconnect();
   }
 
-  /** Tears down the microphone, the connection and the relayed audio. */
-  async #disconnect(): Promise<void> {
+  /**
+   * Tears down the microphone, the connection and the relayed audio. A recovery
+   * rebuild keeps the member's own mute and deafen, so `#recover` asks for that
+   * with `preserveSelf`; every other teardown (a fresh join, a leave, a failed
+   * join) clears them, which is what the member sees once they are out of a call.
+   */
+  async #disconnect(preserveSelf = false): Promise<void> {
     await this.stopScreen().catch(() => undefined);
     const channelId = this.channelId;
     this.channelId = null;
@@ -671,8 +687,10 @@ class VoiceStore {
     this.#pc?.close();
     this.#pc = null;
     this.#teardown();
-    this.muted = false;
-    this.deafened = false;
+    if (!preserveSelf) {
+      this.muted = false;
+      this.deafened = false;
+    }
     if (channelId) await api(`/channels/${channelId}/voice`, { method: 'DELETE' }).catch(() => undefined);
   }
 
@@ -710,7 +728,10 @@ class VoiceStore {
     if (!target || this.#recovering) return;
     this.#recovering = true;
     try {
-      await this.#establish(target);
+      // Keep the member's own mute and deafen across the rebuilt call instead of
+      // clearing them the way a fresh join does; a recovered connection must not
+      // silently undeafen the listener.
+      await this.#establish(target, true);
     } finally {
       this.#recovering = false;
     }
@@ -801,7 +822,7 @@ class VoiceStore {
   #applyVolume(userId: string): void {
     const remote = this.#remote.get(userId);
     if (!remote) return;
-    const level = this.deafened ? 0 : this.volumeFor(userId);
+    const level = effectiveLevel(this.deafened, this.volumeFor(userId));
     remote.element.volume = elementVolumeFor(level);
     remote.gain.gain.value = graphGainFor(level);
   }

@@ -293,7 +293,10 @@ presumed stale. A client that loads and finds itself detached — the page was
 reloaded, or a phone closed and reopened the app — rejoins the room it is already
 in, which the server turns into a fresh media connection rather than a no-op; a
 client that finds itself still attached (another tab) leaves it alone, so the two do
-not fight over the call.
+not fight over the call. A call rebuilt after a dropped connection keeps the
+member's own mute and deafen: the fresh microphone capture is started in that state
+and the flags are re-sent to the server once the room is up, so a network blip
+cannot silently undeafen the listener.
 
 The channel a member is in is also remembered in the browser — `localStorage`, not
 `sessionStorage`, because a phone recreates the webview and that is a fresh page

@@ -1332,6 +1332,31 @@ try {
     `payload ${JSON.stringify(pushed)}`,
   );
 
+  // A mention row is written for whoever a message names, whether or not they can
+  // see the channel, so the fan-out must apply the inbox's visibility rule or a
+  // locked channel's snippet would leak through the notification. Bob cannot see
+  // this channel, so naming him in it must push nothing at all.
+  const pushLockRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'PushLock' } });
+  const pushLockedChannel = await req('/channels', {
+    method: 'POST',
+    token: ownerToken,
+    body: { name: 'push-secret', requiredRoleId: pushLockRole.json.id },
+  });
+  const pushHitsBeforeLocked = pushHits.length;
+  await req(`/channels/${pushLockedChannel.json.id}/messages`, {
+    method: 'POST',
+    token: ownerToken,
+    body: { content: '@bob a locked ping' },
+  });
+  await sleep(500);
+  check(
+    'a mention in a channel the recipient cannot see pushes nothing',
+    pushHits.length === pushHitsBeforeLocked,
+    `hits ${pushHits.length - pushHitsBeforeLocked}`,
+  );
+  await req(`/channels/${pushLockedChannel.json.id}`, { method: 'DELETE', token: ownerToken });
+  await req(`/roles/${pushLockRole.json.id}`, { method: 'DELETE', token: ownerToken });
+
   // A distributor that no longer knows the endpoint answers gone; the device is
   // pruned rather than retried on every future mention.
   await req('/users/@me/push-devices', {

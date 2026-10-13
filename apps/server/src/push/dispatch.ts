@@ -4,6 +4,7 @@ import {
   type Message,
   type PushPayload,
 } from '@harmony/shared';
+import { canAccessChannel, channelAccessFor } from '../access/service.ts';
 import { findChannelSettings, toChannelSettings } from '../db/channel_settings.ts';
 import { findChannel } from '../db/channels.ts';
 import { listMentionsForMessage } from '../db/mentions.ts';
@@ -122,6 +123,14 @@ export function createPushDispatcher(deps: PushDispatchDeps): PushDispatcher {
           // A member already holding a gateway connection sees the message live,
           // so a push would only be a second, later copy of the same news.
           if (online.has(recipient.userId)) continue;
+
+          // A mention row is written for anyone the message names or answers,
+          // whether or not they can see the channel, and its snippet is message
+          // text. The inbox already asks only about the channels a member can
+          // see, so a locked channel never reaches them there; the fan-out must
+          // hold to the same predicate or a notification would leak the snippet
+          // of a channel the recipient is not allowed to read.
+          if (!canAccessChannel(sqlite, channelAccessFor(sqlite, recipient.userId), message.channelId)) continue;
 
           const settings = channelSettingsFor(recipient.userId, message.channelId, channel?.category_id ?? null, now);
           if (settings.muted || settings.level === 'nothing') continue;

@@ -42,6 +42,18 @@ export function parseVolumes(raw: string | null): Record<string, number> {
 }
 
 /**
+ * The override stored for one member, or undefined when this map does not carry
+ * one. The lookup is by own key: a member id that happens to name an
+ * `Object.prototype` property (`constructor`, `toString`, `valueOf`, `__proto__`,
+ * ...) must read as no override rather than inheriting the prototype's value, so
+ * a stray id can never leak a non-number into a gain or look like an adjustment.
+ */
+export function volumeOverride(volumes: Record<string, number>, userId: string): number | undefined {
+  if (!Object.prototype.hasOwnProperty.call(volumes, userId)) return undefined;
+  return volumes[userId];
+}
+
+/**
  * Renders the volume map for storage. A member left at the default is dropped,
  * so only real overrides are written, and a map with no overrides serializes to
  * null, meaning the caller should remove the key rather than store an empty one.

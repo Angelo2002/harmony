@@ -297,6 +297,14 @@ These have each cost real time; keep them in mind.
   `app.css`, whose hover and active are pinned off it and kept more specific than
   `button:hover:not(:disabled)`, and give the panel itself `position: relative;
   z-index: 1` so it stays above the catcher and its controls keep working.
+- That pin is only as good as its specificity. `button:hover:not(:disabled)`
+  scores (0,2,1), because `:not(:disabled)` adds a class-level unit, so a bare
+  `.drawer-backdrop:hover` (0,2,0) loses to it and the scrim fills accent again.
+  The mobile channel-bar/member-bar catcher, `.drawer-backdrop` (see the mobile
+  layout block in `app.css`), is exactly this trap: its hover/active pin must
+  carry `:not(:disabled)` to reach (0,3,0). Whenever you pin a button-backed
+  backdrop, match the `:not(:disabled)` form and re-check the cascade, or the
+  accent bleed comes back.
 
 ## Clean workspace: leave nothing running
 

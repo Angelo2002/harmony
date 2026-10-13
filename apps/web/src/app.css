@@ -5349,9 +5349,17 @@ button.roster-member:hover {
     cursor: default;
   }
 
-  /* A button backdrop, so the shared hover/active styles are pinned off it. */
-  .drawer-backdrop:hover,
-  .drawer-backdrop:active {
+  /* A button backdrop, so the shared hover/active styles are pinned off it.
+     The :not(:disabled) is load-bearing, not decoration. The shared
+     button:hover:not(:disabled) rule scores (0,2,1); a bare .drawer-backdrop:hover
+     scores (0,2,0) and therefore loses, so the whole blurred scrim filled with
+     the accent color the moment the pointer was anywhere over it while the
+     channel bar or member bar was open. Keeping this (0,3,0) - matching the
+     other backdrop pins in this sheet - lets background win back. Recurring bug:
+     a full-screen click-catcher is a button, so shared button styles bleed onto
+     the scrim; pin hover/active on every such backdrop and check specificity. */
+  .drawer-backdrop:hover:not(:disabled),
+  .drawer-backdrop:active:not(:disabled) {
     background: rgb(0 0 0 / 60%);
     box-shadow: none;
     transform: none;

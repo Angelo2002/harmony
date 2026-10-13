@@ -11,6 +11,7 @@ import { api } from './api';
 import { meta } from './meta.svelte';
 import { session } from './session.svelte';
 import { playSound } from './sounds';
+import { clampVolume, parseVolumes, serializeVolumes, VOICE_VOLUME_DEFAULT } from './voice-volume';
 import { webVoiceDisabled } from './voice-mode';
 
 /**
@@ -107,6 +108,35 @@ function writeSavedChannel(userId: string | undefined, channelId: string | null)
   }
 }
 
+/**
+ * Where per-member playback volumes are remembered, keyed by the listener so
+ * two accounts in one browser each keep their own set. The rules for what a
+ * volume may be, and how the stored map is read and written, live in
+ * voice-volume.ts so they can be checked without a browser.
+ */
+const volumesStoragePrefix = 'harmony:voice-volumes:';
+
+function readSavedVolumes(userId: string): Record<string, number> {
+  try {
+    return parseVolumes(localStorage.getItem(volumesStoragePrefix + userId));
+  } catch {
+    // Storage blocked: there is nothing remembered to read.
+    return {};
+  }
+}
+
+function writeSavedVolumes(userId: string, volumes: Record<string, number>): void {
+  if (!userId) return;
+  try {
+    const raw = serializeVolumes(volumes);
+    // Nothing adjusted means nothing to remember, so a cleared room leaves no key.
+    if (raw === null) localStorage.removeItem(volumesStoragePrefix + userId);
+    else localStorage.setItem(volumesStoragePrefix + userId, raw);
+  } catch {
+    // Storage blocked: the volumes just will not survive a reload.
+  }
+}
+
 class VoiceStore {
   /** The channel this member is connected to, or null. */
   channelId = $state<string | null>(null);
@@ -133,6 +163,12 @@ class VoiceStore {
   receiving = $state(false);
   /** Whether this member is sharing their screen right now. */
   sharing = $state(false);
+  /**
+   * Per-member playback gain, only for the members this client adjusted. It is
+   * local: it never reaches the server and never changes anyone else's audio.
+   * Read it through volumeFor, which supplies the default for the rest.
+   */
+  volumes = $state<Record<string, number>>({});
 
   #pc: RTCPeerConnection | null = null;
   #mic: MediaStream | null = null;
@@ -154,6 +190,10 @@ class VoiceStore {
   #receivedScreens = $state<Record<string, MediaStream>>({});
   /** Members whose screens this client has opted in to watch. */
   #watching = $state<Record<string, boolean>>({});
+  /** The account the loaded volumes belong to, so a different login reloads them. */
+  #volumesOwner: string | null = null;
+  /** What a member played at before the menu muted them, so unmuting restores it. */
+  #mutedFrom = new Map<string, number>();
   /** The member ids in the room on the last roster, for the join/leave sounds. */
   #lastMembers = new Set<string>();
   #rosterReady = false;
@@ -226,6 +266,7 @@ class VoiceStore {
    * talking would show an empty room.
    */
   async load(): Promise<void> {
+    this.#ensureVolumes();
     const data = await this.#fetchRooms();
     if (data) await this.#resumeWith(data);
   }
@@ -401,6 +442,9 @@ class VoiceStore {
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
     const gain = ctx.createGain();
+    // The member's remembered volume is applied as the line is wired, so a
+    // stream that appears after an adjustment still plays at the chosen level.
+    gain.gain.value = this.volumeFor(userId);
     source.connect(analyser);
     analyser.connect(gain);
     gain.connect(master);
@@ -489,6 +533,7 @@ class VoiceStore {
 
   /** Joins a channel, or moves there from another one. */
   async join(channelId: string): Promise<void> {
+    this.#ensureVolumes();
     // The host app runs voice itself (native), so the web client must not take
     // the microphone. The rosters stay visible; joining does not.
     if (webVoiceDisabled()) return;
@@ -685,6 +730,74 @@ class VoiceStore {
     if (this.#master) this.#master.gain.value = next ? 0 : 1;
     this.#applyMic();
     this.#sync();
+  }
+
+  /** The playback gain for one member: the default unless this client changed it. */
+  volumeFor(userId: string): number {
+    return this.volumes[userId] ?? VOICE_VOLUME_DEFAULT;
+  }
+
+  /** Whether this client has adjusted one member away from the default. */
+  volumeAdjusted(userId: string): boolean {
+    return this.volumes[userId] !== undefined;
+  }
+
+  /**
+   * Sets one member's playback gain, live, and remembers it for the next stream.
+   * The value is a multiplier: 0 is silence, 1 the member's own level and 2 twice
+   * as loud. The default stores nothing, so resetting leaves no override behind.
+   */
+  setVolume(userId: string, gain: number): void {
+    const value = clampVolume(gain);
+    const next = { ...this.volumes };
+    if (value === VOICE_VOLUME_DEFAULT) delete next[userId];
+    else next[userId] = value;
+    this.volumes = next;
+    this.#applyVolume(userId);
+    this.#persistVolumes();
+  }
+
+  /** Silences one member, or restores the level they had before being muted. */
+  toggleMuted(userId: string): void {
+    const current = this.volumeFor(userId);
+    if (current > 0) {
+      this.#mutedFrom.set(userId, current);
+      this.setVolume(userId, 0);
+      return;
+    }
+    const restore = this.#mutedFrom.get(userId) ?? VOICE_VOLUME_DEFAULT;
+    this.#mutedFrom.delete(userId);
+    this.setVolume(userId, restore);
+  }
+
+  /** Clears one member's override, back to the default. */
+  resetVolume(userId: string): void {
+    this.#mutedFrom.delete(userId);
+    this.setVolume(userId, VOICE_VOLUME_DEFAULT);
+  }
+
+  /** Points one member's live gain at the remembered volume, if they are playing. */
+  #applyVolume(userId: string): void {
+    const remote = this.#remote.get(userId);
+    if (remote) remote.gain.gain.value = this.volumeFor(userId);
+  }
+
+  /**
+   * Loads the volumes for whoever is signed in, once per account. A browser that
+   * switches accounts reloads that account's own set, and live streams are
+   * repointed so the change takes effect without a rejoin.
+   */
+  #ensureVolumes(): void {
+    const owner = session.user?.id ?? null;
+    if (owner === this.#volumesOwner) return;
+    this.#volumesOwner = owner;
+    this.volumes = owner ? readSavedVolumes(owner) : {};
+    this.#mutedFrom.clear();
+    for (const userId of this.#remote.keys()) this.#applyVolume(userId);
+  }
+
+  #persistVolumes(): void {
+    if (this.#volumesOwner) writeSavedVolumes(this.#volumesOwner, this.volumes);
   }
 
   /**
@@ -888,6 +1001,11 @@ class VoiceStore {
     this.#receivedScreens = {};
     this.#watching = {};
     this.#offer = null;
+    // Volumes are per account and stay in localStorage; only the loaded copy and
+    // the in-memory unmute levels are dropped here.
+    this.volumes = {};
+    this.#volumesOwner = null;
+    this.#mutedFrom.clear();
     this.#pc?.close();
     this.#pc = null;
     this.#teardown();

@@ -5,9 +5,10 @@
 // how mutes change it, how a channel inherits its category's settings, where
 // the "new" line and the new-messages bar land, and reading the time
 // expressions the composer turns into timestamps, the channel and message a
-// launch link (a notification tap or a deep link) names, and the native voice
-// host bridge (its off flag, the join/leave hand-off, and the call state it
-// pushes back).
+// launch link (a notification tap or a deep link) names, the native voice host
+// bridge (its off flag, the join/leave hand-off, and the call state it pushes
+// back), and the clamp and stored map behind the per-member voice-volume
+// control.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -110,6 +111,7 @@ import {
   voiceHost,
   webVoiceDisabled,
 } from '../src/lib/voice-mode.ts';
+import { clampVolume, parseVolumes, serializeVolumes, VOICE_VOLUME_DEFAULT, VOICE_VOLUME_MAX } from '../src/lib/voice-volume.ts';
 import { formatTimestamp, formatTimestampTitle } from '../src/lib/timestamp.ts';
 import { draftPreview } from '../src/lib/composer-preview.ts';
 import { filterByName, filterUnicodeGroups } from '../src/lib/unicode-emoji.ts';
@@ -1781,6 +1783,29 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   );
   check('the strip of a clean search changes nothing', withoutLaunchParams('?discord=linked') === '?discord=linked');
   check('the strip of an empty search is empty', withoutLaunchParams('') === '');
+}
+
+// --- Per-member playback volume: the clamp and the stored map ---
+{
+  check('a volume at the default stays the default', clampVolume(VOICE_VOLUME_DEFAULT) === VOICE_VOLUME_DEFAULT);
+  check('a volume above the maximum is clamped', clampVolume(5) === VOICE_VOLUME_MAX);
+  check('a negative volume is clamped to silence', clampVolume(-1) === 0);
+  check('a non-number volume falls back to the default', clampVolume(Number.NaN) === VOICE_VOLUME_DEFAULT);
+
+  check('nothing stored reads as no overrides', Object.keys(parseVolumes(null)).length === 0);
+  check('malformed storage reads as no overrides', Object.keys(parseVolumes('{oops')).length === 0);
+  check('a stored non-object reads as no overrides', Object.keys(parseVolumes('42')).length === 0);
+  check('a stored number is read back', parseVolumes('{"u2":0.5}')['u2'] === 0.5);
+  check('a stored out-of-range number is clamped on read', parseVolumes('{"u2":9}')['u2'] === VOICE_VOLUME_MAX);
+  check('a stored non-number entry is dropped', parseVolumes('{"u2":"loud"}')['u2'] === undefined);
+
+  check('only overrides are written', serializeVolumes({ u1: VOICE_VOLUME_DEFAULT, u2: 0 }) === '{"u2":0}');
+  check('a map with no overrides writes nothing', serializeVolumes({ u1: VOICE_VOLUME_DEFAULT }) === null);
+  check('an empty map writes nothing', serializeVolumes({}) === null);
+  check('a write clamps out-of-range values', serializeVolumes({ u2: 9 }) === `{"u2":${VOICE_VOLUME_MAX}}`);
+
+  const roundTrip = parseVolumes(serializeVolumes({ u2: 0.25, u3: 0 }));
+  check('a written map reads back the same', roundTrip['u2'] === 0.25 && roundTrip['u3'] === 0);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { permissionsFromString, type Category, type Channel } from '@harmony/shared';
+  import { permissionsFromString, type Category, type Channel, type VoiceState } from '@harmony/shared';
   import { api } from '../lib/api';
   import { avatarUrl, initial } from '../lib/avatar';
   import { channelSettings } from '../lib/channel-settings.svelte';
@@ -12,6 +12,7 @@
   import { muteLabel, pillCount } from '../lib/unread';
   import ChannelMenu from './ChannelMenu.svelte';
   import Icon from './Icon.svelte';
+  import VoiceMemberMenu from './VoiceMemberMenu.svelte';
   import { voice } from '../lib/voice.svelte';
   import { hostVoice } from '../lib/host-voice.svelte';
   import { members } from '../lib/members.svelte';
@@ -126,7 +127,10 @@
 
   /** The open context menu, and where it was asked for. */
   let menu = $state<{
-    target: { kind: 'channel'; channel: Channel } | { kind: 'category'; category: Category };
+    target:
+      | { kind: 'channel'; channel: Channel }
+      | { kind: 'category'; category: Category }
+      | { kind: 'voice-member'; entry: VoiceState };
     x: number;
     y: number;
   } | null>(null);
@@ -137,6 +141,11 @@
 
   function openCategoryMenu(category: Category, x: number, y: number): void {
     menu = { target: { kind: 'category', category }, x, y };
+  }
+
+  /** A voice member's own menu: their playback volume, local to this client. */
+  function openVoiceMemberMenu(entry: VoiceState, x: number, y: number): void {
+    menu = { target: { kind: 'voice-member', entry }, x, y };
   }
 
   /** The "…" button opens the menu just below itself. */
@@ -285,7 +294,22 @@
       {/each}
     {:else}
       {#each voice.rosters[channel.id] ?? [] as entry (entry.user.id)}
-        <div class="voice-member" class:speaking={voice.speaking[entry.user.id]}>
+        <!-- A passive row: its one interaction is the volume menu, opened with the
+             same right-click and long-press gestures as the channel rows. -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="voice-member"
+          class:speaking={voice.speaking[entry.user.id]}
+          oncontextmenu={(event) => {
+            event.preventDefault();
+            cancelPress();
+            openVoiceMemberMenu(entry, event.clientX, event.clientY);
+          }}
+          onpointerdown={(event) => startPress(event, (x, y) => openVoiceMemberMenu(entry, x, y))}
+          onpointerup={cancelPress}
+          onpointercancel={cancelPress}
+          onpointerleave={cancelPress}
+        >
           {#if avatarUrl(entry.user)}
             <img class="avatar small" src={avatarUrl(entry.user)} alt="" />
           {:else}
@@ -557,5 +581,9 @@
   and its transform would otherwise become what the menu is positioned against.
 -->
 {#if menu}
-  <ChannelMenu target={menu.target} x={menu.x} y={menu.y} onclose={() => (menu = null)} />
+  {#if menu.target.kind === 'voice-member'}
+    <VoiceMemberMenu entry={menu.target.entry} x={menu.x} y={menu.y} onclose={() => (menu = null)} />
+  {:else}
+    <ChannelMenu target={menu.target} x={menu.x} y={menu.y} onclose={() => (menu = null)} />
+  {/if}
 {/if}

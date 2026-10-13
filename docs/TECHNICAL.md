@@ -303,6 +303,19 @@ server still lists it, or afresh when it was away long enough to be dropped. Onl
 channel this client itself joined is retried, so a second tab never takes a live
 call, and an explicit leave or a logout forgets it.
 
+Playback volume is per listener, not per speaker, and is entirely local. Every
+incoming track already runs through its own `GainNode` before the shared master
+gain, so the volume menu on a member in the sidebar's voice list just sets that
+one node: 0 is silence, 1 the member's own level and 2 twice as loud, offered as a
+0-200% slider with a 100% default and mute and reset beside it. The value is kept
+in `localStorage` keyed by the listener, the side that owns the preference, so it
+survives a reload and a phone that recreates the webview; a member left at the
+default is not stored at all, and a different account in the same browser keeps
+its own set. Nothing about it reaches the server, so it cannot change the room's
+record or anyone else's audio. Deafening still wins: it closes the master gain the
+per-member gains feed into. A member's row for yourself has no gain of your own to
+set, so its menu offers your own mute instead.
+
 A host that runs voice itself — the Android shell, whose native client captures the
 microphone — can switch the web client's voice off entirely: setting
 `window.__harmonyVoiceDisabled = true` in its document-start script, or opening the

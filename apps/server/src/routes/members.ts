@@ -52,12 +52,16 @@ export function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps
     const auth = requireAnyPermission(request, MEMBER_MANAGEMENT_PERMISSIONS);
     const rolesByUser = listMemberRoles(db.sqlite);
 
-    // The account's raw Discord id is PII, and its full permission map reveals
-    // who holds Administrator. Neither is a narrow moderator's to read, so both
-    // ride along only for a viewer who may manage members or is an
-    // administrator: exactly the role the account editor belongs to. The rest
-    // of the list is still readable by anyone with a single management
-    // permission, so a kick-only moderator keeps the screen they work on.
+    // The account's raw Discord id is PII. Its resolved permission bitfield is
+    // the full privilege map of every account - who can ban, manage roles, edit
+    // members and so on - which is more than a narrow moderator needs to read.
+    // (Who is an administrator is not the secret being kept: the public admin
+    // badge is derived from the same flag and already rides on every User
+    // through the roster and directory.) Both fields ride along only for a
+    // viewer who may manage members or is an administrator: exactly the role the
+    // account editor belongs to. The rest of the list is still readable by
+    // anyone with a single management permission, so a kick-only moderator keeps
+    // the screen they work on.
     const maySeePrivate =
       hasPermission(auth.permissions, Permission.ManageMembers) ||
       hasPermission(auth.permissions, Permission.Administrator);

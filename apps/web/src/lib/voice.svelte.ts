@@ -444,7 +444,11 @@ class VoiceStore {
     const gain = ctx.createGain();
     // The member's remembered volume is applied as the line is wired, so a
     // stream that appears after an adjustment still plays at the chosen level.
-    gain.gain.value = this.volumeFor(userId);
+    // 0-100% rides the element's own volume, which applies even when the Web
+    // Audio tap does not pull the element; the >100% boost rides the graph gain.
+    const level = this.volumeFor(userId);
+    element.volume = Math.min(1, level);
+    gain.gain.value = Math.max(1, level);
     source.connect(analyser);
     analyser.connect(gain);
     gain.connect(master);
@@ -776,10 +780,18 @@ class VoiceStore {
     this.setVolume(userId, VOICE_VOLUME_DEFAULT);
   }
 
-  /** Points one member's live gain at the remembered volume, if they are playing. */
+  /**
+   * Points one member's live level at the remembered volume, if they are playing.
+   * The 0-100% part rides the element's own volume and the >100% boost rides the
+   * graph gain, so the level holds whether or not the Web Audio tap pulls the
+   * element.
+   */
   #applyVolume(userId: string): void {
     const remote = this.#remote.get(userId);
-    if (remote) remote.gain.gain.value = this.volumeFor(userId);
+    if (!remote) return;
+    const level = this.volumeFor(userId);
+    remote.element.volume = Math.min(1, level);
+    remote.gain.gain.value = Math.max(1, level);
   }
 
   /**

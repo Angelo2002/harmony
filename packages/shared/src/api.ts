@@ -210,6 +210,16 @@ export interface DiscordAuthResponse {
   redirectUri: string | null;
 }
 
+/**
+ * Response for `POST /api/v1/auth/discord`: the Discord authorize URL the
+ * browser should be sent to. Returned as JSON rather than a redirect so an
+ * invite code can travel in the request body and stay out of the URL — browser
+ * history, and the access log Fastify writes for a navigation.
+ */
+export interface DiscordStartResponse {
+  url: string;
+}
+
 /** Response for `PUT` / `DELETE /api/v1/icon`. */
 export interface InstanceIconResponse {
   /** Content hash of the stored icon, or null when it has been reset. */

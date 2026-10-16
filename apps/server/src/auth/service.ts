@@ -78,9 +78,10 @@ export interface AuthService {
    * Signs in with a proven Discord identity, creating the account on first
    * visit. A new account has no password. A bridge stand-in for the same Discord
    * user is folded into it, so their history becomes theirs. Throws for a banned
-   * account and, where invites are required, for a missing or unusable code. An
-   * id already held by any account other than a stand-in is refused rather than
-   * merged.
+   * account and, where invites are required, for a missing or unusable code —
+   * except for the first account, which bootstraps the instance and needs none,
+   * exactly as `register` treats it. An id already held by any account other
+   * than a stand-in is refused rather than merged.
    */
   signInWithDiscord(
     identity: DiscordIdentity,
@@ -249,7 +250,12 @@ export function createAuthService(sqlite: DatabaseSync, config: Config, settings
       // A stand-in's ban follows it into the account that replaces it.
       if (existing && findBan(sqlite, existing.id)) throw banned;
 
-      const inviteToConsume = settings.get().requireInvite ? checkInvite(inviteCode) : null;
+      // Mirror register: the very first account bootstraps the instance, so it
+      // needs no invite. The pre-flight `verifyInvite` skips it the same way, so
+      // a code can never read as valid there and then park here on a userless
+      // instance.
+      const isFirstUser = countUsers(sqlite) === 0;
+      const inviteToConsume = !isFirstUser && settings.get().requireInvite ? checkInvite(inviteCode) : null;
 
       // Everything below is synchronous, so nothing can slip in between the checks
       // and the inserts.

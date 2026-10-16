@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { AuthResponse, InviteCheckResponse, MeResponse } from '@harmony/shared';
+  import type { AuthResponse, DiscordStartResponse, InviteCheckResponse, MeResponse } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
   import { meta } from '../lib/meta.svelte';
   import { session } from '../lib/session.svelte';
@@ -70,12 +70,6 @@
   /** Only a verified code may proceed to a local account or to Discord. */
   const verified = $derived(!inviteRequired || inviteState === 'valid');
   const canSubmit = $derived(!busy && verified);
-
-  const discordHref = $derived(
-    inviteRequired && code
-      ? `/api/v1/auth/discord?invite=${encodeURIComponent(code)}`
-      : '/api/v1/auth/discord',
-  );
 
   function rememberInvite(value: string): void {
     try {
@@ -210,15 +204,33 @@
 
   /**
    * Handing the browser to Discord is a navigation, not a fetch, so the code is
-   * stashed first: a failed round trip comes back with it still typed.
+   * stashed first: a failed round trip comes back with it still typed. When a
+   * code is needed the sign-in is started with a POST — the code rides in the
+   * body, never in the URL the browser records or the server logs — and the
+   * returned authorize URL is followed. With no code to carry it stays a plain
+   * navigation.
    */
-  function startDiscord(): void {
+  async function startDiscord(): Promise<void> {
     if (!verified) {
       error = 'Enter a valid invite code first.';
       return;
     }
     rememberInvite(code);
-    window.location.assign(discordHref);
+    if (!inviteRequired) {
+      window.location.assign('/api/v1/auth/discord');
+      return;
+    }
+    busy = true;
+    try {
+      const { url } = await api<DiscordStartResponse>('/auth/discord', {
+        method: 'POST',
+        body: JSON.stringify({ invite: code }),
+      });
+      window.location.assign(url);
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : String(cause);
+      busy = false;
+    }
   }
 
   onMount(() => {

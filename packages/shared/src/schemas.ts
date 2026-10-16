@@ -47,6 +47,15 @@ export type InviteCheckInput = z.infer<typeof inviteCheckSchema>;
 export const discordFinishSchema = z.object({ inviteCode: z.string().min(1).max(200) });
 export type DiscordFinishInput = z.infer<typeof discordFinishSchema>;
 
+/**
+ * Starting a Discord sign-in. The invite code travels in the body so it never
+ * lands in the request URL — which the browser keeps in its history and Fastify
+ * writes to its access log. Optional: an instance that does not require invites
+ * starts the flow with an empty body.
+ */
+export const discordStartSchema = z.object({ invite: z.string().trim().min(1).max(200).optional() });
+export type DiscordStartInput = z.infer<typeof discordStartSchema>;
+
 /** Seconds a member must wait between messages in a channel; 0 means off. */
 const slowmodeSeconds = z.number().int().min(0).max(MAX_SLOWMODE_SECONDS).optional();
 

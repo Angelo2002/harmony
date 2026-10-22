@@ -7,7 +7,7 @@
 //
 // Run with: npm run smoke --workspace @harmony/server
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -53,7 +53,8 @@ import { sanitizeDetail, sanitizeLogText } from '../src/log/sanitize.ts';
 import { createHttpPushSender } from '../src/push/sender.ts';
 
 const serverDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = 8791;
+// Overridable so two runs (parallel checkouts, a CI matrix) do not collide on one port.
+const PORT = Number(process.env.HARMONY_SMOKE_PORT) || 8791;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 const BASE = `${ORIGIN}/api/v1`;
 const HEARTBEAT_MS = 1000;
@@ -2816,10 +2817,36 @@ try {
     body: '',
   });
   check('an empty JSON body is a 400, not a 500', emptyJson.status === 400, `status ${emptyJson.status}`);
-  const hugeJson = await fetch(`${BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'x'.repeat(2 * 1024 * 1024) }),
+  // The server refuses an oversized body from its declared length, before reading
+  // any of it, and closes the connection. Uploading the body anyway raced that
+  // close: the write could fail with EPIPE before the answer was read, which made
+  // this check fail at random. So only the headers are sent, declaring a body
+  // over the limit, and the answer is awaited; a server that waited for the body
+  // instead would time out here and fail the check.
+  const hugeJson = await new Promise((resolveResponse, rejectResponse) => {
+    const outgoing = httpRequest(`${BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': String(2 * 1024 * 1024) },
+    });
+    const timer = setTimeout(() => {
+      outgoing.destroy();
+      rejectResponse(new Error('no answer to an oversized body within 5s'));
+    }, 5000);
+    outgoing.on('response', (response) => {
+      let text = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => (text += chunk));
+      response.on('end', () => {
+        clearTimeout(timer);
+        outgoing.destroy();
+        resolveResponse({ status: response.statusCode, json: async () => JSON.parse(text) });
+      });
+    });
+    outgoing.on('error', (error) => {
+      clearTimeout(timer);
+      rejectResponse(error);
+    });
+    outgoing.flushHeaders();
   });
   const hugeJsonBody = await hugeJson.json();
   check(

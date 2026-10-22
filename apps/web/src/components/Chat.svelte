@@ -4,6 +4,7 @@
   import { chat } from '../lib/chat.svelte';
   import { dragHasFiles, mediaFilesFrom } from '../lib/files';
   import { readEntry } from '../lib/channel-history';
+  import { eventsPanel, galleryPanel, scheduledPanel } from '../lib/lazy-panels';
   import { hasLaunchTarget, parseLaunchParams, withoutLaunchParams } from '../lib/launch-params';
   import { events } from '../lib/events.svelte';
   import { saved } from '../lib/saved.svelte';
@@ -16,16 +17,14 @@
   import ChannelHistory from './ChannelHistory.svelte';
   import ChannelSidebar from './ChannelSidebar.svelte';
   import Composer from './Composer.svelte';
-  import EventsPanel from './EventsPanel.svelte';
-  import GalleryPanel from './GalleryPanel.svelte';
   import HeaderActions from './HeaderActions.svelte';
   import Icon from './Icon.svelte';
   import KeyboardShortcuts from './KeyboardShortcuts.svelte';
+  import LazyPanel from './LazyPanel.svelte';
   import MemberList from './MemberList.svelte';
   import MessageView from './MessageView.svelte';
   import PinsPanel from './PinsPanel.svelte';
   import SavedPanel from './SavedPanel.svelte';
-  import ScheduledPanel from './ScheduledPanel.svelte';
   import UnreadBadge from './UnreadBadge.svelte';
 
   onMount(() => {
@@ -280,13 +279,20 @@
     <SavedPanel onclose={() => ui.closeSaved()} />
   {/if}
   {#if ui.scheduledOpen}
-    <ScheduledPanel onclose={() => ui.closeScheduled()} />
+    <LazyPanel module={scheduledPanel} label="scheduled messages" onclose={() => ui.closeScheduled()}>
+      {#snippet children(ScheduledPanel)}<ScheduledPanel onclose={() => ui.closeScheduled()} />{/snippet}
+    </LazyPanel>
   {/if}
   {#if ui.eventsOpen}
-    <EventsPanel onclose={() => ui.closeEvents()} />
+    <LazyPanel module={eventsPanel} label="events" onclose={() => ui.closeEvents()}>
+      {#snippet children(EventsPanel)}<EventsPanel onclose={() => ui.closeEvents()} />{/snippet}
+    </LazyPanel>
   {/if}
   {#if ui.gallery}
-    <GalleryPanel channel={ui.gallery} onclose={() => ui.closeGallery()} />
+    {@const channel = ui.gallery}
+    <LazyPanel module={galleryPanel} label="the media gallery" onclose={() => ui.closeGallery()}>
+      {#snippet children(GalleryPanel)}<GalleryPanel {channel} onclose={() => ui.closeGallery()} />{/snippet}
+    </LazyPanel>
   {/if}
 
   {#if ui.sidebarOpen || ui.rosterOpen}

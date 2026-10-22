@@ -123,6 +123,42 @@ too. A pending upload no message carries yet is served only to its uploader or a
 administrator, and a deleted message's media answers `404` like a missing id, so
 the route is not an existence oracle (see `docs/API.md`).
 
+## What a visit downloads
+
+The built client is an entry chunk plus pieces fetched the first time they are
+needed, so a visit downloads what most visits use and nothing more. The unicode
+emoji set and the code highlighter have always worked this way (see
+[Emoji](#emoji)); the panels most visits never open do too: the admin panel, the
+setup wizard, a member's own account settings, the full profile viewer, events,
+scheduled messages and the media gallery. `lib/lazy-panels.ts` lists them, and
+`LazyPanel.svelte` draws one where it used to be mounted:
+
+- The first opening fetches the panel's chunk. Nothing is drawn meanwhile, so on
+  an ordinary connection the panel simply opens with its usual entrance; a fetch
+  still running after 200 ms shows a small "Loading …" line, so a slow
+  connection does not look like a click that did nothing.
+- A fetched panel is kept for the rest of the session, so later openings are
+  immediate.
+- A fetch that fails says so in a small dialog with a Reload button. The usual
+  cause is an update: the open page names the hashed files of the build it came
+  from, an update replaces them, and the server answers `404` for the old names.
+  Reloading fetches the new `index.html` and with it the new names. A failure is
+  not remembered, so after a dropped connection the next opening just tries again.
+
+Search, the mentions inbox, pins and saved messages stay in the entry chunk:
+they are opened often enough that waiting on first use would cost more than it
+saves. A split panel must not be imported statically anywhere else, or the
+bundler quietly folds it back into the entry chunk.
+
+Rolldown puts the modules the entry shares with the split panels (the Svelte
+runtime, the shared package and the main stores) into a few chunks of their
+own, which `index.html` preloads beside the entry, so they arrive in parallel.
+All told a visit fetches about 430 kB of script (135 kB compressed) where it
+fetched 580 kB (176 kB) in one chunk before; the admin panel alone was 108 kB of
+that. Much of what is left is the Svelte runtime and zod. The client never calls
+zod, but the shared package builds its schemas when it loads, so the bundler
+cannot drop them.
+
 ## Theming
 
 An instance picks two colors — a background and an accent — and the client derives

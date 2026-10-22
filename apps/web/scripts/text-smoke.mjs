@@ -12,7 +12,7 @@
 // per-member voice-volume control, the changelog and when the "What's new"
 // dialog shows it, and which key presses the app-wide keyboard layer takes and
 // which it leaves alone, and the formatting keys and the Up arrow of the
-// message box.
+// message box, and the loader behind the panels fetched on first use.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -170,6 +170,7 @@ import { changelogSeenKey, formatChangelogDate, newerSeen, planChangelog, readSe
 import { globalShortcut, typesCharacter } from '../src/lib/global-shortcuts.ts';
 import { FORMAT_MARKERS, formatForKey, toggleFormat } from '../src/lib/composer-format.ts';
 import { lastEditable } from '../src/lib/message-edit.ts';
+import { SLOW_LOAD_MS, lazy } from '../src/lib/lazy.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -2474,6 +2475,35 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('nothing of yours means nothing to edit', lastEditable(list, 'them') === null);
   check('signed out means nothing to edit', lastEditable(list, undefined) === null);
   check("a deleted account's message is nobody's", lastEditable([message('m1', null)], 'me') === null);
+}
+
+// --- Lazy panels: one fetch, kept once loaded, tried again after a failure ---
+{
+  let calls = 0;
+  const panel = lazy(async () => {
+    calls++;
+    return { default: 'panel' };
+  });
+  check('nothing is fetched before a panel is first wanted', calls === 0 && panel.current === null);
+  const [first, second] = await Promise.all([panel.load(), panel.load()]);
+  check('two openings in quick succession share one fetch', calls === 1 && first === 'panel' && second === 'panel');
+  check('the loaded panel is kept, so the next opening draws it at once', panel.current === 'panel');
+  await panel.load();
+  check('a later opening does not fetch again', calls === 1);
+
+  let attempts = 0;
+  const flaky = lazy(async () => {
+    attempts++;
+    if (attempts === 1) throw new TypeError('Failed to fetch dynamically imported module');
+    return { default: 'flaky' };
+  });
+  const failure = await flaky.load().then(
+    () => null,
+    (cause) => cause,
+  );
+  check('a failed fetch rejects, so the panel can say so', failure instanceof TypeError && flaky.current === null);
+  check('a failure is not remembered: the next opening tries again', (await flaky.load()) === 'flaky' && attempts === 2);
+  check('the loading line waits a moment, but not long', SLOW_LOAD_MS > 0 && SLOW_LOAD_MS <= 500);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

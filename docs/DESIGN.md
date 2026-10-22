@@ -372,7 +372,7 @@ Rules (`docs/AGENTS.md` "CSS and motion gotchas" — authoritative):
 
 ## 4. Component inventory
 
-50 Svelte components under `apps/web/src/components`, plus 19 admin sections
+51 Svelte components under `apps/web/src/components`, plus 19 admin sections
 under `apps/web/src/components/admin`. Grouped by the role they play and the
 pattern they express. File paths are relative to `apps/web/src/components`.
 
@@ -390,6 +390,7 @@ pattern they express. File paths are relative to `apps/web/src/components`.
 | `KeyboardShortcuts.svelte` / `ShortcutHelp.svelte` | The app-wide keyboard layer (decisions in `lib/global-shortcuts.ts`) and its reference; `ShortcutHelp` is presentational. |
 | `ChannelHistory.svelte` | Back and forward between channels through browser history; draws nothing. |
 | `ChangelogDialog.svelte` | "What's new" after an update (`role="dialog"`, focus trapped, Escape, backdrop or "Got it" closes). Shown once per member, opened again from About. |
+| `LazyPanel.svelte` + `lib/lazy-panels.ts` | Mounts a panel fetched on first use (admin, setup, account, profile viewer, events, scheduled, gallery): nothing for 200 ms, then a "Loading …" pill; a failed download is a small dialog with Reload. |
 | `admin/AdminPanel.svelte` | Overlay shell: `.admin-overlay`, left `.admin-tabs` nav, section body. |
 
 ### 4.2 The conversation stream
@@ -554,6 +555,8 @@ under a "Discord" heading and a stand-in has no other profile fields.
 | --- | --- | --- |
 | Loading | `<p class="muted">Loading…</p>` in the panel body | No skeleton, no spinner. **Gap 2 (§4.9).** |
 | Loading older | "Loading older messages…" above the stream | Same. |
+| Panel still downloading | `LazyPanel`: nothing for the first 200 ms, then a centered pill with a spinner and "Loading …" (`role="status"`). | Opaque, not glass: a turning spinner inside a backdrop filter makes Firefox repaint the blur every frame. |
+| Panel failed to download | `LazyPanel`: a modal card with a `.status.err` explanation, Reload (focused) and Close. | The recovery is a reload, because the usual cause is an update that replaced the files. |
 | Uploading | Progress on the attachment in `Composer` (`uploadBatches`). | Keep; the one place with real progress UI. |
 | Empty | One `.muted` sentence, plain language, no blame. `.roster-empty`, `.qs-empty`, "No messages yet. Say hello!" | Good pattern; formalize as a primitive. |
 | Error (text) | `.form-error` (error color) under a field; `role="alert"` where announced. | Inline, single-column (§ forms). |
@@ -583,8 +586,9 @@ The shared contract (currently duplicated — see Gap 1):
   would cover that one row instead of the window.
 - z-index ladder: `.screen-share` `50`; `.notice` and `.profile-card` `60`;
   drawers/backdrop `75`–`80`; composer action popovers `90`–`91`; admin overlay
-  `100`; dialogs that can open over a panel (what's new, shortcut help, edit
-  history) `120`; lightbox `200` (above admin, by design).
+  and the loading pill of a panel still downloading `100`; dialogs that can open
+  over a panel (what's new, shortcut help, edit history) `120`; lightbox `200`
+  (above admin, by design).
 
 ### 5.6 Motion states
 

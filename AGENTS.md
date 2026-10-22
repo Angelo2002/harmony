@@ -276,6 +276,10 @@ npm workspaces monorepo; every package is ESM TypeScript.
   `:root`. Stylesheets reference those tokens only; the hardcoded values in the
   `:root` block of `app.css` are first-paint fallbacks, not a palette. Status
   colors (success/error/warning) are intentionally not derived from the accent.
+- Big, rarely opened panels are fetched on first use: they are listed in
+  `lib/lazy-panels.ts` and mounted through `LazyPanel.svelte`. Never import one
+  of them statically as well, or the bundler folds it back into the entry chunk
+  without a word; check the chunk list `npm run build:web` prints.
 - In production one process serves the built client, the API and the gateway on
   one origin, so there is no CORS to manage.
 

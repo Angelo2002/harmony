@@ -1107,17 +1107,26 @@ class ChatStore {
           // Reactions are kept in sync by their own events, and an edit carries a
           // viewer-specific `me`, so never let it clobber what we already have.
           // The same goes for `saved`, which a broadcast never knows.
-          this.messages = this.messages.map((existing) =>
-            existing.id === message.id
-              ? {
-                  ...message,
-                  reactions: existing.reactions,
-                  saved: existing.saved,
-                  // The same for the member's own poll choice, which a broadcast never knows.
-                  poll: message.poll && existing.poll ? { ...message.poll, myVotes: existing.poll.myVotes } : message.poll,
-                }
-              : existing,
-          );
+          this.messages = this.messages.map((existing) => {
+            if (existing.id === message.id) {
+              return {
+                ...message,
+                reactions: existing.reactions,
+                saved: existing.saved,
+                // The same for the member's own poll choice, which a broadcast never knows.
+                poll: message.poll && existing.poll ? { ...message.poll, myVotes: existing.poll.myVotes } : message.poll,
+              };
+            }
+            // A reply quotes the text it answers, and the server only fills the
+            // quote in when history is fetched, so an edit has to reach the
+            // replies already on screen here. Replies only ever answer a message
+            // in their own channel, so the open channel's list is all there is.
+            if (existing.replyTo?.id === message.id) {
+              return { ...existing, replyTo: { ...existing.replyTo, content: message.content } };
+            }
+            return existing;
+          });
+          if (this.replyTarget?.id === message.id) this.replyTarget = { ...this.replyTarget, content: message.content };
         }
         break;
       }
@@ -1156,7 +1165,17 @@ class ChatStore {
       case 'MESSAGE_DELETE': {
         const payload = frame.d as { id: string; channelId: string };
         if (payload.channelId === this.activeChannelId) {
-          this.messages = this.messages.filter((message) => message.id !== payload.id);
+          // Replies to it stay, quoting nothing, the way a fetched page draws them.
+          this.messages = this.messages
+            .filter((message) => message.id !== payload.id)
+            .map((message) =>
+              message.replyTo?.id === payload.id
+                ? { ...message, replyTo: { ...message.replyTo, content: '', deleted: true } }
+                : message,
+            );
+          // The server refuses a reply to a deleted message, so a reply being
+          // written to this one would only fail on send; let it go now instead.
+          if (this.replyTarget?.id === payload.id) this.replyTarget = null;
         }
         // A deleted mention no longer counts. One counted here can be taken off
         // directly; for the rest only the server knows whether this was one of

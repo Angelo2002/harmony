@@ -34,7 +34,13 @@ npm run smoke:text     # web client pure logic (markdown/link parser, emoji pick
 ```
 
 There is no linter and no test framework. A smoke script can also be run
-directly, for example `node apps/server/scripts/bridge-smoke.mjs`.
+directly, for example `node apps/server/scripts/bridge-smoke.mjs`. `npm run smoke`
+listens on port 8791; set `HARMONY_SMOKE_PORT` to another port when two runs
+might overlap (two checkouts, or several agents at once).
+
+CI (`.github/workflows/ci.yml`) runs typecheck, the client build and every
+smoke script on each push and pull request. A red run is a broken branch, not
+a flake to rerun: find out why.
 
 ## Verify before you claim something works
 

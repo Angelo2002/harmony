@@ -76,9 +76,16 @@ retention, the bridge) live in the database and are edited in the admin panel.
 | Command | What it does |
 | --- | --- |
 | `npm run typecheck` | Type-check every workspace (`tsc` for the server and shared package, `svelte-check` for the web client) |
-| `npm run smoke` | Boot a throwaway server and exercise the API end to end |
+| `npm run smoke` | Boot a throwaway server and exercise the API end to end. It listens on port 8791; set `HARMONY_SMOKE_PORT` to run two at once |
 | `npm run smoke:bridge` | Exercise the Discord bridge against a fake transport |
-| `npm run smoke:text` | Check the client's pure logic: the markdown and link parser, catching up after being away, and what the emoji picker offers |
+| `npm run smoke:auth` | Login throttling: the per-account and per-address budgets |
+| `npm run smoke:sfu` | The voice SFU relays RTP between in-process WebRTC peers over loopback |
+| `npm run smoke:text` | Check the client's pure logic: the markdown and link parser, catching up after being away, what the emoji picker offers, and every other pure module under `apps/web/src/lib` |
+
+GitHub Actions runs all of these on every push and pull request
+(`.github/workflows/ci.yml`): one job typechecks, builds the client and runs the
+text smoke test, and another runs the server, bridge, auth and voice smoke
+tests, both on Node 24. None of them needs the network.
 
 ### Production
 

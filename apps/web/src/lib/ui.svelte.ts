@@ -1,5 +1,28 @@
+import { MediaQuery } from 'svelte/reactivity';
 import type { Channel, User } from '@harmony/shared';
 import type { AdminTabId } from './admin';
+
+/**
+ * The narrow layout, where the channel and member lists become drawers. The
+ * width is the one the mobile block of app.css switches on; the two must agree.
+ */
+const narrowLayout = new MediaQuery('(max-width: 768px)');
+
+/*
+ * Whether the member list is put away on a wide screen, remembered per browser.
+ * It is only a matter of how this one viewer likes the window laid out, so it
+ * never goes near the server, and storage that refuses (a private window,
+ * blocked site data) just means the list starts out shown.
+ */
+const membersHiddenKey = 'harmony.membersHidden';
+
+function readMembersHidden(): boolean {
+  try {
+    return localStorage.getItem(membersHiddenKey) === '1';
+  } catch {
+    return false;
+  }
+}
 
 class UiState {
   adminOpen = $state(false);
@@ -20,6 +43,21 @@ class UiState {
   /** Off-canvas navigation, used on narrow screens. */
   sidebarOpen = $state(false);
   rosterOpen = $state(false);
+  /**
+   * The member list put away on a wide screen. A narrow screen ignores it: there
+   * the list is the drawer above, which starts closed whatever this says.
+   */
+  membersHidden = $state(readMembersHidden());
+
+  /** Whether the layout is the narrow one, with drawers for the side lists. */
+  get narrow(): boolean {
+    return narrowLayout.current;
+  }
+
+  /** Whether the member list is on screen, whichever form it takes at this width. */
+  get membersShown(): boolean {
+    return this.narrow ? this.rosterOpen : !this.membersHidden;
+  }
 
   openAbout(): void {
     this.closeDrawers();
@@ -162,6 +200,25 @@ class UiState {
   toggleRoster(): void {
     this.rosterOpen = !this.rosterOpen;
     this.sidebarOpen = false;
+  }
+
+  /**
+   * Shows or hides the member list the way the screen has it: the drawer on a
+   * narrow one, the remembered choice on a wide one. The members button and
+   * Ctrl+U both come here, so they never disagree about which applies.
+   */
+  toggleMembers(): void {
+    if (this.narrow) {
+      this.toggleRoster();
+      return;
+    }
+    this.membersHidden = !this.membersHidden;
+    try {
+      if (this.membersHidden) localStorage.setItem(membersHiddenKey, '1');
+      else localStorage.removeItem(membersHiddenKey);
+    } catch {
+      // Remembered for this visit only.
+    }
   }
 
   closeDrawers(): void {

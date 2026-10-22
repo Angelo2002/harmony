@@ -387,7 +387,7 @@ pattern they express. File paths are relative to `apps/web/src/components`.
 | `Icon.svelte` + `lib/icons.ts` | The shared monochrome line-icon primitive; decorative (`aria-hidden`), colored by `currentColor`. |
 | `UnreadBadge.svelte` | Count pill on a nav button. |
 | `QuickSwitcher.svelte` | Command-palette jump (`role="dialog"`, listbox of results). |
-| `KeyboardShortcuts.svelte` / `ShortcutHelp.svelte` | Keyboard reference; `ShortcutHelp` is presentational. |
+| `KeyboardShortcuts.svelte` / `ShortcutHelp.svelte` | The app-wide keyboard layer (decisions in `lib/global-shortcuts.ts`) and its reference; `ShortcutHelp` is presentational. |
 | `ChannelHistory.svelte` | Back and forward between channels through browser history; draws nothing. |
 | `ChangelogDialog.svelte` | "What's new" after an update (`role="dialog"`, focus trapped, Escape, backdrop or "Got it" closes). Shown once per member, opened again from About. |
 | `admin/AdminPanel.svelte` | Overlay shell: `.admin-overlay`, left `.admin-tabs` nav, section body. |
@@ -421,7 +421,7 @@ pattern they express. File paths are relative to `apps/web/src/components`.
 
 | Component | Pattern it expresses |
 | --- | --- |
-| `MemberList.svelte` | Roster: role groups (`.roster-group`), member rows with presence dot. Empty state ("No members yet."). |
+| `MemberList.svelte` | Roster: role groups (`.roster-group`), member rows with presence dot. Empty state ("No members yet."). A drawer on a narrow screen; on a wide one `.put-away` hides it (members button, Ctrl+U). |
 | `ProfileCard.svelte` | Hover/click mini card (banner, member color). |
 | `ProfilePanel.svelte` / `ProfileViewer.svelte` | Full profile overlay (`.profile-viewer`, `--profile-accent`). |
 | `MemberBadge.svelte` / `BotBadge.svelte` | Inline crown/sword/shield and bot glyphs. |

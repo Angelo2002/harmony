@@ -9,8 +9,9 @@
 // between the channels opened, the native voice host bridge (its off flag, the
 // join/leave hand-off, and the call state it pushes back), and the clamp, stored
 // map, deafen-over-volume rule and two-stage element/graph split behind the
-// per-member voice-volume control, and the changelog and when the "What's new"
-// dialog shows it.
+// per-member voice-volume control, the changelog and when the "What's new"
+// dialog shows it, and which key presses the app-wide keyboard layer takes and
+// which it leaves alone.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -165,6 +166,7 @@ import {
   latestChangelog,
 } from '@harmony/shared';
 import { changelogSeenKey, formatChangelogDate, newerSeen, planChangelog, readSeenMarker } from '../src/lib/changelog.ts';
+import { globalShortcut, typesCharacter } from '../src/lib/global-shortcuts.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -2298,6 +2300,134 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   const counts = { x: 1 };
   withChannelReadState(input, counts, { channelId: 'c', unread: true, mentionCount: 3 });
   check('the lists it was given are left alone', input.length === 1 && !('c' in counts));
+}
+
+// --- Global shortcuts: which key does what, and when the layer stays out of the way ---
+{
+  const press = (key, mods = {}) => ({
+    key,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    ...mods,
+  });
+  const ctrl = (key, mods = {}) => press(key, { ctrlKey: true, ...mods });
+  // A channel open, its message box ready, focus on nothing in particular and
+  // nothing open over the chat.
+  const calm = {
+    handled: false,
+    panel: false,
+    dialog: false,
+    popover: false,
+    card: false,
+    typing: false,
+    inComposer: false,
+    composerReady: true,
+    channelOpen: true,
+    hasNew: true,
+    inVoice: false,
+  };
+  const scene = (changes = {}) => ({ ...calm, ...changes });
+  const inComposer = scene({ typing: true, inComposer: true });
+  const inOtherField = scene({ typing: true });
+  const action = (pressed, where = calm) => globalShortcut(pressed, where)?.action ?? null;
+
+  check('Ctrl+K opens the quick switcher', action(ctrl('k')) === 'switcher');
+  check('Ctrl+K works from the message box', action(ctrl('k'), inComposer) === 'switcher');
+  check('Cmd+K is taken the same as Ctrl+K', action(press('k', { metaKey: true })) === 'switcher');
+  check('Ctrl+K stays quiet while a panel is open', action(ctrl('k'), scene({ panel: true })) === null);
+  check('Ctrl+K closes the switcher it opened', action(ctrl('k'), scene({ dialog: true })) === 'switcher');
+
+  check('Ctrl+F opens search', action(ctrl('f')) === 'search');
+  check('Ctrl+F works from the message box', action(ctrl('f'), inComposer) === 'search');
+  check('Ctrl+F works from any other text box', action(ctrl('f'), inOtherField) === 'search');
+  check(
+    'Ctrl+F inside a panel (search included) is left to the browser',
+    action(ctrl('f'), scene({ panel: true })) === null,
+  );
+  check('Ctrl+Shift+F is not search', action(ctrl('F', { shiftKey: true })) === null);
+
+  check('Ctrl+P opens the pins of the open channel', action(ctrl('p')) === 'pins');
+  check('Ctrl+P works from the message box', action(ctrl('p'), inComposer) === 'pins');
+  check('Ctrl+P with no channel open is left to the browser', action(ctrl('p'), scene({ channelOpen: false })) === null);
+
+  check('Ctrl+I opens the inbox', action(ctrl('i')) === 'inbox');
+  check('Ctrl+I in the message box is left to it (italic)', action(ctrl('i'), inComposer) === null);
+  check('Ctrl+Shift+I is the browser’s, not the inbox', action(ctrl('I', { shiftKey: true })) === null);
+  check('Ctrl+U shows or hides the member list', action(ctrl('u')) === 'members');
+  check('Ctrl+U in the message box is left to it (underline)', action(ctrl('u'), inComposer) === null);
+  check('Ctrl+Shift+U is not the member list', action(ctrl('U', { shiftKey: true })) === null);
+  check('Ctrl+U stays quiet while a panel is open', action(ctrl('u'), scene({ panel: true })) === null);
+
+  check('Ctrl+/ opens the shortcut list', action(ctrl('/')) === 'help');
+  check('Ctrl+/ toggles the list while it is open', action(ctrl('/'), scene({ dialog: true })) === 'help');
+  check('Ctrl+/ in a text box is left alone', action(ctrl('/'), inComposer) === null);
+  check('Escape closes the switcher or the list', action(press('Escape'), scene({ dialog: true })) === 'close-dialog');
+  check('the switcher takes nothing else', action(ctrl('f'), scene({ dialog: true })) === null);
+
+  const down = globalShortcut(press('ArrowDown', { altKey: true }), calm);
+  check('Alt+Down is the next channel', down?.action === 'step' && down.direction === 1 && !down.unreadOnly);
+  const upUnread = globalShortcut(press('ArrowUp', { altKey: true, shiftKey: true }), calm);
+  check(
+    'Alt+Shift+Up is the previous unread channel',
+    upUnread?.action === 'step' && upUnread.direction === -1 && upUnread.unreadOnly,
+  );
+  check('Alt+Down in a text box is left alone', action(press('ArrowDown', { altKey: true }), inComposer) === null);
+
+  check('Escape marks the open channel read', action(press('Escape')) === 'dismiss-new');
+  check('Escape with nothing new does nothing', action(press('Escape'), scene({ hasNew: false })) === null);
+  check('Escape with no channel open does nothing', action(press('Escape'), scene({ channelOpen: false })) === null);
+  check('Escape the composer used is not taken again', action(press('Escape'), scene({ ...inComposer, handled: true })) === null);
+  check('Escape the composer let through marks read', action(press('Escape'), inComposer) === 'dismiss-new');
+  check('Escape in another text box is left to it', action(press('Escape'), inOtherField) === null);
+  check('Escape while a menu or picker is open is left to it', action(press('Escape'), scene({ popover: true })) === null);
+  check('Escape while a profile card shows is left to it', action(press('Escape'), scene({ card: true })) === null);
+  check('Escape while a panel is open is left to it', action(press('Escape'), scene({ panel: true })) === null);
+  check('Shift+Escape marks every channel read', action(press('Escape', { shiftKey: true })) === 'read-all');
+  check(
+    'Shift+Escape marks every channel read even with nothing new here',
+    action(press('Escape', { shiftKey: true }), scene({ hasNew: false })) === 'read-all',
+  );
+  check(
+    'Shift+Escape while a menu is open is left to it',
+    action(press('Escape', { shiftKey: true }), scene({ popover: true })) === null,
+  );
+
+  const inVoice = scene({ inVoice: true });
+  check('Ctrl+Shift+M mutes in voice', action(ctrl('M', { shiftKey: true }), inVoice) === 'mute');
+  check('Ctrl+Shift+D deafens in voice', action(ctrl('D', { shiftKey: true }), inVoice) === 'deafen');
+  check(
+    'Ctrl+Shift+M works from the message box',
+    action(ctrl('M', { shiftKey: true }), scene({ ...inComposer, inVoice: true })) === 'mute',
+  );
+  check(
+    'Ctrl+Shift+D works with a panel open',
+    action(ctrl('D', { shiftKey: true }), scene({ panel: true, inVoice: true })) === 'deafen',
+  );
+  check('Ctrl+Shift+M out of voice is left to the browser', action(ctrl('M', { shiftKey: true })) === null);
+  check('Ctrl+M without Shift is not mute', action(ctrl('m'), inVoice) === null);
+
+  check('a letter typed with nothing focused goes to the message box', action(press('a')) === 'type');
+  check('a capital letter does too', action(press('A', { shiftKey: true })) === 'type');
+  check('so does punctuation, which starts a slash command', action(press('/')) === 'type');
+  check('a letter typed while a profile card shows still goes there', action(press('a'), scene({ card: true })) === 'type');
+  check('a letter typed in a text box stays there', action(press('a'), inComposer) === null);
+  check('a letter typed with a menu open is the menu’s', action(press('a'), scene({ popover: true })) === null);
+  check('a letter typed in the switcher is the switcher’s', action(press('a'), scene({ dialog: true })) === null);
+  check('a letter typed over a panel is the panel’s', action(press('a'), scene({ panel: true })) === null);
+  check('a letter typed with no usable message box goes nowhere', action(press('a'), scene({ composerReady: false })) === null);
+  check('a key already used is not taken again', action(press('a'), scene({ handled: true })) === null);
+
+  check('one character types', typesCharacter(press('x')));
+  check('an emoji outside the basic plane is one character', typesCharacter(press('\u{1F600}')));
+  check('Space does not type into the box, so a list can still scroll', !typesCharacter(press(' ')));
+  check('a named key does not type', !typesCharacter(press('Enter')) && !typesCharacter(press('ArrowDown')));
+  check('a dead key does not type', !typesCharacter(press('Dead')));
+  check('Ctrl plus a letter is a shortcut, not typing', !typesCharacter(ctrl('c')));
+  check('Alt plus a letter is not typing', !typesCharacter(press('x', { altKey: true })));
+  check('Cmd plus a letter is not typing', !typesCharacter(press('v', { metaKey: true })));
+  check('AltGr, reported as Ctrl and Alt, types', typesCharacter(press('@', { ctrlKey: true, altKey: true, altGraph: true })));
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

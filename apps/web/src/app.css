@@ -1566,7 +1566,8 @@ button.server-name:hover:not(:disabled) {
 }
 
 .chat-header .inbox-open,
-.chat-header .search-open {
+.chat-header .search-open,
+.chat-header .members-toggle {
   display: inline-flex;
   align-items: center;
   padding: 0.35rem 0.55rem;
@@ -1580,10 +1581,16 @@ button.server-name:hover:not(:disabled) {
 }
 
 .chat-header .inbox-open:hover,
-.chat-header .search-open:hover {
+.chat-header .search-open:hover,
+.chat-header .members-toggle:hover {
   background: var(--h-hover);
   color: var(--h-text);
   box-shadow: none;
+}
+
+/* Lit while the member list is on screen, the way Discord marks its members button. */
+.chat-header .members-toggle[aria-expanded='true'] {
+  color: var(--h-text);
 }
 
 .chat-header .inbox-open {
@@ -2890,6 +2897,12 @@ button.mention:hover {
   padding: 0.75rem 0.6rem;
   background: var(--h-bg);
   border-left: 1px solid var(--h-border);
+}
+
+/* Put away on a wide screen, from the members button or Ctrl+U. The mobile
+   block below undoes it, since there the list is a drawer with its own toggle. */
+.roster.put-away {
+  display: none;
 }
 
 .roster-empty {
@@ -5333,6 +5346,11 @@ button.roster-member:hover {
   .roster.open {
     transform: translateX(0);
     visibility: visible;
+  }
+
+  /* Putting the list away is a wide-screen choice; the drawer ignores it. */
+  .roster.put-away {
+    display: flex;
   }
 
   .drawer-backdrop {

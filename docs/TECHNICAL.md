@@ -691,6 +691,66 @@ A Discord sticker link pasted into a message — the `media.discordapp.net/stick
 form the client's copy-link gives — is learned the same way and draws as the
 sticker, so it does not sit there as a URL.
 
+## Keyboard shortcuts
+
+The app-wide keys live in one place, `components/KeyboardShortcuts.svelte`, which listens on the
+window; which shortcut a key press is, given what the page looked like when it went down, is decided
+by the pure `lib/global-shortcuts.ts`, covered by `npm run smoke:text`. Keys that belong to one
+surface stay with it: the message box handles its own (sending, formatting, its pickers), the quick
+switcher its arrows, a menu its Escape. `ShortcutHelp.svelte`, opened with Ctrl+/, lists them all.
+"Ctrl" means Cmd on an Apple keyboard, and a press of either is taken the same way.
+
+| Keys | What they do | Works in a text box |
+| --- | --- | --- |
+| Ctrl+K | Quick switcher | Yes |
+| Ctrl+F | Search messages | Yes |
+| Ctrl+P | Pinned messages of the open channel | Yes |
+| Ctrl+I | Mentions and replies | No (italic there) |
+| Ctrl+U | Show or hide the member list | No (underline there) |
+| Ctrl+/ | The shortcut list | No |
+| Alt+Up / Alt+Down, with Shift for unread only | Previous or next channel | No |
+| Escape | Mark the open channel read and drop its "new" line | Only the message box, see below |
+| Shift+Escape | Mark every channel read | Only the message box, see below |
+| Ctrl+Shift+M / Ctrl+Shift+D | Mute / deafen, while connected to voice | Yes |
+| Any character | Start writing in the message box | No (it is typing already) |
+
+- **When the layer stays out of the way.** A key something else already used (`defaultPrevented`)
+  or one that finishes an IME composition is never taken. While a panel covers the chat (anything in
+  `.admin-overlay`, or the lightbox) every shortcut but mute and deafen stays quiet, since acting
+  would happen out of sight. While the quick switcher or the shortcut list is open only they answer.
+  In a text box only the keys that mean nothing to it are taken.
+- **Escape** marks read only when nothing is open that Escape would close: a menu, a picker, a
+  popover, a dialog, a drawer or a profile card. In the message box it waits until the composer has
+  nothing to back out of: the composer handles Escape first and calls `preventDefault` when it
+  cancels a reply or closes its suggestions. Several of those menus and cards listen for Escape on
+  the window too, in whatever order they happened to mount, so the layer reads what is open in the
+  capture phase, before any handler has had the key. Read after one of them, the menu would already
+  have closed itself and the same press would mark the channel read as well. With nothing new in the
+  open channel Escape is left alone, so it does not send a read for nothing.
+- **Typing a character** while focus is on nothing editable and nothing is open over the chat moves
+  focus into the message box during the keydown, and the key's own default then types the character
+  there. Space is left out, so a focused list still scrolls with it. AltGr counts as typing, since
+  Windows reports it as Ctrl+Alt and many layouts need it for @ or €. A disabled message box (a
+  timed-out member's) is left alone.
+- **Conflicts with the browser.** Ctrl+F, Ctrl+P and Ctrl+U are the browser's find, print and view
+  source, and are prevented when the layer acts on them. Ctrl+F opens search only while no panel is
+  open: inside any panel, search included, it falls through, so the browser's own find is always one
+  more press away, for text the app's search cannot reach such as the admin panel or a long result
+  list. Ctrl+P with no channel open is left to print. Ctrl+Shift+M and Ctrl+Shift+D (Chrome's profile
+  menu and bookmark-all-tabs) are taken only while connected to voice. Keys the browser keeps for
+  itself (Ctrl+T, Ctrl+W, Ctrl+N, Ctrl+Tab) cannot be taken from it by a page, which is why none of
+  them are used.
+- **The member list** is a drawer on a narrow screen and always beside the chat on a wide one, and
+  the members button in the channel header and Ctrl+U both go through `ui.toggleMembers`, which
+  does whichever applies at the current width: open or close the drawer, or put the wide list away.
+  That last choice is remembered per browser in localStorage (`harmony.membersHidden`) and ignored
+  by the drawer. The width is the 768px of the mobile block in `app.css`, mirrored by a
+  `MediaQuery` in `lib/ui.svelte.ts`; the two must agree.
+- **Mute and deafen** work from anywhere while connected, panels and text boxes included, since they
+  are about the call rather than what is on screen. They follow the voice bar's rules: deafening
+  leaves the mute setting alone (a deafened member is muted without it changing), so undeafening
+  brings back whatever it was.
+
 ## Going back and forward
 
 Every channel opened, by whatever route (the sidebar, the quick switcher, the channel arrows, a

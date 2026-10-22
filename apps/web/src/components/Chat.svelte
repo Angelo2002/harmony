@@ -9,6 +9,7 @@
   import { saved } from '../lib/saved.svelte';
   import { scheduled } from '../lib/scheduled.svelte';
   import { session } from '../lib/session.svelte';
+  import { modKey } from '../lib/shortcuts.svelte';
   import { ui } from '../lib/ui.svelte';
   import { update } from '../lib/update.svelte';
   import { uploads } from '../lib/upload-queue.svelte';
@@ -182,7 +183,7 @@
           class="inbox-open"
           class:has-mentions={chat.mentionChannelIds.length > 0}
           aria-label="Mentions and replies"
-          title="Mentions and replies"
+          title={`Mentions and replies (${modKey}+I)`}
           onclick={() => ui.openInbox()}
         >
           <Icon name="inbox" size={20} />
@@ -192,17 +193,20 @@
           type="button"
           class="search-open"
           aria-label="Search messages"
-          title="Search messages"
+          title={`Search messages (${modKey}+F)`}
           onclick={() => ui.openSearch()}
         >
           <Icon name="search" size={20} />
         </button>
+        <!-- Shown at every width: a drawer on a phone, and on a wide screen it puts the list away. -->
         <button
-          class="drawer-toggle"
+          class="members-toggle"
           type="button"
-          aria-label="Show members"
-          aria-expanded={ui.rosterOpen}
-          onclick={() => ui.toggleRoster()}
+          aria-label="Member list"
+          title={`${ui.membersShown ? 'Hide members' : 'Show members'} (${modKey}+U)`}
+          aria-controls="member-list"
+          aria-expanded={ui.membersShown}
+          onclick={() => ui.toggleMembers()}
         >
           <Icon name="users" size={20} />
         </button>

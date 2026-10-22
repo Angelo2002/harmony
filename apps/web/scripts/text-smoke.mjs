@@ -13,7 +13,8 @@
 // dialog shows it, and which key presses the app-wide keyboard layer takes and
 // which it leaves alone, and the formatting keys and the Up arrow of the
 // message box, and the loader behind the panels fetched on first use, and how a
-// burst of member and role events becomes one reload.
+// burst of member and role events becomes one reload, and the numbering that
+// keeps an older answer from undoing a newer one.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -173,6 +174,7 @@ import { FORMAT_MARKERS, formatForKey, toggleFormat } from '../src/lib/composer-
 import { lastEditable } from '../src/lib/message-edit.ts';
 import { SLOW_LOAD_MS, lazy } from '../src/lib/lazy.ts';
 import { MEMBER_RELOAD_MAX_WAIT_MS, MEMBER_RELOAD_QUIET_MS, MemberReloadQueue } from '../src/lib/member-reload.ts';
+import { ResponseOrder } from '../src/lib/response-order.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -2542,6 +2544,25 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   queue.clear();
   check('clearing drops what had gathered', queue.take() === null);
   check('the quiet period is a short pause', MEMBER_RELOAD_QUIET_MS >= 250 && MEMBER_RELOAD_QUIET_MS <= 500);
+}
+
+// --- Overlapping reloads: an older answer never undoes a newer one ---
+{
+  const order = new ResponseOrder();
+  const first = order.begin();
+  const second = order.begin();
+  check('an older answer landing first is applied', order.accept(first));
+  check('a newer answer after it is applied too', order.accept(second));
+
+  const slow = order.begin();
+  const fast = order.begin();
+  check('a newer answer landing first is applied', order.accept(fast));
+  check('a slower, older answer is then turned away', !order.accept(slow));
+
+  const pending = order.begin();
+  order.cancel();
+  check('an answer still out when the store was emptied is turned away', !order.accept(pending));
+  check('a request sent afterwards is applied', order.accept(order.begin()));
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

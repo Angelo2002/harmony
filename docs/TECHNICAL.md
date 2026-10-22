@@ -256,6 +256,12 @@ An event about the signed-in member still refreshes their own session and
 channel list at once, since a timeout or a role that unlocks channels should
 not wait on anyone else's changes.
 
+Reloads can still overlap, for instance a reconnect's resync beside a batched
+reload, and the server may answer them in any order. The directory and roster
+stores number their requests and drop an answer older than one they have
+already applied (`lib/response-order.ts`), so a slow, stale answer cannot put
+an old name back on a message.
+
 ## Voice
 
 Voice chats are rooms to talk in, and the design splits along one line: clients do

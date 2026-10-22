@@ -3,6 +3,7 @@
   import type { Message } from '@harmony/shared';
   import { chat } from '../lib/chat.svelte';
   import { dragHasFiles, mediaFilesFrom } from '../lib/files';
+  import { readEntry } from '../lib/channel-history';
   import { hasLaunchTarget, parseLaunchParams, withoutLaunchParams } from '../lib/launch-params';
   import { events } from '../lib/events.svelte';
   import { saved } from '../lib/saved.svelte';
@@ -11,6 +12,7 @@
   import { ui } from '../lib/ui.svelte';
   import { update } from '../lib/update.svelte';
   import { uploads } from '../lib/upload-queue.svelte';
+  import ChannelHistory from './ChannelHistory.svelte';
   import ChannelSidebar from './ChannelSidebar.svelte';
   import Composer from './Composer.svelte';
   import EventsPanel from './EventsPanel.svelte';
@@ -32,13 +34,21 @@
     // the channel cannot be resolved until chat.start has loaded the channel
     // list, and stripped only once they have been handled so a reload does not
     // replay the link.
+    //
+    // Without a link, a reload reopens the channel it left: the browser keeps
+    // each history entry's state across a reload, and ChannelHistory writes the
+    // open channel into it.
     const launch = parseLaunchParams(window.location.search);
+    const target = hasLaunchTarget(launch)
+      ? launch
+      : { channelId: readEntry(window.history.state)?.channelId ?? null, messageId: null };
     void chat
-      .start(launch)
+      .start(target)
       .then(() => {
         if (!hasLaunchTarget(launch)) return;
+        // The entry's state is kept, since it is what back and forward walk.
         window.history.replaceState(
-          null,
+          window.history.state,
           '',
           window.location.pathname + withoutLaunchParams(window.location.search) + window.location.hash,
         );
@@ -255,6 +265,7 @@
   {/if}
 
   <MemberList />
+  <ChannelHistory />
   <KeyboardShortcuts />
   <UnreadBadge />
 

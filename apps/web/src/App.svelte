@@ -72,7 +72,8 @@
       notice = error
         ? { text: DISCORD_ERROR[error] ?? 'Discord sign-in failed.', kind: 'error' }
         : { text: DISCORD_OK[ok ?? ''] ?? 'Discord connected.', kind: 'ok' };
-      window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+      // The entry's state is kept: it names the channel a reload reopens.
+      window.history.replaceState(window.history.state, '', window.location.pathname + window.location.hash);
     }
   });
 

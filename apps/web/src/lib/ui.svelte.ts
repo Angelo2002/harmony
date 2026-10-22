@@ -168,6 +168,12 @@ class UiState {
     this.sidebarOpen = false;
     this.rosterOpen = false;
   }
+
+  /** Closes every drawer and panel, for a step back or forward that changes the channel under them. */
+  closeAll(): void {
+    this.closeDrawers();
+    this.#closePanels();
+  }
 }
 
 export const ui = new UiState();

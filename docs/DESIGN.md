@@ -388,6 +388,7 @@ pattern they express. File paths are relative to `apps/web/src/components`.
 | `UnreadBadge.svelte` | Count pill on a nav button. |
 | `QuickSwitcher.svelte` | Command-palette jump (`role="dialog"`, listbox of results). |
 | `KeyboardShortcuts.svelte` / `ShortcutHelp.svelte` | Keyboard reference; `ShortcutHelp` is presentational. |
+| `ChannelHistory.svelte` | Back and forward between channels through browser history; draws nothing. |
 | `admin/AdminPanel.svelte` | Overlay shell: `.admin-overlay`, left `.admin-tabs` nav, section body. |
 
 ### 4.2 The conversation stream

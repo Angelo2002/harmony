@@ -4,6 +4,16 @@
   // Named the way the keys are printed on the keyboard in front of the reader.
   const mod = isApple ? '⌘' : 'Ctrl';
   const alt = isApple ? '⌥' : 'Alt';
+  // The browser's own back and forward keys, which walk the channels opened.
+  const historyKeys = isApple
+    ? [
+        ['⌘', '['],
+        ['⌘', ']'],
+      ]
+    : [
+        ['Alt', '←'],
+        ['Alt', '→'],
+      ];
 
   const groups: Array<{ title: string; rows: Array<{ keys: string[][]; label: string }> }> = [
     {
@@ -13,6 +23,8 @@
         { keys: [[mod, '/']], label: 'Show these shortcuts' },
         { keys: [[alt, '↑'], [alt, '↓']], label: 'Previous or next channel' },
         { keys: [[alt, 'Shift', '↑'], [alt, 'Shift', '↓']], label: 'Previous or next unread channel' },
+        { keys: historyKeys, label: 'Back or forward through the channels you opened' },
+        { keys: [['Mouse back'], ['Mouse forward']], label: 'The same, with the side buttons of a mouse' },
       ],
     },
     {
@@ -43,7 +55,8 @@
     </div>
 
     <p class="sh-note">
-      Apart from the quick switcher, these stay out of the way while you are typing in a box.
+      Apart from the quick switcher and back and forward, these stay out of the way while you are typing in
+      a box.
     </p>
 
     {#each groups as group (group.title)}

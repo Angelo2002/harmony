@@ -691,6 +691,38 @@ A Discord sticker link pasted into a message — the `media.discordapp.net/stick
 form the client's copy-link gives — is learned the same way and draws as the
 sticker, so it does not sit there as a URL.
 
+## Going back and forward
+
+Every channel opened, by whatever route (the sidebar, the quick switcher, the channel arrows, a
+`#channel` link, a jump from search, the inbox, pins, saved messages or the gallery), adds a browser
+history entry, so back and forward walk the channels a member has been through. They are real
+entries rather than a list kept on the side because that is what everything already called "back"
+walks: the browser's buttons, Alt+arrow and Cmd+bracket, a trackpad swipe, the Android back gesture
+in the installed app, and the mouse's side buttons. `components/ChannelHistory.svelte` writes and
+follows them; the decisions are the pure `lib/channel-history.ts`, covered by `npm run smoke:text`.
+
+- **The URL does not change.** The channel lives in the entry's state, under its own key so other
+  state is left alone, and the browser keeps that state across a reload, which is how a reload
+  reopens the channel it was on. A launch link (`?channel=…&message=…`) still wins over it, and an
+  entry added after one does not copy the link's parameters.
+- **Only a change of channel is an entry.** A jump to a message in the channel already open adds
+  nothing. The first channel a page opens rewrites the entry it was loaded on, and a channel that
+  took over from one that has gone (deleted, or locked away by a role change) rewrites the gone
+  one's entry, since going back to it could only land on the default again.
+- **A step onto a channel that has gone carries on in the same direction.** Its entry is rewritten
+  to the open channel and skipped, and so is any entry naming the channel already open, so a press
+  never seems to do nothing while there is somewhere else to go. Skipping never goes back past the
+  first of the app's entries (each entry carries its position, and the first is 0), so a press that
+  meant to change channel cannot carry on out of the app to whatever page came before.
+- **A step closes whatever is over the chat**: drawers, panels, the lightbox and the quick switcher.
+  Some panels (pins, the gallery) belong to the channel they were opened from, and every one of them
+  already closes when a jump leaves it.
+- **The mouse's side buttons** are `MouseEvent.button` 3 and 4. Chrome navigates as the default
+  action of their `mouseup`, and Firefox never shows them to the page and navigates by itself.
+  Engines that hand the page the event and do nothing more (Safari, some desktop app shells) are
+  why the client takes the step itself on that `mouseup`, preventing the default first so Chrome
+  does not take it twice.
+
 ## Unread channels
 
 A channel with something new in it is drawn brighter in the sidebar, with a mark down its left edge.

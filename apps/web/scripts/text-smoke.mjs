@@ -5,10 +5,11 @@
 // how mutes change it, how a channel inherits its category's settings, where
 // the "new" line and the new-messages bar land, and reading the time
 // expressions the composer turns into timestamps, the channel and message a
-// launch link (a notification tap or a deep link) names, the native voice host
-// bridge (its off flag, the join/leave hand-off, and the call state it pushes
-// back), and the clamp, stored map, deafen-over-volume rule and two-stage
-// element/graph split behind the per-member voice-volume control.
+// launch link (a notification tap or a deep link) names, going back and forward
+// between the channels opened, the native voice host bridge (its off flag, the
+// join/leave hand-off, and the call state it pushes back), and the clamp, stored
+// map, deafen-over-volume rule and two-stage element/graph split behind the
+// per-member voice-volume control.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -128,6 +129,15 @@ import {
 import { SLASH_COMMANDS, applySlashCommand, matchSlashCommands, slashQuery } from '../src/lib/slash-commands.ts';
 import { mediaFilesFrom } from '../src/lib/files.ts';
 import { hasLaunchTarget, parseLaunchParams, withoutLaunchParams } from '../src/lib/launch-params.ts';
+import {
+  mayCarryOn,
+  mouseButtonStep,
+  planVisit,
+  popAction,
+  readEntry,
+  stepDirection,
+  writeEntry,
+} from '../src/lib/channel-history.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -1783,6 +1793,146 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   );
   check('the strip of a clean search changes nothing', withoutLaunchParams('?discord=linked') === '?discord=linked');
   check('the strip of an empty search is empty', withoutLaunchParams('') === '');
+}
+
+// --- Channel history: back and forward between the channels opened ---
+{
+  const entry = { channelId: 'c1', index: 2 };
+  check('an entry round-trips through history state', JSON.stringify(readEntry(writeEntry(null, entry))) === JSON.stringify(entry));
+  check('a null state holds no entry', readEntry(null) === null);
+  check("someone else's state holds no entry", readEntry({ other: 1 }) === null);
+  check('an entry with a blank channel is refused', readEntry(writeEntry(null, { channelId: '', index: 0 })) === null);
+  check('an entry with a fractional index is refused', readEntry({ harmonyChannel: { channelId: 'c1', index: 0.5 } }) === null);
+  check('writing keeps the rest of the state', writeEntry({ other: 1 }, entry).other === 1);
+
+  const first = planVisit(null, 'c1', false, 0);
+  check('the first channel opened rewrites the entry the page loaded on', first?.op === 'replace' && first.entry.index === 0);
+  const next = planVisit({ channelId: 'c1', index: 4 }, 'c2', true, 0);
+  check('opening another channel adds an entry after the current one', next?.op === 'push' && next.entry.index === 5);
+  const healed = planVisit({ channelId: 'gone', index: 4 }, 'c2', false, 0);
+  check('a channel that took over from a gone one rewrites its entry', healed?.op === 'replace' && healed.entry.index === 4);
+  check('the channel an entry already names adds nothing', planVisit({ channelId: 'c1', index: 4 }, 'c1', true, 0) === null);
+  check('nothing open adds nothing', planVisit({ channelId: 'c1', index: 4 }, null, true, 0) === null);
+
+  check('a step onto a gone channel is stale', popAction({ channelId: 'x', index: 1 }, 'c1', false) === 'stale');
+  check('a step onto the open channel is skipped', popAction({ channelId: 'c1', index: 1 }, 'c1', true) === 'skip');
+  check('a step onto another channel opens it', popAction({ channelId: 'c2', index: 1 }, 'c1', true) === 'open');
+  check('a lower position is a step back', stepDirection(3, 2) === -1);
+  check('a higher position is a step forward', stepDirection(2, 3) === 1);
+  check('mouse button 3 is back and 4 is forward', mouseButtonStep(3) === -1 && mouseButtonStep(4) === 1);
+  check('the main, middle and right buttons are not history', [0, 1, 2].every((button) => mouseButtonStep(button) === null));
+
+  check('a back step may carry on while there are entries of ours behind', mayCarryOn(-1, 1));
+  check('but never back past the first of them', !mayCarryOn(-1, 0));
+  check('a forward step may carry on', mayCarryOn(1, 0));
+
+  // A session history and an app wired the way ChannelHistory wires them, to
+  // check whole sequences rather than single decisions. The tab came from
+  // another page, so stepping back past the app's first entry leaves it.
+  const foreign = { foreign: true };
+  function session(channelIds) {
+    const known = new Set(channelIds);
+    const entries = [foreign];
+    let at = 0;
+    let active = null;
+    let index = 0;
+    let left = false;
+    const record = () => {
+      const current = readEntry(entries[at] ?? null);
+      const plan = planVisit(current, active, current !== null && known.has(current.channelId), index);
+      if (!plan) return;
+      index = plan.entry.index;
+      if (plan.op === 'push') {
+        entries.splice(at + 1, entries.length, writeEntry(null, plan.entry));
+        at += 1;
+      } else {
+        entries[at] = writeEntry(entries[at] ?? null, plan.entry);
+      }
+    };
+    const open = (channelId) => {
+      active = channelId;
+      record();
+    };
+    const go = (step) => {
+      const target = at + step;
+      if (target < 0 || target >= entries.length) return;
+      at = target;
+      if (entries[at] === foreign) {
+        left = true;
+        return;
+      }
+      const popped = readEntry(entries[at]);
+      const direction = stepDirection(index, popped.index);
+      index = popped.index;
+      const action = popAction(popped, active, known.has(popped.channelId));
+      if (action === 'stale') entries[at] = writeEntry(entries[at], { channelId: active, index: popped.index });
+      if (action === 'open') open(popped.channelId);
+      else if (mayCarryOn(direction, popped.index)) go(direction);
+    };
+    // The page loads on an entry the browser made, with no state of ours yet.
+    entries.push(null);
+    at = 1;
+    return {
+      open,
+      go,
+      remove: (channelId) => known.delete(channelId),
+      get active() {
+        return active;
+      },
+      get left() {
+        return left;
+      },
+      /** How many entries are the app's, not counting the page it came from. */
+      get length() {
+        return entries.length - 1;
+      },
+    };
+  }
+
+  const walk = session(['a', 'b', 'c']);
+  walk.open('a');
+  walk.open('b');
+  walk.open('c');
+  check('three channels opened make three entries', walk.length === 3);
+  walk.go(-1);
+  check('back returns to the channel before', walk.active === 'b');
+  walk.go(-1);
+  check('back again returns to the first channel', walk.active === 'a');
+  walk.go(1);
+  check('forward goes the other way', walk.active === 'b');
+  walk.open('a');
+  check('opening a channel after going back drops the forward entries', walk.length === 3);
+  walk.go(1);
+  check('so there is nothing to go forward to', walk.active === 'a');
+  walk.go(-1);
+  check('and back is the channel left', walk.active === 'b');
+
+  const gone = session(['a', 'b', 'c']);
+  gone.open('a');
+  gone.open('b');
+  gone.open('c');
+  gone.remove('b');
+  gone.go(-1);
+  check('back skips over a channel that has gone', gone.active === 'a');
+  gone.go(1);
+  check('and forward skips over it too', gone.active === 'c');
+
+  const stuck = session(['a', 'b']);
+  stuck.open('a');
+  stuck.open('b');
+  stuck.remove('a');
+  stuck.go(-1);
+  check('back with only gone channels behind stays in the app', stuck.active === 'b' && !stuck.left);
+
+  const loop = session(['a', 'x']);
+  loop.open('a');
+  loop.open('x');
+  loop.open('a');
+  loop.remove('x');
+  loop.go(-1);
+  check('skipping a gone channel never steps back out of the app', !loop.left && loop.active === 'a');
+  loop.go(-1);
+  check('while an ordinary back from the first channel still leaves, as a browser does', loop.left);
 }
 
 // --- Per-member playback volume: the clamp and the stored map ---

@@ -300,9 +300,12 @@
   /**
    * The edit box opens ready to type in: focused, with the caret after the last
    * word, and scrolled into view, which matters when the Up arrow opened it for
-   * a message further up than the screen shows.
+   * a message further up than the screen shows. One drawn again by a reload of
+   * the list takes focus back only if nothing else has it.
    */
   function focusEditBox(box: HTMLTextAreaElement): void {
+    const idle = document.activeElement === null || document.activeElement === document.body;
+    if (!messageEdit.takeFresh() && !idle) return;
     box.focus({ preventScroll: true });
     box.setSelectionRange(box.value.length, box.value.length);
     box.scrollIntoView({ block: 'nearest' });
@@ -411,6 +414,16 @@
     void chat.activeChannelId;
     actionsFor = null;
     untrack(() => messageEdit.stop());
+  });
+
+  // So does a jump within the channel, or a delete, that takes the message being
+  // edited out of the list; left open, its box would come back with the message
+  // later and catch what was being typed elsewhere.
+  $effect(() => {
+    const id = messageEdit.id;
+    if (id && !chat.loading && !chat.messages.some((message) => message.id === id)) {
+      untrack(() => messageEdit.stop());
+    }
   });
 
   /** Loads an older page while holding the messages already on screen in place. */

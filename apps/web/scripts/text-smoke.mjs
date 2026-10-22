@@ -9,7 +9,8 @@
 // between the channels opened, the native voice host bridge (its off flag, the
 // join/leave hand-off, and the call state it pushes back), and the clamp, stored
 // map, deafen-over-volume rule and two-stage element/graph split behind the
-// per-member voice-volume control.
+// per-member voice-volume control, and the changelog and when the "What's new"
+// dialog shows it.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -146,6 +147,15 @@ import {
   stepDirection,
   writeEntry,
 } from '../src/lib/channel-history.ts';
+import {
+  CHANGELOG,
+  CHANGELOG_VERSION_PATTERN,
+  HARMONY_VERSION,
+  changelogSeenSchema,
+  changelogToShow,
+  latestChangelog,
+} from '@harmony/shared';
+import { changelogSeenKey, formatChangelogDate, newerSeen, planChangelog, readSeenMarker } from '../src/lib/changelog.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -2072,6 +2082,86 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   }
   check('an ordinary stored key still reads back', volumeOverride({ u2: 0.5 }, 'u2') === 0.5);
   check('a key absent from the stored map is undefined', volumeOverride(parseVolumes(null), 'u9') === undefined);
+}
+
+// --- What's new: the changelog, and when the dialog shows it ---
+{
+  // The data itself. Only the newest entry is ever shown, so the order matters,
+  // and notes for a version newer than the build would never be shown to anyone.
+  const versions = CHANGELOG.map((entry) => entry.version);
+  check('the changelog has at least one entry', CHANGELOG.length > 0);
+  check('every changelog version is three dotted numbers', versions.every((version) => CHANGELOG_VERSION_PATTERN.test(version)));
+  check('changelog versions are unique', new Set(versions).size === versions.length);
+  check(
+    'the changelog is newest first, each version older than the one above it',
+    versions.every((version, index) => index === 0 || isNewerVersion(versions[index - 1], version)),
+  );
+  check(
+    'every changelog date is a real YYYY-MM-DD day',
+    CHANGELOG.every(
+      (entry) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(entry.date) &&
+        !Number.isNaN(Date.parse(`${entry.date}T00:00:00Z`)) &&
+        new Date(`${entry.date}T00:00:00Z`).toISOString().slice(0, 10) === entry.date,
+    ),
+  );
+  check(
+    'changelog dates never go forward down the list',
+    CHANGELOG.every((entry, index) => index === 0 || CHANGELOG[index - 1].date >= entry.date),
+  );
+  check('every entry has a title', CHANGELOG.every((entry) => entry.title.trim().length > 0));
+  check(
+    'every entry says something, with no blank items',
+    CHANGELOG.every((entry) => entry.items.length > 0 && entry.items.every((item) => item.trim().length > 0)),
+  );
+  check('the newest notes are not for a version newer than this build', !isNewerVersion(versions[0], HARMONY_VERSION));
+
+  const latest = latestChangelog();
+  const [major] = latest.version.split('.');
+  const newer = `${Number(major) + 1}.0.0`;
+  check('the latest entry is the first', latest === CHANGELOG[0]);
+  check('someone who has seen nothing is shown the latest', changelogToShow(null) === latest);
+  check('someone who saw an older version is shown the latest', changelogToShow('0.0.1') === latest);
+  check('someone who saw the latest is shown nothing', changelogToShow(latest.version) === null);
+  check('someone who saw a newer version is shown nothing', changelogToShow(newer) === null);
+
+  check('the version pattern takes a release number', CHANGELOG_VERSION_PATTERN.test('2.9.0') && CHANGELOG_VERSION_PATTERN.test('10.0.12'));
+  for (const bad of ['2.9', '2.9.0.1', 'v2.9.0', '02.9.0', '2.9.0 ', '', '2.x.0']) {
+    check(`the version pattern refuses ${JSON.stringify(bad)}`, !CHANGELOG_VERSION_PATTERN.test(bad));
+  }
+  check('the seen request takes a version', changelogSeenSchema.safeParse({ version: '2.9.0' }).success);
+  check('the seen request refuses a malformed one', !changelogSeenSchema.safeParse({ version: '2.9' }).success);
+  check('the seen request refuses a missing one', !changelogSeenSchema.safeParse({}).success);
+
+  // The browser's copy, and how it combines with the server's.
+  check('each account has its own stored key', changelogSeenKey('u1') === 'harmony:changelog-seen:u1');
+  check('nothing stored reads as nothing seen', readSeenMarker(null) === null);
+  check('garbage in storage reads as nothing seen', readSeenMarker('soon') === null && readSeenMarker('') === null);
+  check('a stored version reads back', readSeenMarker('2.9.0') === '2.9.0');
+  check('the newer of nothing is nothing', newerSeen(null, null) === null);
+  check('either side alone wins', newerSeen('2.8.3', null) === '2.8.3' && newerSeen(null, '2.9.0') === '2.9.0');
+  check('the newer side wins, compared as numbers', newerSeen('2.10.0', '2.9.0') === '2.10.0' && newerSeen('2.9.0', '2.10.0') === '2.10.0');
+
+  const plan = (server, stored) => planChangelog(server, stored);
+  const fresh = plan(null, null);
+  check('a member who has seen nothing anywhere is shown the latest', fresh.show === latest && fresh.report === null);
+  check('a member the server has down for the latest is shown nothing', plan(latest.version, null).show === null);
+  check('and nothing is sent', plan(latest.version, null).report === null);
+  const missed = plan(null, latest.version);
+  check('notes this browser showed are not shown again when the server missed it', missed.show === null);
+  check('and the server is told what it missed', missed.report === latest.version);
+  check('an older server copy is caught up too', plan('0.0.1', latest.version).report === latest.version);
+  check('a server copy ahead of this browser is left alone', plan(latest.version, '0.0.1').report === null && plan(latest.version, '0.0.1').show === null);
+  check('both up to date means nothing at all', plan(latest.version, latest.version).show === null && plan(latest.version, latest.version).report === null);
+  check('garbage in storage does not hide the notes', plan(null, 'soon').show === latest);
+  const rolledBack = plan(null, newer);
+  check('a copy from a newer build hides the notes', rolledBack.show === null);
+  check('but is not sent to a server that would refuse it', rolledBack.report === null);
+
+  check('a changelog date reads as a day (en-GB)', formatChangelogDate('2026-10-22', 'en-GB') === '22 October 2026');
+  check('a changelog date reads as a day (en-US)', formatChangelogDate('2026-10-22', 'en-US') === 'October 22, 2026');
+  check('the first of a month stays on that day', formatChangelogDate('2026-01-01', 'en-GB') === '1 January 2026');
+  check('an unreadable date is shown as written', formatChangelogDate('someday', 'en-GB') === 'someday');
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

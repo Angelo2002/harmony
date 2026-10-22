@@ -2127,6 +2127,32 @@ subject to the registration policy (at least 8 characters). Every **other** sess
 gateway connection closed (close code `4004`), so an old token stops working at once, while the
 device making the change stays signed in. Returns `{ "ok": true }`.
 
+#### `GET /api/v1/users/@me/changelog` — auth
+
+```json
+{ "seen": "2.9.0" }
+```
+
+The newest release whose "What's new" notes you have been shown, or `null` for none. The notes
+themselves ship with the client, as `CHANGELOG` in
+[`packages/shared/src/changelog.ts`](../packages/shared/src/changelog.ts); this only says how far you
+have read, so a client shows the newest entry when it is newer than `seen` and records it straight
+away. A new account starts at the newest entry, so nobody is greeted with notes about changes from
+before they arrived; an account that existed before this was added starts at `null`. It is private to
+you: nothing is broadcast when it changes.
+
+#### `PUT /api/v1/users/@me/changelog` — auth
+
+```json
+{ "version": "2.9.0" }
+```
+
+Records that you were shown a release's notes. `version` is three dotted numbers with no leading
+zeros (`400 validation_error` otherwise), compared as numbers. It is only stored when it is newer than
+what is stored already, so the marker never moves back: sending an older version is accepted and
+changes nothing. A version newer than the release the server runs is refused with
+`400 unknown_version`. Returns `204` with no body.
+
 #### `PUT /api/v1/users/@me/avatar` — auth
 
 `multipart/form-data` with a single `file` field (an image). The picture is normalized server-side

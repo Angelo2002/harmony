@@ -76,6 +76,15 @@ not wait to be asked, and do not leave finished work uncommitted.
   `HARMONY_VERSION` in `packages/shared/src/constants.ts` (the client, server and
   bridge all read it). Patch for fixes, minor for features, and leave the major
   number to the owner. Bump it in the same commit as the change it describes.
+- Keep the changelog in step with it. A user-facing change also updates
+  `CHANGELOG` in `packages/shared/src/changelog.ts`, the notes every member is
+  shown once in the "What's new" dialog after an update. A branch adds one entry
+  at the top for the version it ships as, or extends its own top entry if it
+  already added one. Write it in members' words: short plain sentences about
+  what they can now do or what was fixed, with no internals. Only the newest
+  entry is ever shown, so it has to cover everything user-facing since the
+  previous entry. `npm run smoke:text` fails when the list is out of order or
+  its newest entry is for a version newer than `HARMONY_VERSION`.
 - Write commit messages that stand on their own: a short imperative subject,
   then paragraphs explaining what changed and why, including the reasoning a
   future reader would otherwise have to reconstruct. Prefer several paragraphs

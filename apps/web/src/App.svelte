@@ -9,6 +9,7 @@
   import AdminPanel from './components/admin/AdminPanel.svelte';
   import AboutPanel from './components/AboutPanel.svelte';
   import AuthPanel from './components/AuthPanel.svelte';
+  import ChangelogDialog from './components/ChangelogDialog.svelte';
   import Chat from './components/Chat.svelte';
   import InboxPanel from './components/InboxPanel.svelte';
   import Lightbox from './components/Lightbox.svelte';
@@ -21,6 +22,8 @@
 
   let loading = $state(true);
   let setupOpen = $state(false);
+  /** True while the owner's setup is being looked up, when the wizard may be about to open. */
+  let setupChecking = $state(false);
   /**
    * A one-off message about a Discord sign-in round trip or a session the server
    * ended, shown then dismissible.
@@ -100,6 +103,7 @@
     }
     if (setupCheckedFor === user.id) return;
     setupCheckedFor = user.id;
+    setupChecking = true;
     void api<ServerSettingsResponse>('/settings')
       .then((settings) => {
         setupOpen = !settings.setupCompleted;
@@ -107,6 +111,9 @@
       .catch(() => {
         // Not worth blocking the app over: the admin panel exposes everything
         // the wizard would have set.
+      })
+      .finally(() => {
+        setupChecking = false;
       });
   });
 </script>
@@ -143,6 +150,8 @@
   {#if setupOpen}
     <SetupWizard onclose={() => (setupOpen = false)} />
   {/if}
+  <!-- What's new waits for the setup wizard, which is the owner's first stop. -->
+  <ChangelogDialog held={setupOpen || setupChecking} />
   <ProfileCard />
   <Lightbox />
   <ScreenShare />

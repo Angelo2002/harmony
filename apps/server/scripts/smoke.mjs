@@ -18,7 +18,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import sharp from 'sharp';
-import { Permission, HARMONY_VERSION, listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
+import { Permission, HARMONY_VERSION, latestChangelog, listEmbeddableUrls, unwrapSuppressedLinks, deriveTheme, relativeLuminance, DEFAULT_ACCENT, DEFAULT_BACKGROUND } from '@harmony/shared';
 import { isPrivateAddress, parseEmbedMetadata } from '../src/embeds/metadata.ts';
 import { guardedFetch, resolvePublicHost } from '../src/embeds/guard.ts';
 import { isDiscordAttachment, isGifPage, isGiphyPage, tweetStatusId, youtubeVideoId } from '../src/embeds/providers.ts';
@@ -1273,6 +1273,71 @@ try {
     body: { endpoint: '', platform: 'android' },
   });
   check('an empty push endpoint is rejected (400)', pushBad.status === 400, `status ${pushBad.status}`);
+
+  // --- What's new: the release notes a member has seen ---
+  const latestNotes = latestChangelog()?.version ?? null;
+  const getSeen = async (token) => (await req('/users/@me/changelog', { token })).json?.seen;
+  const putSeen = (version, token = bobToken) => req('/users/@me/changelog', { method: 'PUT', token, body: { version } });
+  check('reading the seen notes requires auth (401)', (await req('/users/@me/changelog')).status === 401);
+  check(
+    'recording seen notes requires auth (401)',
+    (await req('/users/@me/changelog', { method: 'PUT', body: { version: '1.0.0' } })).status === 401,
+  );
+  const ownerSeen = await req('/users/@me/changelog', { token: ownerToken });
+  check(
+    'the very first account starts at the latest notes',
+    ownerSeen.status === 200 && latestNotes !== null && ownerSeen.json?.seen === latestNotes,
+    JSON.stringify(ownerSeen.json),
+  );
+  check('an account registered with an invite starts there too', (await getSeen(bobToken)) === latestNotes);
+
+  // An account from before the column existed has seen nothing.
+  const seenDb = new DatabaseSync(join(dataDir, 'harmony.db'));
+  seenDb.prepare('UPDATE users SET changelog_seen = NULL WHERE id = ?').run(bob.json.user.id);
+  seenDb.close();
+  check('an account that has seen no notes reads as null', (await getSeen(bobToken)) === null);
+
+  const seenForward = await putSeen('2.0.10');
+  check('recording seen notes answers 204', seenForward.status === 204 && seenForward.json === null, `status ${seenForward.status}`);
+  check('and is stored', (await getSeen(bobToken)) === '2.0.10');
+  const seenBack = await putSeen('2.0.9');
+  check('an older version is accepted', seenBack.status === 204, `status ${seenBack.status}`);
+  check('but never moves it back, compared as numbers rather than text', (await getSeen(bobToken)) === '2.0.10');
+  await putSeen(HARMONY_VERSION);
+  check('a newer version moves it forward', (await getSeen(bobToken)) === HARMONY_VERSION);
+
+  const [runningMajor] = HARMONY_VERSION.split('.');
+  const unreleased = await putSeen(`${Number(runningMajor) + 1}.0.0`);
+  check(
+    'a version newer than this server runs is refused (400)',
+    unreleased.status === 400 && unreleased.json?.error?.code === 'unknown_version',
+    `${unreleased.status} ${JSON.stringify(unreleased.json)}`,
+  );
+  check('and changes nothing', (await getSeen(bobToken)) === HARMONY_VERSION);
+  for (const bad of ['2.9', 'v2.9.0', 'latest', '']) {
+    const refused = await putSeen(bad);
+    check(
+      `a malformed version (${JSON.stringify(bad)}) is refused (400)`,
+      refused.status === 400 && refused.json?.error?.code === 'validation_error',
+      `status ${refused.status}`,
+    );
+  }
+  check(
+    'a request with no version is refused (400)',
+    (await req('/users/@me/changelog', { method: 'PUT', token: bobToken, body: {} })).status === 400,
+  );
+  check("one member's notes are their own", (await getSeen(ownerToken)) === latestNotes);
+
+  // The migration leaves every account that already exists at null, which is
+  // how everyone sees the notes of the release that brings this in, once.
+  const preChangelog = new DatabaseSync(':memory:');
+  preChangelog.exec("CREATE TABLE users (id TEXT PRIMARY KEY); INSERT INTO users (id) VALUES ('old-account');");
+  migrations.find((migration) => migration.name === 'changelog_seen').up(preChangelog);
+  check(
+    'an account from before the migration starts with nothing seen',
+    preChangelog.prepare("SELECT changelog_seen FROM users WHERE id = 'old-account'").get()?.changelog_seen === null,
+  );
+  preChangelog.close();
 
   // --- Push delivery ---
   // A tiny receiver stands in for the distributor the install registered with: the
@@ -5343,6 +5408,7 @@ try {
   check('its username is made valid from the Discord name', freshRow.username === 'NewPerson');
   check('it carries the Discord id and name', freshRow.discord_id === '700000000000000001' && freshRow.display_name === 'New P');
   check('a Discord sign-up is never the owner', freshRow.is_owner === 0);
+  check('a Discord sign-up starts at the latest notes', freshRow.changelog_seen === latestChangelog()?.version);
 
   const again = discordAuth.signInWithDiscord(discordIdentity('700000000000000001', 'whatever'), null, null);
   check('signing in again finds the same account', again.created === false && again.auth.user.id === fresh.auth.user.id);
@@ -5383,6 +5449,11 @@ try {
         adopted.auth.user.id,
   );
   check('and keeps the name the bridge gave it', adopted.auth.user.displayName === 'Bridge Name');
+  check(
+    'and starts at the latest notes, like any new account',
+    ghostStore.sqlite.prepare('SELECT changelog_seen FROM users WHERE id = ?').get(adopted.auth.user.id)?.changelog_seen ===
+      latestChangelog()?.version,
+  );
 
   // A ban on the stand-in follows the person.
   insertGhostUser(ghostStore.sqlite, {

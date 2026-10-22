@@ -1346,6 +1346,45 @@ The number is compiled into the web bundle, so an installed app that has not
 reloaded since an update reports the version it was built with. The service worker
 caches nothing, so one reload corrects it.
 
+## Changelog
+
+After an update, a member opening Harmony is shown what changed, once, in a
+**What's new** dialog. About (click the server name) has a **What's new** button
+that opens the same notes again whenever they like.
+
+- **The notes are data in the shared package.** `CHANGELOG` in
+  `packages/shared/src/changelog.ts` is a list of entries, newest first, each a
+  version, a date, a title and a few short items written for members rather than
+  developers. It ships with the client, so there is nothing to fetch. Only the
+  newest entry is ever shown, which is why it has to cover everything
+  user-facing since the entry before it; `AGENTS.md` has the rule for keeping it
+  current. `npm run smoke:text` checks the list is in order, well formed and
+  never ahead of `HARMONY_VERSION`.
+- **What a member has seen is kept by the server, per account**, in
+  `users.changelog_seen`, so "once" holds across their devices and browsers.
+  `GET` and `PUT /api/v1/users/@me/changelog` read and record it (see `docs/API.md`).
+  The marker only moves forward, and a version newer than the running release is
+  refused.
+- **The rule for showing**: the newest entry is shown when the member has seen
+  none, or only an older version. It is recorded as seen the moment it appears,
+  not when it is closed, so a reload or a second tab does not bring it back
+  however the dialog ends. The browser also keeps a copy, under
+  `harmony:changelog-seen:<user id>`, and the newer of the two counts: if the
+  write to the server fails, the copy stops a second showing here, and the next
+  visit sends the server what it missed. If the server cannot be asked at all,
+  nothing is shown; a late note is better than a repeated one.
+- **New accounts start at the newest entry.** Every account a person signs in
+  to, by password or with Discord (including one that adopts a bridge
+  stand-in), is created by `insertUser`, which stamps it, so a newcomer, the
+  owner's very first account included, is not greeted with notes about changes
+  from before they arrived. Accounts that existed before this was added
+  started at null, which is how everyone saw the notes of 2.9.0 once.
+- **It waits its turn.** The dialog is only mounted for a signed-in member, so
+  it never covers the sign-in screen, and it holds off while the owner's setup
+  wizard is open or about to open. The decisions are in the pure
+  `apps/web/src/lib/changelog.ts`, the fetching and storage in
+  `lib/changelog.svelte.ts`, and the dialog is `components/ChangelogDialog.svelte`.
+
 ## The update check
 
 An owner sees an **Update** tab in the admin panel. It compares the version this

@@ -130,6 +130,14 @@ import { SLASH_COMMANDS, applySlashCommand, matchSlashCommands, slashQuery } fro
 import { mediaFilesFrom } from '../src/lib/files.ts';
 import { hasLaunchTarget, parseLaunchParams, withoutLaunchParams } from '../src/lib/launch-params.ts';
 import {
+  clockTime,
+  dayDividerLabel,
+  dayKey,
+  messageTimeLabel,
+  messageTimeTitle,
+  withDayStarts,
+} from '../src/lib/message-time.ts';
+import {
   mayCarryOn,
   mouseButtonStep,
   planVisit,
@@ -1793,6 +1801,55 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   );
   check('the strip of a clean search changes nothing', withoutLaunchParams('?discord=linked') === '?discord=linked');
   check('the strip of an empty search is empty', withoutLaunchParams('') === '');
+}
+
+// --- Message times: the day beside the clock, and the date lines ---
+{
+  const zone = { locale: 'en-GB', timeZone: 'Europe/London' };
+  const now = Date.parse('2026-10-22T09:00:00Z');
+  const at = (iso) => Date.parse(iso);
+  check('a day key is the calendar day in the zone', dayKey(at('2026-10-21T23:30:00Z'), 'Europe/London') === '2026-10-22');
+  check('the same instant is another day elsewhere', dayKey(at('2026-10-21T23:30:00Z'), 'America/New_York') === '2026-10-21');
+  check('the clock alone is hours and minutes', clockTime(at('2026-10-22T08:05:00Z'), zone) === '09:05');
+  check('a message from today shows only its time', messageTimeLabel(at('2026-10-22T07:15:00Z'), { ...zone, now }) === '08:15');
+  check(
+    'a message from yesterday says so',
+    messageTimeLabel(at('2026-10-21T20:00:00Z'), { ...zone, now }) === 'Yesterday at 21:00',
+  );
+  check(
+    'an older message carries its date',
+    messageTimeLabel(at('2026-09-03T11:00:00Z'), { ...zone, now }) === '03/09/2026 12:00',
+  );
+  // Clocks went back in London on 25 October 2026, so that day is 25 hours long.
+  const afterChange = Date.parse('2026-10-26T00:30:00Z');
+  check(
+    'yesterday is the calendar day before, across a clock change',
+    messageTimeLabel(at('2026-10-25T00:10:00Z'), { ...zone, now: afterChange }).startsWith('Yesterday at'),
+  );
+  check(
+    'yesterday reaches back across a year end',
+    messageTimeLabel(at('2026-12-31T22:00:00Z'), { ...zone, now: at('2027-01-01T10:00:00Z') }) === 'Yesterday at 22:00',
+  );
+  check('the tooltip names the full date', messageTimeTitle(at('2026-10-21T20:00:00Z'), zone).includes('21 October 2026'));
+  check('a date line reads as a date', dayDividerLabel(at('2026-10-21T20:00:00Z'), zone) === '21 October 2026');
+
+  const row = (createdAt, grouped = true) => ({ message: { createdAt }, grouped });
+  const rows = withDayStarts(
+    [row('2026-10-21T20:00:00Z', false), row('2026-10-21T20:03:00Z'), row('2026-10-22T08:00:00Z'), row('2026-10-22T08:01:00Z')],
+    false,
+    'Europe/London',
+  );
+  check('a new day opens where the date changes', rows.map((entry) => entry.dayStart).join() === 'false,false,true,false');
+  check('the first message of a day starts a fresh group', rows[2].grouped === false && rows[3].grouped === true);
+  check('a row inside a day keeps its grouping', rows[1].grouped === true);
+  check(
+    'the first row opens its day only when the list reaches the start of the channel',
+    withDayStarts([row('2026-10-21T20:00:00Z', false)], true, 'Europe/London')[0].dayStart === true,
+  );
+  check(
+    'grouping across midnight is broken by the date line',
+    withDayStarts([row('2026-10-21T22:58:00Z', false), row('2026-10-21T23:02:00Z')], false, 'Europe/London')[1].grouped === false,
+  );
 }
 
 // --- Channel history: back and forward between the channels opened ---

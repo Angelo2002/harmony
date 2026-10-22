@@ -396,7 +396,7 @@ pattern they express. File paths are relative to `apps/web/src/components`.
 | Component | Pattern it expresses |
 | --- | --- |
 | `Chat.svelte` | Channel header + message view + composer; empty-channel state (`.chat.empty`). |
-| `MessageView.svelte` | The scroll stream: grouping, "new messages" bar, loading older/initial, "No messages yet." |
+| `MessageView.svelte` | The scroll stream: grouping, date lines between days, "new messages" bar, loading older/initial, "No messages yet." |
 | `MessageContent.svelte` | Markdown/mention/emoji rendering inside `.content`. |
 | `CodeBlock.svelte` | Fenced code with copy; `--syntax-*` colors. |
 | `EmbedVideo.svelte` / `LinkedGif.svelte` | Rich link/media embeds with fallback ordering. |

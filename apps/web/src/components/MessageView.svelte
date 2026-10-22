@@ -8,6 +8,7 @@
   import { inlineSegmentsOf, parseMessage } from '../lib/message-text';
   import { firstUnreadIndex, newMessageCount, newMessagesLabel } from '../lib/unread';
   import { groupedRows } from '../lib/message-grouping';
+  import { dayDividerLabel, messageTimeLabel, messageTimeTitle, withDayStarts } from '../lib/message-time';
   import { emojis } from '../lib/emojis.svelte';
   import { gifs } from '../lib/gifs.svelte';
   import LinkedGif from './LinkedGif.svelte';
@@ -77,9 +78,10 @@
   /**
    * Messages paired with whether they continue the previous one, computed in one
    * place rather than per row so the flag cannot go stale as messages arrive.
-   * The message the "new" line sits above starts a fresh group, header and all.
+   * The message the "new" line sits above starts a fresh group, header and all,
+   * and so does the first message of each day, under its date line.
    */
-  const rows = $derived.by(() => groupedRows(chat.messages, newDividerId));
+  const rows = $derived.by(() => withDayStarts(groupedRows(chat.messages, newDividerId), !chat.hasMore));
 
   // ---- The "new" line and the bar that points up at it ----
 
@@ -462,6 +464,12 @@
         (segment) => segment.type === 'mention' && segment.user.id === myId,
       )}
       {@const picture = avatarUrl(message.author)}
+      {@const sentAt = Date.parse(message.createdAt)}
+      {#if row.dayStart}
+        <div class="day-divider" role="separator" aria-label={dayDividerLabel(sentAt)}>
+          <span>{dayDividerLabel(sentAt)}</span>
+        </div>
+      {/if}
       {#if message.id === newDividerId}
         <div class="new-divider" role="separator" aria-label="New messages" bind:this={newDivider}>
           <span>New</span>
@@ -486,7 +494,9 @@
         onclick={(event) => onMessageClick(event, message)}
       >
         {#if grouped}
-          <div class="avatar-spacer" aria-hidden="true"><span class="gutter-time">{formatTime(message.createdAt)}</span></div>
+          <div class="avatar-spacer" aria-hidden="true">
+            <span class="gutter-time" title={messageTimeTitle(sentAt)}>{formatTime(message.createdAt)}</span>
+          </div>
         {:else if picture}
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_click_events_have_key_events -->
           <img
@@ -543,7 +553,7 @@
               {#if message.author?.accountType === 'bot'}
                 <BotBadge size={13} />
               {/if}
-              <time>{formatTime(message.createdAt)}</time>
+              <time datetime={message.createdAt} title={messageTimeTitle(sentAt)}>{messageTimeLabel(sentAt)}</time>
               {#if message.editedAt}<EditHistory {message} />{/if}
               {#if message.pinnedAt}<span class="pin-marker" title="Pinned"><Icon name="pin" size={13} /></span>{/if}
             </div>
@@ -860,6 +870,24 @@
 
   .new-bar-read {
     flex: none;
+  }
+
+  /* The line where a new day starts, with its date in the middle. */
+  .day-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 1rem 0 0.3rem;
+    color: var(--h-text-faint);
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+
+  .day-divider::before,
+  .day-divider::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid var(--h-border);
   }
 
   .new-divider {

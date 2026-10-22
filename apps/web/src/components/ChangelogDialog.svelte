@@ -123,12 +123,17 @@
     transform: none;
   }
 
+  /* A column whose list alone scrolls when the notes are long, so the version
+     and the title stay in view above it and Got it below. Focus starts on Got
+     it, and with the whole dialog scrolling that would open it at the bottom. */
   .cl-dialog {
     position: relative;
     z-index: 1;
+    display: flex;
+    flex-direction: column;
     width: min(440px, 100%);
     max-height: 90dvh;
-    overflow-y: auto;
+    overflow: hidden;
     padding: 1.25rem 1.4rem;
     border: 1px solid var(--h-glass-border);
     border-radius: var(--h-radius-xl);
@@ -158,9 +163,16 @@
     display: flex;
     flex-direction: column;
     gap: 0.65rem;
+    min-height: 0;
     margin: 1rem 0 0;
-    padding: 0;
+    /* The last stretch fades out, which shows a cut-off list has more below.
+       It fades the padding only once the list is scrolled to its end. */
+    padding: 0 0 1rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     list-style: none;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent);
   }
 
   .cl-items li {
@@ -186,6 +198,6 @@
   .cl-actions {
     display: flex;
     justify-content: flex-end;
-    margin-top: 1.4rem;
+    margin-top: 0.4rem;
   }
 </style>

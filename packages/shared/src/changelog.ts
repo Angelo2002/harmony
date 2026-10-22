@@ -37,7 +37,7 @@ export const CHANGELOG_VERSION_PATTERN = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(
 /** Every release's notes, newest first. */
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
-    version: '2.14.1',
+    version: '2.14.2',
     date: '2026-10-22',
     title: "What's new",
     items: [

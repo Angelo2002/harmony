@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { Permission, hasPermission, type Message, type MessageEdit, type MessageEditListResponse } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
+  import { modalLayers } from '../lib/modal-layers.svelte';
   import { portal } from '../lib/portal';
   import { session } from '../lib/session.svelte';
   import { trapFocus } from '../lib/shortcuts.svelte';
@@ -53,6 +54,11 @@
     await tick();
     trigger?.focus();
   }
+
+  // Counted as open over the chat while it is, so back closes it like any other dialog.
+  $effect(() => {
+    if (open) return untrack(() => modalLayers.add(() => void close()));
+  });
 
   function onKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {

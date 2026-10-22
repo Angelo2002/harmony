@@ -1,85 +1,173 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { chat } from '../lib/chat.svelte';
   import {
     mayCarryOn,
     mouseButtonStep,
+    planOverlay,
     planVisit,
     popAction,
     readEntry,
     stepDirection,
+    stepsOffMarker,
     writeEntry,
+    type ChannelHistoryEntry,
   } from '../lib/channel-history';
   import { withoutLaunchParams } from '../lib/launch-params';
-  import { lightbox } from '../lib/lightbox.svelte';
-  import { shortcuts } from '../lib/shortcuts.svelte';
   import { ui } from '../lib/ui.svelte';
 
   /*
    * Back and forward between the channels opened in this tab. Each channel
    * opened, by whatever route, gets a browser history entry, so the browser's
    * own back and forward walk them; this component writes those entries and
-   * follows the browser when it steps onto one. It draws nothing.
+   * follows the browser when it steps onto one. Something opened over the chat
+   * gets a marker entry, so back closes it before it changes channel. It draws
+   * nothing.
    */
 
-  /** The position of the entry the page is on, to tell a step back from a step forward. */
-  let index = readEntry(window.history.state)?.index ?? 0;
+  /**
+   * The entry the page is on, as this component last saw it. A step lands on
+   * an entry without saying which way it went, so comparing positions is how
+   * back is told from forward.
+   */
+  let here: ChannelHistoryEntry | null = readEntry(window.history.state);
+
+  /**
+   * The position a quiet step back off a marker is headed for, while one is on
+   * its way. Its landing is this component's own doing, not a press, so it is
+   * not followed like one.
+   */
+  let settling: number | null = null;
 
   function known(channelId: string): boolean {
     return chat.channels.some((channel) => channel.id === channelId);
   }
 
-  // Watches only the open channel. Everything else is read untracked, so a
-  // channel list refresh does not count as a visit.
+  // Watches the open channel and how much is open over the chat. Everything
+  // else is read untracked, so a channel list refresh does not count as a visit.
   $effect(() => {
     const channelId = chat.activeChannelId;
-    untrack(() => record(channelId));
+    const depth = ui.overlayDepth;
+    untrack(() => sync(channelId, depth));
   });
 
-  function record(channelId: string | null): void {
+  // Signing out takes the chat away, and whatever was open over it goes too,
+  // rather than coming back for whoever signs in next in this tab.
+  onMount(() => () => ui.closeOverlaysAbove(0));
+
+  /** Brings history in step with the open channel and with what is open over it. */
+  function sync(channelId: string | null, depth: number): void {
+    // Until a quiet step has landed the page is still on the entry it is
+    // leaving, and anything written now would go on the wrong one. The landing
+    // calls this again.
+    if (settling !== null) return;
+
+    // A channel first, so a marker for something opened along with it goes
+    // after the channel's own entry rather than standing in for it.
     const current = readEntry(window.history.state);
-    const plan = planVisit(current, channelId, current !== null && known(current.channelId), index);
-    if (!plan) return;
-    index = plan.entry.index;
-    if (plan.op === 'push') {
-      // The address stays as it is, less a launch link's parameters: they
-      // belong to the entry the link arrived on, and an entry carrying them
-      // would follow the link again on a reload instead of reopening its channel.
-      const url = window.location.pathname + withoutLaunchParams(window.location.search) + window.location.hash;
-      window.history.pushState(writeEntry(null, plan.entry), '', url);
-    } else {
-      window.history.replaceState(writeEntry(window.history.state, plan.entry), '');
-    }
+    const visit = planVisit(current, channelId, current !== null && known(current.channelId), here?.index ?? 0);
+    if (visit?.op === 'push') push(visit.entry);
+    else if (visit) replace(visit.entry);
+
+    const marker = planOverlay(readEntry(window.history.state), channelId, depth, userActivated());
+    if (marker) push(marker);
+
+    const now = readEntry(window.history.state);
+    if (now && stepsOffMarker(now, channelId, depth)) settle(now.index - 1);
+  }
+
+  /**
+   * Whether a person has just clicked or pressed a key, which is what Chrome asks
+   * of a page before it lets an entry it adds count; see planOverlay. A browser
+   * that cannot say is taken at its word that it does not mind.
+   */
+  function userActivated(): boolean {
+    return navigator.userActivation?.isActive ?? true;
+  }
+
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Steps quietly back off a marker, to the entry at `target`. The landing is
+   * reported by popstate like any step, and history is left alone until it is.
+   * A browser that never reports it (or refuses the step) must not leave
+   * history frozen, so after a moment the wait is given up and the page takes
+   * whatever entry it is on as where it is.
+   */
+  function settle(target: number): void {
+    settling = target;
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      settleTimer = null;
+      if (settling === null) return;
+      settling = null;
+      here = readEntry(window.history.state);
+    }, 1000);
+    window.history.go(-1);
+  }
+
+  function push(entry: ChannelHistoryEntry): void {
+    here = entry;
+    // The address stays as it is, less a launch link's parameters: they
+    // belong to the entry the link arrived on, and an entry carrying them
+    // would follow the link again on a reload instead of reopening its channel.
+    const url = window.location.pathname + withoutLaunchParams(window.location.search) + window.location.hash;
+    window.history.pushState(writeEntry(null, entry), '', url);
+  }
+
+  function replace(entry: ChannelHistoryEntry): void {
+    here = entry;
+    window.history.replaceState(writeEntry(window.history.state, entry), '');
   }
 
   async function onPopState(event: PopStateEvent): Promise<void> {
     const entry = readEntry(event.state);
+    if (settling !== null) {
+      const quiet = entry !== null && entry.index === settling;
+      settling = null;
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = null;
+      if (quiet) {
+        here = entry;
+        // Whatever changed while the step was on its way is written now, and
+        // a marker it landed on that is no longer needed either is stepped off.
+        sync(chat.activeChannelId, ui.overlayDepth);
+        return;
+      }
+    }
     if (!entry) return;
-    const direction = stepDirection(index, entry.index);
-    index = entry.index;
+    const from = here;
+    here = entry;
+    const direction = stepDirection(from?.index ?? 0, entry.index);
+    const action = popAction(entry, chat.activeChannelId, known(entry.channelId), direction, ui.overlayDepth);
+
+    if (action === 'close') {
+      // The channel stays. If the browser skipped past the open channel's own
+      // entry on the way, which Chrome's back button does to an entry whose
+      // marker was pushed without a click, the effect above writes the open
+      // channel back in after the entry landed on.
+      ui.closeOverlaysAbove(entry.depth);
+      return;
+    }
+
     // Until the channel list is in there is nothing to check the entry against.
     if (chat.channels.length === 0) return;
 
-    const action = popAction(entry, chat.activeChannelId, known(entry.channelId));
     if (action === 'stale' && chat.activeChannelId) {
-      window.history.replaceState(
-        writeEntry(event.state, { channelId: chat.activeChannelId, index: entry.index }),
-        '',
-      );
+      here = { ...entry, channelId: chat.activeChannelId };
+      window.history.replaceState(writeEntry(event.state, here), '');
     }
     if (action !== 'open') {
       // Going past the last entry this way does nothing, which is the right
       // answer when every entry left that way is gone or already open.
-      if (mayCarryOn(direction, entry.index)) window.history.go(direction);
+      if (mayCarryOn(direction, entry.index, from, chat.activeChannelId)) window.history.go(direction);
       return;
     }
 
-    // Every panel and drawer closes when a channel is jumped to from one, and
-    // some of them (pins, the gallery) belong to the channel they were opened
-    // from, so a step that changes the channel closes them the same way.
-    ui.closeAll();
-    lightbox.close();
-    void shortcuts.close();
+    // Some panels (pins, the gallery) belong to the channel they were opened
+    // from, so a step forward that changes the channel closes whatever is open
+    // over the chat, as a jump from inside one does.
+    ui.closeOverlaysAbove(0);
     void chat.selectChannel(entry.channelId);
     // As for the channel arrows: a long sidebar scrolls, and the channel just
     // opened should not be highlighted somewhere out of sight.
@@ -94,12 +182,24 @@
    * what it walks. Some engines (Safari, some desktop app shells) hand the page
    * the event and do nothing more, so the step is taken here. The default is
    * prevented first, so a browser that would have navigated as well does not
-   * take the step twice.
+   * take the step twice. With something open over the chat the step lands on
+   * the entry beneath its marker and closes it, as any other back does.
+   *
+   * Something that opened by itself has no marker (see planOverlay), and on the
+   * first channel a step back would then leave the app instead of closing it.
+   * The browser's own back button cannot be stopped from doing that, but this
+   * one can: when more is open than the entry the page is on accounts for, the
+   * back button closes it and takes no step at all.
    */
   function onMouseUp(event: MouseEvent): void {
     const step = mouseButtonStep(event.button);
     if (step === null) return;
     event.preventDefault();
+    const depth = here?.depth ?? 0;
+    if (step === -1 && ui.overlayDepth > depth) {
+      ui.closeOverlaysAbove(depth);
+      return;
+    }
     window.history.go(step);
   }
 </script>

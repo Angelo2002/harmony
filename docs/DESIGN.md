@@ -579,6 +579,11 @@ The shared contract (currently duplicated — see Gap 1):
   above the catcher.
 - `role="dialog"` + `aria-modal="true"`; Escape closes; focus returns to the
   opener (e.g. `EventsPanel`, `Lightbox`).
+- An overlay is either state in `ui` (panels, drawers, the setup wizard) or, for
+  a dialog that keeps its open state to itself, registered with `modalLayers`
+  (`lib/modal-layers.svelte.ts`) while open, as `EditHistory` and
+  `ChangelogDialog` are. That is how back knows to close it before it changes
+  channel; an overlay outside both stays open over a channel change.
 - A layer opened from inside a message row or a sidebar row must leave the row
   with `use:portal` (`lib/portal.ts`), as `EditHistory` does. Those rows carry a
   transform and `will-change: transform` for their hover nudge, and either one

@@ -885,9 +885,33 @@ follows them; the decisions are the pure `lib/channel-history.ts`, covered by `n
   never seems to do nothing while there is somewhere else to go. Skipping never goes back past the
   first of the app's entries (each entry carries its position, and the first is 0), so a press that
   meant to change channel cannot carry on out of the app to whatever page came before.
-- **A step closes whatever is over the chat**: drawers, panels, the lightbox and the quick switcher.
-  Some panels (pins, the gallery) belong to the channel they were opened from, and every one of them
-  already closes when a jump leaves it.
+- **Back closes what is open over the chat before it changes channel**, as back does on a phone,
+  where the drawers and panels cover the whole screen. Something opening over the chat pushes a
+  marker entry naming the open channel and how many layers are open (`depth`): the drawers, the
+  panels and the setup wizard are one layer, the quick switcher and shortcut list another, the
+  dialogs that register themselves in `lib/modal-layers.svelte.ts` (edit history, "What's new") a
+  third, and the lightbox a fourth. `ui.overlayDepth` is the one place that counts them. A step back
+  that lands below what is open closes the layers above the entry it landed on and stops there, so a
+  picture opened from the gallery closes before the gallery does. A step onto a marker with nothing
+  open is skipped like an entry for the open channel, so a channel opened from inside a panel (a
+  search result, a pick in the phone's drawer) goes back to the one it was opened from in one
+  press. Forward never reopens anything.
+- **Closing something through its own control** (a Close button, Escape, the backdrop) leaves its
+  marker behind, so the page steps quietly back off it, with no channel change; the next press then
+  does what it would have done had nothing been opened. That matters most on the first channel of
+  the installed app, where a press with nowhere to go closes the app, and a leftover marker would
+  swallow it. Opening and closing again pushes one marker at a time, never a pile of them, and a
+  quiet step the browser never reports is given up on after a second rather than holding history
+  still. A reload on a marker steps off it the same way, without reopening anything.
+- **Something that opened by itself gets no marker**: the "What's new" notes after an update, or the
+  owner's setup wizard. Chrome lets a page add an entry without a click but marks the entry the page
+  was on as one its back button skips, which would make back skip the channel beneath, or on the
+  first channel leave the app. Without a marker, a step back still closes it (it lands one entry
+  further back, and the open channel's entry is written in again), and the mouse's back button,
+  which the client handles itself, closes it without stepping at all. Only the browser's own back
+  button on the app's very first entry can still leave the app with such a dialog open.
+- **A step that changes channel closes whatever is over the chat**, as a jump from inside a panel
+  does: some panels (pins, the gallery) belong to the channel they were opened from.
 - **The mouse's side buttons** are `MouseEvent.button` 3 and 4. Chrome navigates as the default
   action of their `mouseup`, and Firefox never shows them to the page and navigates by itself.
   Engines that hand the page the event and do nothing more (Safari, some desktop app shells) are

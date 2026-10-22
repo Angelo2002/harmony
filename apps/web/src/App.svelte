@@ -19,7 +19,6 @@
   import ScreenShare from './components/ScreenShare.svelte';
 
   let loading = $state(true);
-  let setupOpen = $state(false);
   /** True while the owner's setup is being looked up, when the wizard may be about to open. */
   let setupChecking = $state(false);
   /**
@@ -104,7 +103,8 @@
     setupChecking = true;
     void api<ServerSettingsResponse>('/settings')
       .then((settings) => {
-        setupOpen = !settings.setupCompleted;
+        // In ui rather than here, so a step back can close it like any panel.
+        ui.setupOpen = !settings.setupCompleted;
       })
       .catch(() => {
         // Not worth blocking the app over: the admin panel exposes everything
@@ -151,13 +151,13 @@
   {#if ui.inboxOpen}
     <InboxPanel onclose={() => ui.closeInbox()} />
   {/if}
-  {#if setupOpen}
-    <LazyPanel module={setupWizard} label="the setup wizard" onclose={() => (setupOpen = false)}>
-      {#snippet children(SetupWizard)}<SetupWizard onclose={() => (setupOpen = false)} />{/snippet}
+  {#if ui.setupOpen}
+    <LazyPanel module={setupWizard} label="the setup wizard" onclose={() => ui.closeSetup()}>
+      {#snippet children(SetupWizard)}<SetupWizard onclose={() => ui.closeSetup()} />{/snippet}
     </LazyPanel>
   {/if}
   <!-- What's new waits for the setup wizard, which is the owner's first stop. -->
-  <ChangelogDialog held={setupOpen || setupChecking} />
+  <ChangelogDialog held={ui.setupOpen || setupChecking} />
   <ProfileCard />
   <Lightbox />
   <ScreenShare />

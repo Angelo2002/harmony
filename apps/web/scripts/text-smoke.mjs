@@ -159,10 +159,12 @@ import {
 import {
   mayCarryOn,
   mouseButtonStep,
+  planOverlay,
   planVisit,
   popAction,
   readEntry,
   stepDirection,
+  stepsOffMarker,
   writeEntry,
 } from '../src/lib/channel-history.ts';
 import {
@@ -1887,27 +1889,162 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
 }
 
 // --- Channel history: back and forward between the channels opened ---
+
+/**
+ * A session history and an app wired the way ChannelHistory wires them, to
+ * check whole sequences rather than single decisions. The tab came from
+ * another page, so stepping back past the app's first entry leaves it.
+ *
+ * The installed app has no page before its first entry: a press there closes
+ * the app, which the browser does by itself, while a step the app takes there
+ * goes nowhere. So it matters there that the page is never left sitting on a
+ * marker it no longer needs, where the press that should close the app would
+ * only reach the entry beneath.
+ *
+ * The app's quiet step back off a marker lands at once here, where a browser
+ * lands it a moment later; nothing else happens in between in these sequences.
+ */
+function historySession(channelIds, { installed = false } = {}) {
+  const known = new Set(channelIds);
+  const foreign = { foreign: true };
+  const entries = installed ? [] : [foreign];
+  let at = 0;
+  let active = null;
+  /** How many layers are open over the chat. */
+  let depth = 0;
+  /** The entry the app last saw itself on. */
+  let here = null;
+  let left = false;
+  let closed = false;
+  const current = () => readEntry(entries[at] ?? null);
+  const push = (entry) => {
+    entries.splice(at + 1, entries.length, writeEntry(null, entry));
+    at += 1;
+    here = entry;
+  };
+  // The component's effect, which runs whenever the open channel or what is
+  // open over it changes.
+  const sync = () => {
+    const now = current();
+    const visit = planVisit(now, active, now !== null && known.has(now.channelId), here?.index ?? 0);
+    if (visit?.op === 'push') push(visit.entry);
+    else if (visit) {
+      entries[at] = writeEntry(entries[at] ?? null, visit.entry);
+      here = visit.entry;
+    }
+    const marker = planOverlay(current(), active, depth);
+    if (marker) push(marker);
+    if (stepsOffMarker(current(), active, depth)) {
+      at -= 1;
+      here = current();
+      sync();
+    }
+  };
+  /** A step: a press when `pressed`, otherwise one the app takes itself. */
+  const go = (step, pressed = true) => {
+    const target = at + step;
+    if (target < 0 && pressed) closed = true;
+    if (target < 0 || target >= entries.length) return;
+    at = target;
+    if (entries[at] === foreign) {
+      left = true;
+      return;
+    }
+    const popped = readEntry(entries[at]);
+    const from = here;
+    here = popped;
+    const direction = stepDirection(from?.index ?? 0, popped.index);
+    const action = popAction(popped, active, known.has(popped.channelId), direction, depth);
+    if (action === 'close') {
+      depth = popped.depth;
+      sync();
+      return;
+    }
+    if (action === 'stale') {
+      here = { ...popped, channelId: active };
+      entries[at] = writeEntry(entries[at], here);
+    }
+    if (action === 'open') {
+      depth = 0;
+      active = popped.channelId;
+      sync();
+    } else if (mayCarryOn(direction, popped.index, from, active)) go(direction, false);
+  };
+  // The page loads on an entry the browser made, with no state of ours yet.
+  entries.push(null);
+  at = entries.length - 1;
+  return {
+    /** Opens a channel with nothing open over the chat, as the sidebar does on a wide screen. */
+    open: (channelId) => {
+      active = channelId;
+      sync();
+    },
+    /** Opens a channel from something open over the chat, which closes it: a search result, a pick in the drawer. */
+    jump: (channelId) => {
+      depth = 0;
+      active = channelId;
+      sync();
+    },
+    /** Opens one more layer over the chat: a panel or drawer, then the lightbox over it. */
+    show: () => {
+      depth += 1;
+      sync();
+    },
+    /** Closes the top layer through its own controls: a close button, Escape, the backdrop. */
+    dismiss: () => {
+      depth -= 1;
+      sync();
+    },
+    /** Reloads the page: nothing is open, and the channel comes back from the entry's state. */
+    reload: () => {
+      depth = 0;
+      here = current();
+      active = here?.channelId ?? null;
+      sync();
+    },
+    go,
+    remove: (channelId) => known.delete(channelId),
+    get active() {
+      return active;
+    },
+    get depth() {
+      return depth;
+    },
+    get left() {
+      return left;
+    },
+    /** Whether a press closed the installed app. */
+    get closed() {
+      return closed;
+    },
+    /** How many entries are the app's, not counting the page it came from. */
+    get length() {
+      return entries.length - (installed ? 0 : 1);
+    },
+  };
+}
+
 {
-  const entry = { channelId: 'c1', index: 2 };
+  const entry = { channelId: 'c1', index: 2, depth: 0 };
   check('an entry round-trips through history state', JSON.stringify(readEntry(writeEntry(null, entry))) === JSON.stringify(entry));
   check('a null state holds no entry', readEntry(null) === null);
   check("someone else's state holds no entry", readEntry({ other: 1 }) === null);
-  check('an entry with a blank channel is refused', readEntry(writeEntry(null, { channelId: '', index: 0 })) === null);
+  check('an entry with a blank channel is refused', readEntry(writeEntry(null, { channelId: '', index: 0, depth: 0 })) === null);
   check('an entry with a fractional index is refused', readEntry({ harmonyChannel: { channelId: 'c1', index: 0.5 } }) === null);
   check('writing keeps the rest of the state', writeEntry({ other: 1 }, entry).other === 1);
 
   const first = planVisit(null, 'c1', false, 0);
   check('the first channel opened rewrites the entry the page loaded on', first?.op === 'replace' && first.entry.index === 0);
-  const next = planVisit({ channelId: 'c1', index: 4 }, 'c2', true, 0);
+  const next = planVisit({ channelId: 'c1', index: 4, depth: 0 }, 'c2', true, 0);
   check('opening another channel adds an entry after the current one', next?.op === 'push' && next.entry.index === 5);
-  const healed = planVisit({ channelId: 'gone', index: 4 }, 'c2', false, 0);
+  const healed = planVisit({ channelId: 'gone', index: 4, depth: 0 }, 'c2', false, 0);
   check('a channel that took over from a gone one rewrites its entry', healed?.op === 'replace' && healed.entry.index === 4);
-  check('the channel an entry already names adds nothing', planVisit({ channelId: 'c1', index: 4 }, 'c1', true, 0) === null);
-  check('nothing open adds nothing', planVisit({ channelId: 'c1', index: 4 }, null, true, 0) === null);
+  check('the channel an entry already names adds nothing', planVisit({ channelId: 'c1', index: 4, depth: 0 }, 'c1', true, 0) === null);
+  check('nothing open adds nothing', planVisit({ channelId: 'c1', index: 4, depth: 0 }, null, true, 0) === null);
 
-  check('a step onto a gone channel is stale', popAction({ channelId: 'x', index: 1 }, 'c1', false) === 'stale');
-  check('a step onto the open channel is skipped', popAction({ channelId: 'c1', index: 1 }, 'c1', true) === 'skip');
-  check('a step onto another channel opens it', popAction({ channelId: 'c2', index: 1 }, 'c1', true) === 'open');
+  check('a step onto a gone channel is stale', popAction({ channelId: 'x', index: 1, depth: 0 }, 'c1', false, -1, 0) === 'stale');
+  check('a step onto the open channel is skipped', popAction({ channelId: 'c1', index: 1, depth: 0 }, 'c1', true, -1, 0) === 'skip');
+  check('a step onto another channel opens it', popAction({ channelId: 'c2', index: 1, depth: 0 }, 'c1', true, -1, 0) === 'open');
   check('a lower position is a step back', stepDirection(3, 2) === -1);
   check('a higher position is a step forward', stepDirection(2, 3) === 1);
   check('mouse button 3 is back and 4 is forward', mouseButtonStep(3) === -1 && mouseButtonStep(4) === 1);
@@ -1917,70 +2054,7 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('but never back past the first of them', !mayCarryOn(-1, 0));
   check('a forward step may carry on', mayCarryOn(1, 0));
 
-  // A session history and an app wired the way ChannelHistory wires them, to
-  // check whole sequences rather than single decisions. The tab came from
-  // another page, so stepping back past the app's first entry leaves it.
-  const foreign = { foreign: true };
-  function session(channelIds) {
-    const known = new Set(channelIds);
-    const entries = [foreign];
-    let at = 0;
-    let active = null;
-    let index = 0;
-    let left = false;
-    const record = () => {
-      const current = readEntry(entries[at] ?? null);
-      const plan = planVisit(current, active, current !== null && known.has(current.channelId), index);
-      if (!plan) return;
-      index = plan.entry.index;
-      if (plan.op === 'push') {
-        entries.splice(at + 1, entries.length, writeEntry(null, plan.entry));
-        at += 1;
-      } else {
-        entries[at] = writeEntry(entries[at] ?? null, plan.entry);
-      }
-    };
-    const open = (channelId) => {
-      active = channelId;
-      record();
-    };
-    const go = (step) => {
-      const target = at + step;
-      if (target < 0 || target >= entries.length) return;
-      at = target;
-      if (entries[at] === foreign) {
-        left = true;
-        return;
-      }
-      const popped = readEntry(entries[at]);
-      const direction = stepDirection(index, popped.index);
-      index = popped.index;
-      const action = popAction(popped, active, known.has(popped.channelId));
-      if (action === 'stale') entries[at] = writeEntry(entries[at], { channelId: active, index: popped.index });
-      if (action === 'open') open(popped.channelId);
-      else if (mayCarryOn(direction, popped.index)) go(direction);
-    };
-    // The page loads on an entry the browser made, with no state of ours yet.
-    entries.push(null);
-    at = 1;
-    return {
-      open,
-      go,
-      remove: (channelId) => known.delete(channelId),
-      get active() {
-        return active;
-      },
-      get left() {
-        return left;
-      },
-      /** How many entries are the app's, not counting the page it came from. */
-      get length() {
-        return entries.length - 1;
-      },
-    };
-  }
-
-  const walk = session(['a', 'b', 'c']);
+  const walk = historySession(['a', 'b', 'c']);
   walk.open('a');
   walk.open('b');
   walk.open('c');
@@ -1998,7 +2072,7 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   walk.go(-1);
   check('and back is the channel left', walk.active === 'b');
 
-  const gone = session(['a', 'b', 'c']);
+  const gone = historySession(['a', 'b', 'c']);
   gone.open('a');
   gone.open('b');
   gone.open('c');
@@ -2008,14 +2082,14 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   gone.go(1);
   check('and forward skips over it too', gone.active === 'c');
 
-  const stuck = session(['a', 'b']);
+  const stuck = historySession(['a', 'b']);
   stuck.open('a');
   stuck.open('b');
   stuck.remove('a');
   stuck.go(-1);
   check('back with only gone channels behind stays in the app', stuck.active === 'b' && !stuck.left);
 
-  const loop = session(['a', 'x']);
+  const loop = historySession(['a', 'x']);
   loop.open('a');
   loop.open('x');
   loop.open('a');
@@ -2568,6 +2642,221 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   order.cancel();
   check('an answer still out when the store was emptied is turned away', !order.accept(pending));
   check('a request sent afterwards is applied', order.accept(order.begin()));
+}
+
+// --- Channel history: back closes what is open over the chat first ---
+{
+  const marker = { channelId: 'c1', index: 3, depth: 2 };
+  check('a marker round-trips through history state', JSON.stringify(readEntry(writeEntry(null, marker))) === JSON.stringify(marker));
+  check(
+    'an entry written before markers existed reads as a channel entry',
+    readEntry({ harmonyChannel: { channelId: 'c1', index: 2 } })?.depth === 0,
+  );
+  check('a negative depth is refused', readEntry({ harmonyChannel: { channelId: 'c1', index: 2, depth: -1 } }) === null);
+  check('a fractional depth is refused', readEntry({ harmonyChannel: { channelId: 'c1', index: 2, depth: 0.5 } }) === null);
+
+  const onChannel = { channelId: 'c1', index: 4, depth: 0 };
+  const onMarker = { channelId: 'c1', index: 5, depth: 1 };
+  check(
+    'something that opened by itself gets no marker, so Chrome cannot skip the channel under it',
+    planOverlay(onChannel, 'c1', 1, false) === null,
+  );
+  check('something opened with a click or a key does', planOverlay(onChannel, 'c1', 1, true) !== null);
+  const pushed = planOverlay(onChannel, 'c1', 1);
+  check(
+    'opening something pushes a marker for the open channel after the current entry',
+    pushed?.channelId === 'c1' && pushed.index === 5 && pushed.depth === 1,
+  );
+  check('nothing open pushes nothing', planOverlay(onChannel, 'c1', 0) === null);
+  check('a marker that already covers what is open is reused', planOverlay(onMarker, 'c1', 1) === null);
+  check('one more layer over a marker pushes another', planOverlay(onMarker, 'c1', 2)?.depth === 2);
+  check('a marker for another channel is not reused', planOverlay(onMarker, 'c2', 1)?.channelId === 'c2');
+  check('no entry of ours yet pushes nothing', planOverlay(null, 'c1', 1) === null);
+  check('no open channel pushes nothing', planOverlay(onChannel, null, 1) === null);
+  check(
+    'a replaced marker stays a marker',
+    planVisit({ channelId: 'gone', index: 5, depth: 1 }, 'c2', false, 0)?.entry.depth === 1,
+  );
+
+  check('a marker whose layers were closed is stepped off', stepsOffMarker(onMarker, 'c1', 0));
+  check('a marker with its layer still open is kept', !stepsOffMarker(onMarker, 'c1', 1));
+  check("a channel's own entry is never stepped off", !stepsOffMarker(onChannel, 'c1', 0));
+  check('a marker naming another channel is left alone', !stepsOffMarker(onMarker, 'c2', 0));
+
+  check('back with something open closes it', popAction(onChannel, 'c1', true, -1, 1) === 'close');
+  check('even onto an entry for another channel', popAction({ channelId: 'c2', index: 3, depth: 0 }, 'c1', true, -1, 1) === 'close');
+  check('back onto a marker closes only what is above it', popAction(onMarker, 'c1', true, -1, 2) === 'close');
+  check('back with only what the marker stands for open passes it by', popAction(onMarker, 'c1', true, -1, 1) === 'skip');
+  check('forward never closes', popAction({ channelId: 'c2', index: 6, depth: 0 }, 'c1', true, 1, 1) === 'open');
+  check(
+    'a marker is passed over even when it names another channel',
+    popAction({ channelId: 'c2', index: 5, depth: 1 }, 'c1', true, -1, 0) === 'skip',
+  );
+  check('a step from a marker over the open channel may leave the app', mayCarryOn(-1, 0, onMarker, 'c1'));
+  check('but not from a marker over a channel since left', !mayCarryOn(-1, 0, onMarker, 'c2'));
+  check("nor from a channel's own entry", !mayCarryOn(-1, 0, onChannel, 'c1'));
+
+  const panel = historySession(['a', 'b']);
+  panel.open('a');
+  panel.open('b');
+  panel.show();
+  panel.go(-1);
+  check('back with a panel open closes it and stays in the channel', panel.active === 'b' && panel.depth === 0);
+  panel.go(-1);
+  check('and the next back changes channel', panel.active === 'a');
+
+  const dismissed = historySession(['a', 'b']);
+  dismissed.open('a');
+  dismissed.open('b');
+  dismissed.show();
+  dismissed.dismiss();
+  dismissed.go(-1);
+  check('one back after closing a panel through its own controls goes to the channel before', dismissed.active === 'a');
+
+  const often = historySession(['a', 'b']);
+  often.open('a');
+  often.open('b');
+  for (let round = 0; round < 5; round++) {
+    often.show();
+    often.dismiss();
+  }
+  check('opening and closing over and over leaves one marker at most', often.length === 3);
+  often.go(-1);
+  check('so back still goes to the channel before in one press', often.active === 'a');
+
+  const jumped = historySession(['a', 'b']);
+  jumped.open('a');
+  jumped.show();
+  jumped.jump('b');
+  jumped.go(-1);
+  check('back from a channel opened inside a panel returns to the one it was opened from', jumped.active === 'a');
+  jumped.go(-1);
+  check('and back from there leaves the app, as from any first channel', jumped.left);
+
+  const drawer = historySession(['a', 'b']);
+  drawer.open('a');
+  drawer.show();
+  drawer.jump('b');
+  drawer.show();
+  drawer.go(-1);
+  check('on a phone, back closes the drawer first', drawer.active === 'b' && drawer.depth === 0);
+  drawer.go(-1);
+  check('then returns to the channel the drawer was used to leave', drawer.active === 'a');
+  drawer.go(-1);
+  check('then leaves the app', drawer.left);
+
+  const stacked = historySession(['a', 'b']);
+  stacked.open('a');
+  stacked.open('b');
+  stacked.show();
+  stacked.show();
+  stacked.go(-1);
+  check('back from a picture opened in the gallery closes only the picture', stacked.depth === 1 && stacked.active === 'b');
+  stacked.go(-1);
+  check('the next back closes the gallery', stacked.depth === 0 && stacked.active === 'b');
+  stacked.go(-1);
+  check('and the one after changes channel', stacked.active === 'a');
+
+  const inner = historySession(['a', 'b']);
+  inner.open('a');
+  inner.open('b');
+  inner.show();
+  inner.show();
+  inner.dismiss();
+  inner.go(-1);
+  check('with the picture closed by hand, one back closes the gallery', inner.depth === 0 && inner.active === 'b');
+
+  const reloaded = historySession(['a', 'b']);
+  reloaded.open('a');
+  reloaded.open('b');
+  reloaded.show();
+  reloaded.reload();
+  check('a reload with a panel open reopens the channel and nothing over it', reloaded.active === 'b' && reloaded.depth === 0);
+  reloaded.go(-1);
+  check('and one back then goes to the channel before', reloaded.active === 'a');
+
+  const firstReload = historySession(['a']);
+  firstReload.open('a');
+  firstReload.show();
+  firstReload.reload();
+  firstReload.go(-1);
+  check('a reload over the first channel still lets one back leave the app', firstReload.left);
+
+  const firstClosed = historySession(['a']);
+  firstClosed.open('a');
+  firstClosed.show();
+  firstClosed.dismiss();
+  firstClosed.go(-1);
+  check('closing a panel over the first channel by hand still lets one back leave the app', firstClosed.left);
+
+  const app = historySession(['a'], { installed: true });
+  app.open('a');
+  app.show();
+  app.go(-1);
+  check('in the installed app, back on the first channel closes the drawer and not the app', !app.closed && app.depth === 0);
+  app.go(-1);
+  check('and the next back closes the app', app.closed);
+
+  const appDismissed = historySession(['a'], { installed: true });
+  appDismissed.open('a');
+  appDismissed.show();
+  appDismissed.dismiss();
+  appDismissed.go(-1);
+  check('with the drawer closed by hand, one back closes the installed app', appDismissed.closed);
+
+  const appReloaded = historySession(['a'], { installed: true });
+  appReloaded.open('a');
+  appReloaded.show();
+  appReloaded.reload();
+  appReloaded.go(-1);
+  check('and so does one back after a reload with the drawer open', appReloaded.closed);
+
+  const forward = historySession(['a', 'b']);
+  forward.open('a');
+  forward.open('b');
+  forward.show();
+  forward.go(-1);
+  forward.go(1);
+  check('forward never reopens what back closed', forward.depth === 0 && forward.active === 'b');
+  forward.go(-1);
+  check('and back from there is the channel before', forward.active === 'a');
+
+  const rested = historySession(['a']);
+  rested.open('a');
+  rested.show();
+  rested.dismiss();
+  rested.go(1);
+  rested.go(-1);
+  check('back from a marker forward came to rest on still leaves from the first channel', rested.left);
+
+  const ahead = historySession(['a', 'b']);
+  ahead.open('a');
+  ahead.open('b');
+  ahead.go(-1);
+  ahead.show();
+  ahead.go(-1);
+  ahead.go(1);
+  check('opening something after going back drops the channels ahead, as opening a channel does', ahead.active === 'a');
+
+  // Chrome's back button passes over an entry whose next entry was pushed
+  // without a click, which a marker for the setup wizard opening on load is.
+  const skipped = historySession(['a', 'b']);
+  skipped.open('a');
+  skipped.open('b');
+  skipped.show();
+  skipped.go(-2);
+  check('a back that skipped past the open channel only closes', skipped.active === 'b' && skipped.depth === 0);
+  check('and writes the open channel back in after the entry it landed on', skipped.length === 2);
+  skipped.go(-1);
+  check('so the next back is still the channel before', skipped.active === 'a');
+
+  const goneUnder = historySession(['x', 'b']);
+  goneUnder.open('x');
+  goneUnder.show();
+  goneUnder.jump('b');
+  goneUnder.remove('x');
+  goneUnder.go(-1);
+  check('back past a marker onto a gone first channel stays in the app', goneUnder.active === 'b' && !goneUnder.left);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

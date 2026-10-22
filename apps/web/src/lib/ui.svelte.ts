@@ -1,6 +1,9 @@
 import { MediaQuery } from 'svelte/reactivity';
 import type { Channel, User } from '@harmony/shared';
 import type { AdminTabId } from './admin';
+import { lightbox } from './lightbox.svelte';
+import { modalLayers } from './modal-layers.svelte';
+import { shortcuts } from './shortcuts.svelte';
 
 /**
  * The narrow layout, where the channel and member lists become drawers. The
@@ -58,6 +61,8 @@ class UiState {
   get membersShown(): boolean {
     return this.narrow ? this.rosterOpen : !this.membersHidden;
   }
+  /** The owner's first-run setup wizard, which App opens while setup is not done. */
+  setupOpen = $state(false);
 
   openAbout(): void {
     this.closeDrawers();
@@ -226,10 +231,78 @@ class UiState {
     this.rosterOpen = false;
   }
 
-  /** Closes every drawer and panel, for a step back or forward that changes the channel under them. */
+  /**
+   * Leaves the setup wizard for now. It is not marked done, so it greets the
+   * owner again next time; only its own last step and "Skip setup" finish it.
+   */
+  closeSetup(): void {
+    this.setupOpen = false;
+  }
+
+  /**
+   * Closes every drawer and panel, and the setup wizard, for a jump or a step
+   * that changes the channel under them.
+   */
   closeAll(): void {
     this.closeDrawers();
     this.#closePanels();
+    this.setupOpen = false;
+  }
+
+  /**
+   * How many layers are open over the chat: the drawers, panels and setup
+   * wizard count as one, the quick switcher or shortcut help as another, the
+   * dialogs that register themselves (edit history, "What's new") as a third,
+   * and the lightbox as a fourth. This is the one place that answers "is anything
+   * open over the chat", which is what decides whether back closes something
+   * or changes channel. A choice of layout, such as hiding the member list on
+   * a wide screen, is not something open over the chat and does not count.
+   */
+  get overlayDepth(): number {
+    return this.#overlays().filter((layer) => layer.open).length;
+  }
+
+  /**
+   * Closes what is open over the chat from the top down until no more than
+   * `depth` layers are left, so a step back from a picture opened in the gallery
+   * closes the picture and leaves the gallery, as Escape does. Zero closes all.
+   */
+  closeOverlaysAbove(depth: number): void {
+    const open = this.#overlays().filter((layer) => layer.open);
+    for (const layer of open.slice(0, Math.max(0, open.length - depth))) layer.close();
+  }
+
+  /**
+   * The layers, topmost first, in the order they stack on screen: the
+   * lightbox is drawn over everything, and the keyboard dialogs over the panels.
+   * Only one panel or drawer is ever open, so together they are one layer.
+   */
+  #overlays(): { open: boolean; close: () => void }[] {
+    return [
+      { open: lightbox.url !== null, close: () => lightbox.close() },
+      { open: modalLayers.count > 0, close: () => modalLayers.closeAll() },
+      { open: shortcuts.panel !== null, close: () => void shortcuts.close() },
+      { open: this.#ownOpen(), close: () => this.closeAll() },
+    ];
+  }
+
+  #ownOpen(): boolean {
+    return (
+      this.sidebarOpen ||
+      this.rosterOpen ||
+      this.setupOpen ||
+      this.aboutOpen ||
+      this.adminOpen ||
+      this.profileOpen ||
+      this.searchOpen ||
+      this.inboxOpen ||
+      this.pinsOpen ||
+      this.savedOpen ||
+      this.scheduledOpen ||
+      this.eventsOpen ||
+      this.gallery !== null ||
+      this.profileViewerUser !== null
+    );
   }
 }
 

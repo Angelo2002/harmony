@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { changelog } from '../lib/changelog.svelte';
+  import { modalLayers } from '../lib/modal-layers.svelte';
   import { formatChangelogDate } from '../lib/changelog';
   import { session } from '../lib/session.svelte';
   import { trapFocus } from '../lib/shortcuts.svelte';
@@ -30,6 +31,11 @@
   });
 
   onMount(() => () => changelog.reset());
+
+  // Counted as open over the chat while it is, so back closes it like any other dialog.
+  $effect(() => {
+    if (changelog.shown !== null) return untrack(() => modalLayers.add(() => void changelog.close()));
+  });
 
   function onKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {

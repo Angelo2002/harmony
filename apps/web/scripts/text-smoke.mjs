@@ -1,20 +1,25 @@
-// Focused checks for the client's pure logic: parsing message text into markdown,
-// links, emoji and mentions, the merge that catches up after being away, deciding
-// whether a message is aimed at you, what the emoji picker offers and finds, and
-// the quick switcher's matching, the channel arrows, the unread tab title and
-// how mutes change it, how a channel inherits its category's settings, where
-// the "new" line and the new-messages bar land, and reading the time
-// expressions the composer turns into timestamps, the channel and message a
-// launch link (a notification tap or a deep link) names, going back and forward
-// between the channels opened, the native voice host bridge (its off flag, the
-// join/leave hand-off, and the call state it pushes back), and the clamp, stored
-// map, deafen-over-volume rule and two-stage element/graph split behind the
-// per-member voice-volume control, the changelog and when the "What's new"
-// dialog shows it, and which key presses the app-wide keyboard layer takes and
-// which it leaves alone, and the formatting keys and the Up arrow of the
-// message box, and the loader behind the panels fetched on first use, and how a
-// burst of member and role events becomes one reload, and the numbering that
-// keeps an older answer from undoing a newer one.
+// Focused checks for the client's pure logic, the modules under apps/web/src/lib
+// that touch no DOM and hold no state, so Node can import them straight:
+//
+// - message text: markdown, links, emoji, mentions and timestamps, and whether a
+//   message is aimed at you;
+// - reading a channel: catching up after being away, where the "new" line and
+//   the new-messages bar land, jumping to any message and reading on from it,
+//   marking unread, the dates beside messages and the lines between days;
+// - finding things: the emoji picker, the quick switcher, the channel arrows,
+//   the unread tab title and how mutes and category settings change it;
+// - the composer: the time expressions it turns into timestamps, its
+//   formatting keys and the Up arrow that edits your last message;
+// - getting around: launch links (a notification tap or a deep link), going
+//   back and forward between channels, and which keys the app-wide keyboard
+//   layer takes and which it leaves alone;
+// - what's new: the changelog and when its dialog shows;
+// - loading: the panels fetched on first use, one reload for a burst of member
+//   and role events, and the numbering that keeps an older answer from undoing a
+//   newer one;
+// - voice: the native host bridge (its off flag, the join and leave hand-off and
+//   the call state it pushes back) and the per-member volume control (the clamp,
+//   the stored map, deafen over volume, and the element and graph stages).
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';

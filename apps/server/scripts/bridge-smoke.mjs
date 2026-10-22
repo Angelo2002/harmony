@@ -1385,28 +1385,25 @@ try {
   // it finishes unfurling the link, often while we are still downloading the
   // gif, and each of those used to store a copy of its own.
   settings.update({ embedsEnabled: true });
+  // The resolver downloads through the SSRF-guarded fetch, which never touches
+  // the global one, so the stand-in host is handed to it directly.
+  let gifFetches = 0;
   const embeds = createEmbedService({
     sqlite: db.sqlite,
     settings,
     hub,
     attachments,
     renderMessage: (id) => messages.byId(id),
+    fetch: async () => {
+      gifFetches++;
+      await sleep(150);
+      return new Response(png, { headers: { 'content-type': 'image/png' } });
+    },
   });
   const gifUrl = 'https://93.184.216.34/funny.png';
   const gifMessage = messages.createBridged(channelId, userId, gifUrl, [], null, { silent: true });
-  const realFetch = globalThis.fetch;
-  let gifFetches = 0;
-  globalThis.fetch = async () => {
-    gifFetches++;
-    await sleep(150);
-    return new Response(png, { headers: { 'content-type': 'image/png' } });
-  };
-  try {
-    for (let i = 0; i < 3; i++) embeds.resolve(gifMessage.id, gifUrl);
-    await sleep(800);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
+  for (let i = 0; i < 3; i++) embeds.resolve(gifMessage.id, gifUrl);
+  await sleep(800);
   check(
     'a link resolved three times at once is kept once',
     listLinkedAttachments(db.sqlite, gifMessage.id).length === 1,

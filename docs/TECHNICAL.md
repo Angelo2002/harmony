@@ -775,6 +775,24 @@ messages that arrived while nobody was looking stayed marked, which is what make
 something. Posting marks a channel read on the server side, since whatever else was waiting there has
 plainly been seen by whoever just wrote in it.
 
+Reading only ever moves the marker forward (`markChannelRead` takes the later of the two times), so a
+read that lands late cannot undo one that came before it. The one exception is **marking unread from a
+message**, Discord's Alt+click: `POST /channels/:id/unread` sets the marker (`setChannelReadMarker`) to
+one millisecond before the message, so that message and everything after it are unread and its
+mentions and replies count again. Nothing else changes, so the member's own messages still never count:
+marked from their own last message, the channel stays read. The answer is worked out by the same
+queries as the channel list (unread, mention count, marker), and `chat.markUnreadFrom` takes it as is.
+
+On the client that would last about a second, since everything that reads the open channel would read
+it straight back. So a channel marked unread while it is open is **held**: every automatic read of the
+open channel (a message arriving in a visible tab, the tab coming back into view, a channel-list
+refresh and the reconnect catch-up that runs one, the leap to the present or reading down to it) goes
+through `#markRead` or `#queueRead`, and both skip the held channel, as does the client's own copy of
+the marker. While held, a new message there counts as unread and a mention adds to its number, just as
+in a channel nobody is looking at. The hold ends when the member leaves the channel (it stays unread
+behind them) or opens it afresh, marks it read themselves (the bar's Mark as read, or the sidebar's),
+or posts in it, which reads it on the server anyway. A jump within the channel keeps it.
+
 ## Mentions and the inbox
 
 A message that names someone with `@username` or replies to them is recorded for that member in a

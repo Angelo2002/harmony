@@ -6241,6 +6241,149 @@ try {
     await req(`/channels/${aroundRoom}`, { method: 'DELETE', token: ownerToken });
   }
 
+  // --- Marking a channel unread from a message ---
+  // The read marker moves back to just before the message, and the answer is
+  // exactly what the channel list says afterwards.
+  {
+    const unreadRoom = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'unreadroom' } }))
+      .json.id;
+    const otherRoom = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'unreadother' } }))
+      .json.id;
+    const m0 = (await postIn(unreadRoom, ownerToken, { content: 'first' })).json;
+    const m1 = (await postIn(unreadRoom, ownerToken, { content: '@bob early mention' })).json;
+    const m2 = (await postIn(unreadRoom, ownerToken, { content: 'nothing for bob' })).json;
+    const m3 = (await postIn(unreadRoom, bobToken, { content: "bob's own" })).json;
+    const m4 = (await postIn(unreadRoom, ownerToken, { content: '@bob later mention' })).json;
+    const m5 = (await postIn(unreadRoom, ownerToken, { content: 'a reply to bob', replyToId: m3.id })).json;
+    const m6 = (await postIn(unreadRoom, ownerToken, { content: 'the end' })).json;
+    const elsewhere = (await postIn(otherRoom, ownerToken, { content: 'not in unreadroom' })).json;
+    await req(`/channels/${unreadRoom}/read`, { method: 'POST', token: bobToken });
+
+    const markUnread = (messageId, token = bobToken, channelId = unreadRoom) =>
+      req(`/channels/${channelId}/unread`, { method: 'POST', token, body: { messageId } });
+    const listOf = async (token = bobToken) => (await channelsFor(token)).json;
+    const before = (message) => new Date(Date.parse(message.createdAt) - 1).toISOString();
+    /** Whether a mark-unread answer is what the channel list now says. */
+    const agrees = (answer, list) =>
+      answer.readAt === list.readMarkers[unreadRoom] &&
+      answer.unread === list.unreadChannelIds.includes(unreadRoom) &&
+      answer.mentionCount === (list.mentionCounts[unreadRoom] ?? 0);
+
+    check('the channel starts read for bob', !(await listOf()).unreadChannelIds.includes(unreadRoom));
+    const fromM2 = await markUnread(m2.id);
+    check(
+      'marking unread from a message moves the marker to just before it',
+      fromM2.status === 200 && fromM2.json?.channelId === unreadRoom && fromM2.json?.readAt === before(m2),
+      JSON.stringify(fromM2.json),
+    );
+    check(
+      'the channel is unread, counting the mention and the reply from that message on',
+      fromM2.json?.unread === true && fromM2.json?.mentionCount === 2,
+      JSON.stringify(fromM2.json),
+    );
+    let list = await listOf();
+    check('and the channel list says the same', agrees(fromM2.json, list), JSON.stringify(list.readMarkers));
+    check(
+      'the inbox agrees about which mentions are unread',
+      (await inboxFor(bobToken)).json.mentions
+        .filter((entry) => entry.message.channelId === unreadRoom)
+        .every((entry) => entry.unread === (entry.message.id !== m1.id)),
+    );
+
+    const fromM1 = await markUnread(m1.id);
+    check('marking further back counts the earlier mention too', fromM1.json?.mentionCount === 3);
+    check('and the list agrees', agrees(fromM1.json, await listOf()));
+
+    const fromM6 = await markUnread(m6.id);
+    check(
+      'marking unread from a later message moves the marker forward',
+      fromM6.json?.readAt === before(m6) && fromM6.json?.unread === true && fromM6.json?.mentionCount === 0,
+      JSON.stringify(fromM6.json),
+    );
+    check('and the list agrees', agrees(fromM6.json, await listOf()));
+
+    // Bob's own messages never count as unread for him.
+    const fromOwn = await markUnread(m3.id);
+    check(
+      'marking unread from your own message counts what others wrote after it',
+      fromOwn.json?.unread === true && fromOwn.json?.mentionCount === 2,
+      JSON.stringify(fromOwn.json),
+    );
+    const m7 = (await postIn(unreadRoom, bobToken, { content: "bob's last word" })).json;
+    const fromOwnLast = await markUnread(m7.id);
+    check(
+      'marking unread from your own last message leaves the channel read',
+      fromOwnLast.status === 200 && fromOwnLast.json?.unread === false && fromOwnLast.json?.mentionCount === 0,
+      JSON.stringify(fromOwnLast.json),
+    );
+    list = await listOf();
+    check('and the list agrees, marker and all', agrees(fromOwnLast.json, list) && list.readMarkers[unreadRoom] === before(m7));
+    check('it is the caller alone whose marker moved', (await listOf(ownerToken)).readMarkers[unreadRoom] !== before(m7));
+
+    await markUnread(m4.id);
+    await req(`/channels/${unreadRoom}/read`, { method: 'POST', token: bobToken });
+    list = await listOf();
+    check(
+      'reading the channel afterwards reads it again',
+      !list.unreadChannelIds.includes(unreadRoom) && list.mentionCounts[unreadRoom] === undefined,
+    );
+    await markUnread(m4.id);
+    await postIn(unreadRoom, bobToken, { content: 'bob writes back' });
+    check('and so does posting in it', !(await listOf()).unreadChannelIds.includes(unreadRoom));
+
+    // Refusals.
+    const unknown = await markUnread('no-such-message');
+    const foreign = await markUnread(elsewhere.id);
+    check('an unknown message is 404', unknown.status === 404 && unknown.json?.error?.code === 'message_not_found');
+    check(
+      "another channel's message is the same 404",
+      foreign.status === 404 &&
+        foreign.json?.error?.code === 'message_not_found' &&
+        foreign.json?.error?.message === unknown.json?.error?.message,
+    );
+    await req(`/messages/${m0.id}`, { method: 'DELETE', token: ownerToken });
+    check('a deleted message is the same 404', (await markUnread(m0.id)).status === 404);
+    check(
+      'a channel that does not exist is 404',
+      (await markUnread(m2.id, bobToken, 'no-such-channel')).json?.error?.code === 'channel_not_found',
+    );
+    check(
+      'a missing message id is refused (400)',
+      (await req(`/channels/${unreadRoom}/unread`, { method: 'POST', token: bobToken, body: {} })).status === 400,
+    );
+    check(
+      'marking unread needs a session (401)',
+      (await req(`/channels/${unreadRoom}/unread`, { method: 'POST', body: { messageId: m2.id } })).status === 401,
+    );
+
+    const unreadRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Unread' } });
+    const unreadLocked = (
+      await req('/channels', {
+        method: 'POST',
+        token: ownerToken,
+        body: { name: 'unreadlocked', requiredRoleId: unreadRole.json.id },
+      })
+    ).json.id;
+    const lockedMessage = (await postIn(unreadLocked, ownerToken, { content: '@bob behind the lock' })).json;
+    check(
+      'a locked channel is refused as marking it read is (403)',
+      (await markUnread(lockedMessage.id, bobToken, unreadLocked)).json?.error?.code === 'channel_forbidden',
+    );
+    check(
+      'and says nothing about whether the message exists',
+      (await markUnread('no-such-message', bobToken, unreadLocked)).status === 403,
+    );
+    check(
+      'and leaves no read marker behind',
+      (await listOf()).readMarkers[unreadLocked] === undefined,
+    );
+
+    await req(`/channels/${unreadLocked}`, { method: 'DELETE', token: ownerToken });
+    await req(`/roles/${unreadRole.json.id}`, { method: 'DELETE', token: ownerToken });
+    await req(`/channels/${otherRoom}`, { method: 'DELETE', token: ownerToken });
+    await req(`/channels/${unreadRoom}`, { method: 'DELETE', token: ownerToken });
+  }
+
   // --- Mute and notification settings ---
   {
     const settingsOf = async (token) => (await req('/users/@me/channel-settings', { token })).json?.settings ?? [];

@@ -97,7 +97,14 @@ import {
   scheduledBadge,
   upsertScheduled,
 } from '../src/lib/schedule-time.ts';
-import { firstUnreadIndex, muteLabel, newMessageCount, newMessagesLabel, pillCount } from '../src/lib/unread.ts';
+import {
+  firstUnreadIndex,
+  muteLabel,
+  newMessageCount,
+  newMessagesLabel,
+  pillCount,
+  withChannelReadState,
+} from '../src/lib/unread.ts';
 import { groupedRows, isGrouped } from '../src/lib/message-grouping.ts';
 import { detectTrigger, rankMember, suggestionsFor } from '../src/lib/composer-suggest.ts';
 import {
@@ -2253,6 +2260,44 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   const odd = parseLaunchParams(new URL(messageLink('http://127.0.0.1:8787', 'a&b=c', 'd e/é?#')).search);
   check('ids are encoded so any id reads back unchanged', odd.channelId === 'a&b=c' && odd.messageId === 'd e/é?#');
   check('the strip after handling leaves nothing of a message link', withoutLaunchParams(new URL(link).search) === '');
+}
+
+// --- Marking a channel unread from a message ---
+{
+  const me = 'me';
+  const at = (minute) => `2026-01-01T12:${String(minute).padStart(2, '0')}:00.000Z`;
+  // The server puts the marker a millisecond before the message it is marked from.
+  const markerBefore = (minute) => new Date(Date.parse(at(minute)) - 1).toISOString();
+  const msg = (id, minute, author = 'them') => ({ id, createdAt: at(minute), author: { id: author } });
+  const list = [msg('a', 1), msg('b', 2), msg('c', 3, me), msg('d', 4), msg('e', 5)];
+
+  check('marked unread from a message, the line goes above it', firstUnreadIndex(list, markerBefore(2), me, false) === 1);
+  check('and the bar counts it and everything after', newMessageCount(list, markerBefore(2), me, false).count === 3);
+  check(
+    'marked unread from your own message, the line goes above the next one by someone else',
+    firstUnreadIndex(list, markerBefore(3), me, false) === 3,
+  );
+  check(
+    'marked from your own last message, there is no line',
+    firstUnreadIndex([msg('a', 1), msg('b', 2, me)], markerBefore(2), me, false) === -1,
+  );
+  check(
+    'marked from the oldest message loaded, the line waits for older history unless there is none',
+    firstUnreadIndex(list, markerBefore(1), me, false) === -1 && firstUnreadIndex(list, markerBefore(1), me, true) === 0,
+  );
+
+  const after = withChannelReadState(['x'], { x: 1 }, { channelId: 'c', unread: true, mentionCount: 2 });
+  check('the channel joins the unread list', after.unreadChannelIds.join(',') === 'x,c');
+  check('with its mention count', after.mentionCounts.c === 2 && after.mentionCounts.x === 1);
+  const again = withChannelReadState(['c', 'x'], { c: 5 }, { channelId: 'c', unread: true, mentionCount: 1 });
+  check('a channel already listed is not listed twice', again.unreadChannelIds.join(',') === 'c,x' && again.mentionCounts.c === 1);
+  const read = withChannelReadState(['c', 'x'], { c: 5, x: 1 }, { channelId: 'c', unread: false, mentionCount: 0 });
+  check('a channel left read drops off the list', read.unreadChannelIds.join(',') === 'x');
+  check('and its count goes rather than reading zero', !('c' in read.mentionCounts) && read.mentionCounts.x === 1);
+  const input = ['x'];
+  const counts = { x: 1 };
+  withChannelReadState(input, counts, { channelId: 'c', unread: true, mentionCount: 3 });
+  check('the lists it was given are left alone', input.length === 1 && !('c' in counts));
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

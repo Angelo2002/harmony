@@ -699,8 +699,9 @@ and neither do the caller's own messages: a channel whose only new message was d
 again.
 
 `readMarkers` gives, for each listed channel the caller has ever read, the timestamp of the newest
-message they had seen. A client compares it with message timestamps to draw a "new" line above the
-first message after it when the channel is opened. Channels never read are absent.
+message they had seen, or the moment just before the message they marked it unread from. A client
+compares it with message timestamps to draw a "new" line above the first message after it when the
+channel is opened. Channels never read are absent.
 
 Mutes and notification levels do not change any of these lists, which describe what is unread, not
 what is worth a notification; see [Channel notification settings](#channel-notification-settings).
@@ -711,6 +712,34 @@ Records that the caller has read a channel, up to its newest message rather than
 so a message arriving in the same moment still counts as new. Returns `204`. Posting a message marks
 its channel read by itself, and a channel with no messages is never unread. `403 channel_forbidden`
 for a locked channel, `404` for one that does not exist.
+
+#### `POST /api/v1/channels/:id/unread` — `ViewChannels`
+
+```json
+{ "messageId": "..." }
+```
+
+Marks a channel unread from one of its messages, as Discord's Alt+click does: the caller's read
+marker is set to one millisecond before that message, back or forward from wherever it was, so the
+channel is unread from the message on and everything before it counts as read. Reading only ever
+moves the marker forward, so this is the one way to move it back. Returns `200` with the caller's read
+state for the channel afterwards, worked out by the same queries as `GET /channels`, so a client can
+apply it without refetching the list:
+
+```json
+{ "channelId": "...", "readAt": "2026-01-01T11:59:59.999Z", "unread": true, "mentionCount": 2 }
+```
+
+`readAt` is what `readMarkers` now holds for the channel. `unread` is whether it is in
+`unreadChannelIds`: the caller's own messages never count, so marking unread from their own last
+message leaves the channel read. `mentionCount` is its `mentionCounts` entry (0 when it has none):
+the mentions and replies aimed at the caller from that message on. The marker is a timestamp, so a
+message sharing the chosen message's millisecond counts as unread too, even one just before it. The
+change is the caller's alone and is not broadcast; their other devices pick it up at their next
+channel-list refresh, and opening the channel, posting in it or `POST /read` marks it read again.
+`403 channel_forbidden` for a locked channel, `404 channel_not_found` for one that does not exist, and
+`404 message_not_found` for a message that does not exist, has been deleted or is in another channel,
+the same answer in all three cases.
 
 #### `POST /api/v1/channels` — `ManageChannels`
 

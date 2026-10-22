@@ -209,6 +209,12 @@ export function historyAroundSplit(limit: number): { before: number; after: numb
   return { before, after: Math.max(0, limit - before - 1) };
 }
 
+/** Marking a channel unread from one of its messages, as Discord's Alt+click does. */
+export const markUnreadSchema = z.object({
+  messageId: z.string().min(1),
+});
+export type MarkUnreadInput = z.infer<typeof markUnreadSchema>;
+
 /** The audit log pages the same way, newest first. */
 export const auditQuerySchema = cursorQuerySchema;
 export type AuditQuery = z.infer<typeof auditQuerySchema>;

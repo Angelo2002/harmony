@@ -3,6 +3,7 @@ import type {
   Channel,
   ChannelListResponse,
   ChannelNotificationSettings,
+  ChannelUnreadResponse,
   MeResponse,
   Message,
   Poll,
@@ -33,6 +34,7 @@ import { drafts } from './drafts.svelte';
 import { playSound } from './sounds';
 import { gateway, type GatewayFrame } from './gateway';
 import { appendNewer, windowAround } from './history-window';
+import { withChannelReadState } from './unread';
 import type { LaunchTarget } from './launch-params';
 
 /** How many messages one history page holds, for both directions. */
@@ -178,6 +180,19 @@ class ChatStore {
   /** Channels whose read marker is waiting to be sent. */
   #readPending = new Set<string>();
   #readTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Read markers on their way to the server, by channel, so marking unread can wait them out. */
+  #readsInFlight = new Map<string, Promise<void>>();
+  /**
+   * The open channel the member marked unread from a message, which stays
+   * unread while they remain in it. Every path that reads the open channel by
+   * itself (a message arriving while the tab is visible, the tab coming back
+   * into view, a channel list refresh, catching up after a reconnect, the leap
+   * to the present) passes through `#markRead` or `#queueRead`, and both leave
+   * it alone. It is let go when the member leaves the channel or opens it
+   * afresh, marks it read themselves, or posts in it, which reads it on the
+   * server anyway.
+   */
+  #unreadHold: string | null = null;
   /** Guards the channel-list refresh that a denied channel triggers. */
   #healing = false;
   /**
@@ -289,6 +304,7 @@ class ChatStore {
     this.unreadChannelIds = [];
     this.mentionCounts = {};
     this.newSince = null;
+    this.#unreadHold = null;
     this.#readMarkers.clear();
     this.#latestSeen.clear();
     this.#liveMentions.clear();
@@ -468,7 +484,8 @@ class ChatStore {
       await this.selectChannel(preferred ?? this.channels[0]?.id ?? null);
     } else if (this.activeChannelId) {
       // A refresh can arrive with the open channel marked unread, for instance
-      // after a role change brought it back into view. It is open, so it is read.
+      // after a role change brought it back into view. It is open, so it is read,
+      // unless the member marked it unread themselves.
       this.#markRead(this.activeChannelId, false);
     }
   }
@@ -496,7 +513,8 @@ class ChatStore {
       void api<ChannelListResponse>('/channels')
         .then((data) => {
           this.#applyReadState(data);
-          // The open channel is being read, whatever the server thought a moment ago.
+          // The open channel is being read, whatever the server thought a moment
+          // ago, unless the member has marked it unread.
           if (this.activeChannelId && document.visibilityState === 'visible' && !this.detached) {
             this.#markRead(this.activeChannelId, true);
           }
@@ -510,6 +528,8 @@ class ChatStore {
    * read" on a channel or a whole category.
    */
   markChannelsRead(channelIds: readonly string[]): void {
+    // Marking a held channel read is the member reading it after all.
+    if (this.#unreadHold !== null && channelIds.includes(this.#unreadHold)) this.#unreadHold = null;
     let marked = false;
     for (const channelId of channelIds) {
       if (!this.unread.has(channelId) && !this.mention.has(channelId)) continue;
@@ -536,7 +556,47 @@ class ChatStore {
    */
   dismissNew(): void {
     this.newSince = null;
+    this.#unreadHold = null;
     if (this.activeChannelId) this.#markRead(this.activeChannelId, false);
+  }
+
+  /**
+   * Marks a channel unread from one of its messages, Discord's Alt+click: the
+   * server moves this member's read marker back to just before it, and answers
+   * with where the channel then stands, which is taken as is. The channel is
+   * unread in the sidebar with its mention count, and when it is the open one the
+   * "new" line moves above the message and the channel is held unread for as
+   * long as the member stays in it (see `#unreadHold`).
+   */
+  async markUnreadFrom(message: Message): Promise<void> {
+    const channelId = message.channelId;
+    // Held from the start, so nothing reads it again while the request is out,
+    // and a read still waiting to go is dropped rather than sent after it.
+    if (channelId === this.activeChannelId) this.#unreadHold = channelId;
+    this.#readPending.delete(channelId);
+    let result: ChannelUnreadResponse;
+    try {
+      // A read already on its way could land after this and undo it.
+      await this.#readsInFlight.get(channelId);
+      result = await api<ChannelUnreadResponse>(`/channels/${channelId}/unread`, {
+        method: 'POST',
+        body: JSON.stringify({ messageId: message.id }),
+      });
+    } catch (cause) {
+      if (this.#unreadHold === channelId) this.#unreadHold = null;
+      throw cause;
+    }
+
+    const next = withChannelReadState(this.unreadChannelIds, this.mentionCounts, result);
+    this.unreadChannelIds = next.unreadChannelIds;
+    this.mentionCounts = next.mentionCounts;
+    // The server's count takes in the mentions counted here as they arrived.
+    for (const [messageId, counted] of this.#liveMentions) {
+      if (counted === channelId) this.#liveMentions.delete(messageId);
+    }
+    // Set rather than advanced: the marker has moved back, which is the point.
+    this.#readMarkers.set(channelId, result.readAt);
+    if (channelId === this.activeChannelId) this.newSince = result.readAt;
   }
 
   /**
@@ -548,6 +608,7 @@ class ChatStore {
    * within a moment is the same request.
    */
   #markRead(channelId: string, soon: boolean): void {
+    if (channelId === this.#unreadHold) return;
     this.#queueRead(channelId);
 
     if (this.#readTimer) {
@@ -564,8 +625,13 @@ class ChatStore {
     }
   }
 
-  /** Marks a channel read here and queues telling the server, without sending. */
+  /**
+   * Marks a channel read here and queues telling the server, without sending.
+   * A channel the member has marked unread is left as it is until they let go
+   * of it, which whoever reads it on purpose does first.
+   */
   #queueRead(channelId: string): void {
+    if (channelId === this.#unreadHold) return;
     this.#clearUnread(channelId);
     // The server moves its marker to the newest message; follow it as far as
     // what has been seen here, so the next visit's "new" line starts after it.
@@ -591,8 +657,13 @@ class ChatStore {
     this.mentionCounts = next;
   }
 
-  /** Moves this client's idea of a channel's read marker forward, never back. */
+  /**
+   * Moves this client's idea of a channel's read marker forward, never back. A
+   * held channel's marker stays where the member put it, so the "new" line is in
+   * the same place when they come back to it.
+   */
   #advanceMarker(channelId: string, readAt: string | undefined): void {
+    if (channelId === this.#unreadHold) return;
     const known = this.#readMarkers.get(channelId);
     if (readAt && (!known || readAt > known)) this.#readMarkers.set(channelId, readAt);
   }
@@ -601,8 +672,15 @@ class ChatStore {
     const ids = [...this.#readPending];
     this.#readPending.clear();
     for (const id of ids) {
-      void api(`/channels/${id}/read`, { method: 'POST' }).catch(() => {
-        // Best effort: opening the channel again marks it once more.
+      const sent = api(`/channels/${id}/read`, { method: 'POST' }).then(
+        () => {},
+        () => {
+          // Best effort: opening the channel again marks it once more.
+        },
+      );
+      this.#readsInFlight.set(id, sent);
+      void sent.then(() => {
+        if (this.#readsInFlight.get(id) === sent) this.#readsInFlight.delete(id);
       });
     }
   }
@@ -619,6 +697,9 @@ class ChatStore {
   };
 
   async selectChannel(channelId: string | null): Promise<void> {
+    // Leaving a held channel, or opening it afresh, ends the hold: it stays
+    // unread behind the member, and opening it is reading it.
+    this.#unreadHold = null;
     this.activeChannelId = channelId;
     this.messages = [];
     this.hasMore = false;
@@ -699,8 +780,12 @@ class ChatStore {
    * from the present until the reader asks to go back.
    */
   async jumpToMessage(channelId: string, message: Message): Promise<void> {
-    // A jump within the open channel keeps its "new" line where it was.
-    if (channelId !== this.activeChannelId) this.newSince = this.#unreadSince(channelId);
+    // A jump within the open channel keeps its "new" line where it was, and a
+    // hold on it too; a jump elsewhere leaves it behind, unread.
+    if (channelId !== this.activeChannelId) {
+      this.#unreadHold = null;
+      this.newSince = this.#unreadSince(channelId);
+    }
     this.activeChannelId = channelId;
     this.messages = [];
     this.hasMore = false;
@@ -919,6 +1004,12 @@ class ChatStore {
       }),
     });
     emojiUsage.recordContent(content);
+    // Posting read the channel on the server, so a hold on it is over, and the
+    // client follows at once rather than waiting for the echo.
+    if (this.#unreadHold === channelId) {
+      this.#unreadHold = null;
+      this.#markRead(channelId, true);
+    }
     if (channelId !== this.activeChannelId) return;
 
     // Sending from an older stretch of history means wanting to see the reply
@@ -1118,11 +1209,19 @@ class ChatStore {
 
         const active = message.channelId === this.activeChannelId;
         const mine = message.author !== null && message.author.id === session.user?.id;
+        // Posting reads a channel on the server, so a member who marked it unread
+        // and then wrote in it, here or on another device, has read it after all.
+        if (mine && message.channelId === this.#unreadHold) this.#unreadHold = null;
         this.#latestSeen.set(message.channelId, message.createdAt);
         // An open channel in a tab nobody is looking at has not really been read,
         // so only the visible case counts. Coming back to the tab readies it again.
-        // Neither has one showing an older stretch, where the message is held back.
-        const reading = active && document.visibilityState === 'visible' && !this.detached;
+        // Neither has one showing an older stretch, where the message is held back,
+        // nor one the member has marked unread.
+        const reading =
+          active &&
+          document.visibilityState === 'visible' &&
+          !this.detached &&
+          message.channelId !== this.#unreadHold;
         if (reading) {
           this.#markRead(message.channelId, true);
         } else if (mine) {
@@ -1240,7 +1339,10 @@ class ChatStore {
         if (counted !== undefined) {
           this.#liveMentions.delete(payload.id);
           this.#setMentionCount(counted, (this.mentionCounts[counted] ?? 0) - 1);
-        } else if (this.unread.has(payload.channelId) && payload.channelId !== this.activeChannelId) {
+        } else if (
+          this.unread.has(payload.channelId) &&
+          (payload.channelId !== this.activeChannelId || payload.channelId === this.#unreadHold)
+        ) {
           this.#refreshUnreadSoon();
         }
         break;

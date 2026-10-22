@@ -1626,7 +1626,8 @@ that opens the same notes again whenever they like.
   stand-in), is created by `insertUser`, which stamps it, so a newcomer, the
   owner's very first account included, is not greeted with notes about changes
   from before they arrived. Accounts that existed before this was added
-  started at null, which is how everyone saw the notes of 2.9.0 once.
+  started at null, which is how everyone sees the notes of the release that
+  brought the dialog in once.
 - **It waits its turn.** The dialog is only mounted for a signed-in member, so
   it never covers the sign-in screen, and it holds off while the owner's setup
   wizard is open or about to open. The decisions are in the pure

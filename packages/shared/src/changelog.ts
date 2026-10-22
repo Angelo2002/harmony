@@ -37,15 +37,22 @@ export const CHANGELOG_VERSION_PATTERN = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(
 /** Every release's notes, newest first. */
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
-    version: '2.9.0',
+    version: '2.14.1',
     date: '2026-10-22',
     title: "What's new",
     items: [
-      "Go back and forward between the channels you have opened, with your mouse's side buttons, Alt with the left and right arrows (Cmd with [ and ] on a Mac), your browser's back button, or the back gesture on Android.",
+      "Go back and forward between the channels you have opened, with your mouse's side buttons, Alt with the left and right arrows (Cmd with [ and ] on a Mac), your browser's buttons, or the back gesture on Android. Back closes an open panel or drawer first.",
       'Reloading the page keeps you in the channel you were in.',
       'Message times say which day a message was sent, and a line with the date separates one day from the next.',
-      'The quote above a reply now follows the message it answers: an edit shows up in it straight away, and so does a delete.',
-      'Picking the channel you are already in no longer reloads it, so the message you were writing stays put.',
+      'A link to a message, a notification or a reply now takes you to that message however far back it is, and you can scroll on from there to the newest ones.',
+      "Click the quote above a reply to jump to the message it answers. The quote also follows that message's edits and deletion.",
+      'Mark a channel unread from any message: hold Alt and click it, or use Mark unread in its menu. Copy link copies a link straight to a message.',
+      'New keyboard shortcuts: Ctrl+F to search, Ctrl+I for mentions, Ctrl+P for pins, Ctrl+U to show or hide the member list, Escape to close a panel or mark a channel read (Shift+Escape for all of them), and Ctrl+Shift+M or D to mute or deafen in voice. Press Ctrl+/ to see them all (Cmd on a Mac).',
+      'In the message box, Ctrl+B, I and U make text bold, italic or underlined, Ctrl+E and Ctrl+G open the emoji and GIF pickers, and the Up arrow edits your last message. When editing, Enter saves and Escape cancels.',
+      'Start typing anywhere to write a message, and hold Shift while clicking Delete to skip the question.',
+      'On a wide screen you can hide the member list with its button in the channel header.',
+      'Harmony opens faster: panels most visits never use are fetched the first time you open them.',
+      'Fixed: the edit history now opens over the whole window, and picking the channel you are already in no longer reloads it and loses your reply.',
       "This note, shown once after each update. You can read it again from About: click the server's name.",
     ],
   },

@@ -913,8 +913,10 @@ follows them; the decisions are the pure `lib/channel-history.ts`, covered by `n
 - **Something that opened by itself gets no marker**: the "What's new" notes after an update, or the
   owner's setup wizard. Chrome lets a page add an entry without a click but marks the entry the page
   was on as one its back button skips, which would make back skip the channel beneath, or on the
-  first channel leave the app. Without a marker, a step back still closes it (it lands one entry
-  further back, and the open channel's entry is written in again), and the mouse's back button,
+  first channel leave the app. Without a marker, a step back still closes it: it lands one entry
+  further back, and the page steps quietly forward again onto the entry it came from, since
+  writing the open channel's entry in again from there would be a push without a click too
+  (`returnAfterClose`). The mouse's back button,
   which the client handles itself, closes it without stepping at all. Only the browser's own back
   button on the app's very first entry can still leave the app with such a dialog open.
 - **A step that changes channel closes whatever is over the chat**, as a jump from inside a panel

@@ -118,8 +118,8 @@ export function planVisit(
  * lets a page add entries without a click, but marks the entry the page was on
  * as one its back button skips, so a marker pushed then would make back skip
  * the channel beneath it, and on the first channel leave the app altogether.
- * Without a marker a step back still closes what is open (it only lands one
- * entry further back, and the channel's own entry is written in again).
+ * Without a marker a step back still closes what is open: it lands one entry
+ * further back, and the page steps forward again (see returnAfterClose).
  */
 export function planOverlay(
   current: ChannelHistoryEntry | null,
@@ -175,6 +175,30 @@ export function popAction(
   if (direction === -1 && openDepth > entry.depth) return 'close';
   if (entry.depth > 0 || entry.channelId === activeChannelId) return 'skip';
   return exists ? 'open' : 'stale';
+}
+
+/**
+ * After a step back that only closed what was open (popAction's `close`), how
+ * many entries forward the page should step to return to the entry the press
+ * came from (`from`), or null to stay where it landed.
+ *
+ * Usually the step lands on the open channel's own entry or a marker over it,
+ * and staying is right. But something that opened by itself has no marker (see
+ * planOverlay), so the press lands on the entry before, for another channel,
+ * while the open channel stays open. Writing the open channel's entry in again
+ * there would be a push without a click, which Chrome answers by making its
+ * back button skip the entry landed on: the next press would pass the channel
+ * before, or leave the app. A step forward onto the entry the press came from
+ * adds nothing, so it is taken instead.
+ */
+export function returnAfterClose(
+  entry: ChannelHistoryEntry,
+  from: ChannelHistoryEntry | null,
+  activeChannelId: string | null,
+): number | null {
+  if (from === null || activeChannelId === null || entry.channelId === activeChannelId) return null;
+  if (from.channelId !== activeChannelId || from.index <= entry.index) return null;
+  return from.index - entry.index;
 }
 
 /**

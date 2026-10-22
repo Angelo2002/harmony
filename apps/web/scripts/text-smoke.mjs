@@ -163,6 +163,7 @@ import {
   planVisit,
   popAction,
   readEntry,
+  returnAfterClose,
   stepDirection,
   stepsOffMarker,
   writeEntry,
@@ -1922,17 +1923,21 @@ function historySession(channelIds, { installed = false } = {}) {
     at += 1;
     here = entry;
   };
+  /** Pushes made without a click, which Chrome's back button punishes. */
+  let unclicked = 0;
   // The component's effect, which runs whenever the open channel or what is
-  // open over it changes.
-  const sync = () => {
+  // open over it changes. `clicked` is whether a person has just acted.
+  const sync = (clicked = true) => {
     const now = current();
     const visit = planVisit(now, active, now !== null && known.has(now.channelId), here?.index ?? 0);
-    if (visit?.op === 'push') push(visit.entry);
-    else if (visit) {
+    if (visit?.op === 'push') {
+      if (!clicked) unclicked += 1;
+      push(visit.entry);
+    } else if (visit) {
       entries[at] = writeEntry(entries[at] ?? null, visit.entry);
       here = visit.entry;
     }
-    const marker = planOverlay(current(), active, depth);
+    const marker = planOverlay(current(), active, depth, clicked);
     if (marker) push(marker);
     if (stepsOffMarker(current(), active, depth)) {
       at -= 1;
@@ -1956,8 +1961,14 @@ function historySession(channelIds, { installed = false } = {}) {
     const direction = stepDirection(from?.index ?? 0, popped.index);
     const action = popAction(popped, active, known.has(popped.channelId), direction, depth);
     if (action === 'close') {
+      const forward = returnAfterClose(popped, from, active);
       depth = popped.depth;
-      sync();
+      if (forward !== null) {
+        at += forward;
+        here = current();
+      }
+      // A step is no click, whatever pressed it.
+      sync(false);
       return;
     }
     if (action === 'stale') {
@@ -1990,6 +2001,11 @@ function historySession(channelIds, { installed = false } = {}) {
       depth += 1;
       sync();
     },
+    /** Something that opens by itself, with no click: the notes after an update. */
+    appear: () => {
+      depth += 1;
+      sync(false);
+    },
     /** Closes the top layer through its own controls: a close button, Escape, the backdrop. */
     dismiss: () => {
       depth -= 1;
@@ -2016,6 +2032,10 @@ function historySession(channelIds, { installed = false } = {}) {
     /** Whether a press closed the installed app. */
     get closed() {
       return closed;
+    },
+    /** How many entries were pushed without a click. */
+    get unclicked() {
+      return unclicked;
     },
     /** How many entries are the app's, not counting the page it came from. */
     get length() {
@@ -2711,6 +2731,32 @@ function historySession(channelIds, { installed = false } = {}) {
   check('but not from a marker over a channel since left', !mayCarryOn(-1, 0, onMarker, 'c2'));
   check("nor from a channel's own entry", !mayCarryOn(-1, 0, onChannel, 'c1'));
 
+  check(
+    'a close that landed on another channel returns to the entry it came from',
+    returnAfterClose({ channelId: 'c0', index: 1, depth: 0 }, onChannel, 'c1') === onChannel.index - 1,
+  );
+  check('a close on the open channel stays', returnAfterClose(onChannel, onMarker, 'c1') === null);
+  check(
+    'a close with no entry to return to stays',
+    returnAfterClose({ channelId: 'c0', index: 1, depth: 0 }, null, 'c1') === null,
+  );
+
+  // Something that opened by itself has no marker; back closes it and returns
+  // to the open channel's entry without a push, and the next back goes on.
+  const notes = historySession(['a', 'b']);
+  notes.open('a');
+  notes.open('b');
+  const notesLength = notes.length;
+  notes.appear();
+  check('something that opens by itself pushes no marker', notes.length === notesLength);
+  notes.go(-1);
+  check('back closes it and stays in the channel', notes.active === 'b' && notes.depth === 0);
+  check('and writes no entry without a click', notes.unclicked === 0 && notes.length === notesLength);
+  notes.go(-1);
+  check('the next back goes to the channel before', notes.active === 'a');
+  notes.go(1);
+  check('and forward comes back to it', notes.active === 'b');
+
   const panel = historySession(['a', 'b']);
   panel.open('a');
   panel.open('b');
@@ -2861,7 +2907,9 @@ function historySession(channelIds, { installed = false } = {}) {
   skipped.show();
   skipped.go(-2);
   check('a back that skipped past the open channel only closes', skipped.active === 'b' && skipped.depth === 0);
-  check('and writes the open channel back in after the entry it landed on', skipped.length === 2);
+  check('and returns to the open channel without a push', skipped.length === 3 && skipped.unclicked === 0);
+  skipped.go(-1);
+  check('from where the next back goes to the channel before', skipped.active === 'a');
   skipped.go(-1);
   check('so the next back is still the channel before', skipped.active === 'a');
 

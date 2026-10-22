@@ -8,6 +8,7 @@
     planVisit,
     popAction,
     readEntry,
+    returnAfterClose,
     stepDirection,
     stepsOffMarker,
     writeEntry,
@@ -92,9 +93,10 @@
    * reported by popstate like any step, and history is left alone until it is.
    * A browser that never reports it (or refuses the step) must not leave
    * history frozen, so after a moment the wait is given up and the page takes
-   * whatever entry it is on as where it is.
+   * whatever entry it is on as where it is. A return to the entry a press came
+   * from (see returnAfterClose) is the same kind of step, taken forward.
    */
-  function settle(target: number): void {
+  function settle(target: number, step = -1): void {
     settling = target;
     if (settleTimer) clearTimeout(settleTimer);
     settleTimer = setTimeout(() => {
@@ -103,7 +105,7 @@
       settling = null;
       here = readEntry(window.history.state);
     }, 1000);
-    window.history.go(-1);
+    window.history.go(step);
   }
 
   function push(entry: ChannelHistoryEntry): void {
@@ -142,10 +144,12 @@
     const action = popAction(entry, chat.activeChannelId, known(entry.channelId), direction, ui.overlayDepth);
 
     if (action === 'close') {
-      // The channel stays. If the browser skipped past the open channel's own
-      // entry on the way, which Chrome's back button does to an entry whose
-      // marker was pushed without a click, the effect above writes the open
-      // channel back in after the entry landed on.
+      // The channel stays. A press that landed on another channel's entry, as
+      // one does over something that opened by itself and so has no marker,
+      // steps back onto the entry it came from, before the effect above can
+      // write the open channel in again with a push.
+      const forward = returnAfterClose(entry, from, chat.activeChannelId);
+      if (forward !== null) settle(entry.index + forward, forward);
       ui.closeOverlaysAbove(entry.depth);
       return;
     }

@@ -911,6 +911,11 @@ follows them; the decisions are the pure `lib/channel-history.ts`, covered by `n
   swallow it. Opening and closing again pushes one marker at a time, never a pile of them, and a
   quiet step the browser never reports is given up on after a second rather than holding history
   still. A reload on a marker steps off it the same way, without reopening anything.
+- **Entries belong to the account that wrote them.** Signing out leaves the tab's history as it
+  is, so each entry records its writer, and one written by someone else is treated like an entry
+  for a deleted channel (`ownedBy`): the next account to sign in on the tab opens the default
+  channel rather than the last one the previous account had open, and back steps past the
+  previous account's entries instead of walking through the channels they visited.
 - **Something that opened by itself gets no marker**: the "What's new" notes after an update, or the
   owner's setup wizard. Chrome lets a page add an entry without a click but marks the entry the page
   was on as one its back button skips, which would make back skip the channel beneath, or on the

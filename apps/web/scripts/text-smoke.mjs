@@ -159,6 +159,7 @@ import {
 import {
   mayCarryOn,
   mouseButtonStep,
+  ownedBy,
   planOverlay,
   planVisit,
   popAction,
@@ -2052,6 +2053,15 @@ function historySession(channelIds, { installed = false } = {}) {
   check('an entry with a blank channel is refused', readEntry(writeEntry(null, { channelId: '', index: 0, depth: 0 })) === null);
   check('an entry with a fractional index is refused', readEntry({ harmonyChannel: { channelId: 'c1', index: 0.5 } }) === null);
   check('writing keeps the rest of the state', writeEntry({ other: 1 }, entry).other === 1);
+  const signed = { ...entry, userId: 'u1' };
+  check('the account that wrote an entry round-trips', readEntry(writeEntry(null, signed))?.userId === 'u1');
+  check("an entry is its writer's", ownedBy(signed, 'u1'));
+  check('but not the next account to sign in', !ownedBy(signed, 'u2'));
+  check("an entry with no account is anyone's", ownedBy(entry, 'u2'));
+  check(
+    'an entry with a non-string account reads as having none',
+    readEntry({ harmonyChannel: { channelId: 'c1', index: 0, userId: 7 } })?.userId === undefined,
+  );
 
   const first = planVisit(null, 'c1', false, 0);
   check('the first channel opened rewrites the entry the page loaded on', first?.op === 'replace' && first.entry.index === 0);

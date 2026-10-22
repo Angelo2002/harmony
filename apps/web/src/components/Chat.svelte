@@ -3,7 +3,7 @@
   import type { Message } from '@harmony/shared';
   import { chat } from '../lib/chat.svelte';
   import { dragHasFiles, mediaFilesFrom } from '../lib/files';
-  import { readEntry } from '../lib/channel-history';
+  import { ownedBy, readEntry } from '../lib/channel-history';
   import { eventsPanel, galleryPanel, scheduledPanel } from '../lib/lazy-panels';
   import { hasLaunchTarget, parseLaunchParams, withoutLaunchParams } from '../lib/launch-params';
   import { events } from '../lib/events.svelte';
@@ -39,9 +39,11 @@
     // each history entry's state across a reload, and ChannelHistory writes the
     // open channel into it.
     const launch = parseLaunchParams(window.location.search);
-    const target = hasLaunchTarget(launch)
-      ? launch
-      : { channelId: readEntry(window.history.state)?.channelId ?? null, messageId: null };
+    // An entry written by someone who has since signed out of this tab is not
+    // theirs to reopen for whoever signs in next.
+    const entry = readEntry(window.history.state);
+    const reopen = entry && ownedBy(entry, session.user?.id ?? null) ? entry.channelId : null;
+    const target = hasLaunchTarget(launch) ? launch : { channelId: reopen, messageId: null };
     void chat
       .start(target)
       .then(() => {

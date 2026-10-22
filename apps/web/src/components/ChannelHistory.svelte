@@ -4,6 +4,7 @@
   import {
     mayCarryOn,
     mouseButtonStep,
+    ownedBy,
     planOverlay,
     planVisit,
     popAction,
@@ -15,6 +16,7 @@
     type ChannelHistoryEntry,
   } from '../lib/channel-history';
   import { withoutLaunchParams } from '../lib/launch-params';
+  import { session } from '../lib/session.svelte';
   import { ui } from '../lib/ui.svelte';
 
   /*
@@ -40,8 +42,18 @@
    */
   let settling: number | null = null;
 
-  function known(channelId: string): boolean {
-    return chat.channels.some((channel) => channel.id === channelId);
+  /**
+   * Whether an entry can be opened: its channel still exists, and it was written
+   * by the account signed in now rather than one that signed out of this tab.
+   */
+  function usable(entry: ChannelHistoryEntry): boolean {
+    return ownedBy(entry, session.user?.id ?? null) && chat.channels.some((channel) => channel.id === entry.channelId);
+  }
+
+  /** An entry as this account writes it. */
+  function stamped(entry: ChannelHistoryEntry): ChannelHistoryEntry {
+    const userId = session.user?.id;
+    return userId === undefined ? entry : { ...entry, userId };
   }
 
   // Watches the open channel and how much is open over the chat. Everything
@@ -66,7 +78,7 @@
     // A channel first, so a marker for something opened along with it goes
     // after the channel's own entry rather than standing in for it.
     const current = readEntry(window.history.state);
-    const visit = planVisit(current, channelId, current !== null && known(current.channelId), here?.index ?? 0);
+    const visit = planVisit(current, channelId, current !== null && usable(current), here?.index ?? 0);
     if (visit?.op === 'push') push(visit.entry);
     else if (visit) replace(visit.entry);
 
@@ -109,6 +121,7 @@
   }
 
   function push(entry: ChannelHistoryEntry): void {
+    entry = stamped(entry);
     here = entry;
     // The address stays as it is, less a launch link's parameters: they
     // belong to the entry the link arrived on, and an entry carrying them
@@ -118,6 +131,7 @@
   }
 
   function replace(entry: ChannelHistoryEntry): void {
+    entry = stamped(entry);
     here = entry;
     window.history.replaceState(writeEntry(window.history.state, entry), '');
   }
@@ -141,7 +155,7 @@
     const from = here;
     here = entry;
     const direction = stepDirection(from?.index ?? 0, entry.index);
-    const action = popAction(entry, chat.activeChannelId, known(entry.channelId), direction, ui.overlayDepth);
+    const action = popAction(entry, chat.activeChannelId, usable(entry), direction, ui.overlayDepth);
 
     if (action === 'close') {
       // The channel stays. A press that landed on another channel's entry, as
@@ -158,7 +172,7 @@
     if (chat.channels.length === 0) return;
 
     if (action === 'stale' && chat.activeChannelId) {
-      here = { ...entry, channelId: chat.activeChannelId };
+      here = stamped({ ...entry, channelId: chat.activeChannelId });
       window.history.replaceState(writeEntry(event.state, here), '');
     }
     if (action !== 'open') {

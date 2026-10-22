@@ -35,6 +35,12 @@ export interface ChannelHistoryEntry {
    * a second), so a step back onto the entry beneath knows how many to close.
    */
   depth: number;
+  /**
+   * The account that wrote the entry. Signing out leaves the tab's history as
+   * it is, so the next account to sign in there walks the same entries; see
+   * ownedBy. Absent on an entry not yet written, which the writer stamps.
+   */
+  userId?: string;
 }
 
 /** The key our entry sits under, so state anyone else puts there is left alone. */
@@ -49,11 +55,23 @@ export function readEntry(state: unknown): ChannelHistoryEntry | null {
   if (typeof state !== 'object' || state === null) return null;
   const entry: unknown = (state as Record<string, unknown>)[stateKey];
   if (typeof entry !== 'object' || entry === null) return null;
-  const { channelId, index, depth = 0 } = entry as Record<string, unknown>;
+  const { channelId, index, depth = 0, userId } = entry as Record<string, unknown>;
   if (typeof channelId !== 'string' || channelId.length === 0) return null;
   if (typeof index !== 'number' || !Number.isSafeInteger(index)) return null;
   if (typeof depth !== 'number' || !Number.isSafeInteger(depth) || depth < 0) return null;
-  return { channelId, index, depth };
+  return typeof userId === 'string' ? { channelId, index, depth, userId } : { channelId, index, depth };
+}
+
+/**
+ * Whether an entry is the signed-in account's own. One written by someone who
+ * has since signed out of this tab is treated like an entry for a channel that
+ * is gone: it is never opened, so the next account neither lands in the last
+ * channel the previous one had open nor walks back through the channels they
+ * visited, and a step onto it rewrites it and carries on. An entry with no
+ * account was written before entries recorded one, and counts as anyone's.
+ */
+export function ownedBy(entry: ChannelHistoryEntry, userId: string | null): boolean {
+  return entry.userId === undefined || entry.userId === userId;
 }
 
 /**
@@ -62,7 +80,10 @@ export function readEntry(state: unknown): ChannelHistoryEntry | null {
  */
 export function writeEntry(state: unknown, entry: ChannelHistoryEntry): Record<string, unknown> {
   const base = typeof state === 'object' && state !== null ? { ...(state as Record<string, unknown>) } : {};
-  base[stateKey] = { channelId: entry.channelId, index: entry.index, depth: entry.depth };
+  base[stateKey] =
+    entry.userId === undefined
+      ? { channelId: entry.channelId, index: entry.index, depth: entry.depth }
+      : { channelId: entry.channelId, index: entry.index, depth: entry.depth, userId: entry.userId };
   return base;
 }
 

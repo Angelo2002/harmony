@@ -32,6 +32,7 @@ import { channelSettings } from './channel-settings.svelte';
 import { drafts } from './drafts.svelte';
 import { playSound } from './sounds';
 import { gateway, type GatewayFrame } from './gateway';
+import { appendNewer, windowAround } from './history-window';
 import type { LaunchTarget } from './launch-params';
 
 /** How many messages one history page holds, for both directions. */
@@ -48,13 +49,6 @@ const reconcilePageSize = 100;
 const reconcileMaxPages = 10;
 /** Most history pages a jump to the first unread message will load. */
 const unreadJumpMaxPages = 20;
-/**
- * Most history pages a launch link's message is searched through. A push
- * notification is nearly always at the newest end, so a few pages cover the real
- * case; a link far back in history would be better served by asking the server
- * for a page around the id, which the history endpoint does not offer yet.
- */
-const linkedJumpMaxPages = 20;
 /** The longest delay `setTimeout` honors; anything longer fires at once. */
 const maxTimerMs = 2 ** 31 - 1;
 /** How long emoji events wait, so the pruner's one-event-per-emoji burst reloads once. */
@@ -72,6 +66,13 @@ function sameFace(a: User, b: User): boolean {
     a.accountType === b.accountType
   );
 }
+
+/**
+ * Where a page of history is taken from: just before a message, just after one,
+ * or centred on one. Every field is the query parameter of the same name, and
+ * leaving the cursor out asks for the newest page.
+ */
+type HistoryCursor = { before: string; beforeId?: string } | { after: string; afterId?: string } | { around: string };
 
 /** Merges a single reaction event into a message's reaction list. */
 function applyReactionDelta(
@@ -114,6 +115,8 @@ class ChatStore {
   /** Whether older messages exist beyond the oldest one loaded. */
   hasMore = $state(false);
   loadingOlder = $state(false);
+  /** Whether the page after an older stretch is on its way, carrying it towards the present. */
+  loadingNewer = $state(false);
   /** The message the composer is currently replying to, if any. */
   replyTarget = $state<Message | null>(null);
   /** People typing in the open channel, each with when their notice expires. */
@@ -152,9 +155,10 @@ class ChatStore {
   scrollSignal = $state(0);
   /**
    * Whether the open channel is showing an older stretch of history, after a
-   * jump to a search or inbox result, rather than its newest messages. Live
-   * messages are held back while it is, since putting them right after an old
-   * page would hide everything in between; the view offers a way back instead.
+   * jump to a search or inbox result or a link to an old message, rather than
+   * its newest messages. Live messages are held back while it is, since putting
+   * them right after an old page would hide everything in between; the view
+   * reads on towards the present a page at a time, and offers the leap there.
    */
   detached = $state(false);
   /**
@@ -179,7 +183,9 @@ class ChatStore {
   /**
    * Counts history loads, so only the latest one decides when loading is over.
    * Switching channels quickly would otherwise let a superseded load clear the
-   * flag while the current one is still out, flashing "No messages yet".
+   * flag while the current one is still out, flashing "No messages yet". A page
+   * loaded onto either end of the list checks it too, so a page fetched for one
+   * list is never spliced into the one a jump replaced it with.
    */
   #historyLoad = 0;
   /** Refreshes the session when a timeout runs out, so the composer reopens. */
@@ -254,9 +260,9 @@ class ChatStore {
     await voice.load().catch(() => {});
     hostVoice.start();
     gateway.connect();
-    // A message named by a launch link is only followable now that the channel
-    // is open and its newest page is loaded. The socket is up first, so the walk
-    // back through history does not hold live messages back.
+    // A message named by a launch link is looked for once the channel it names
+    // is open. The socket is up first, so fetching the page around the message
+    // does not keep live messages waiting.
     if (target && target.messageId !== null && target.channelId !== null) {
       await this.revealLinkedMessage(target.channelId, target.messageId);
     }
@@ -276,6 +282,7 @@ class ChatStore {
     this.replyTarget = null;
     this.hasMore = false;
     this.loadingOlder = false;
+    this.loadingNewer = false;
     this.loading = false;
     this.detached = false;
     this.highlightedId = null;
@@ -616,6 +623,7 @@ class ChatStore {
     this.messages = [];
     this.hasMore = false;
     this.loadingOlder = false;
+    this.loadingNewer = false;
     this.detached = false;
     this.replyTarget = null;
     this.highlightedId = null;
@@ -638,16 +646,11 @@ class ChatStore {
     return this.#readMarkers.get(channelId) ?? null;
   }
 
-  /** One page of a channel's history, ending just before the cursor when given. */
-  async #fetchHistory(
-    channelId: string,
-    cursor?: { before: string; beforeId?: string },
-    limit: number = historyPageSize,
-  ): Promise<Message[]> {
+  /** One page of a channel's history, oldest first: the newest page, or the one the cursor names. */
+  async #fetchHistory(channelId: string, cursor?: HistoryCursor, limit: number = historyPageSize): Promise<Message[]> {
     const query = new URLSearchParams({ limit: String(limit) });
-    if (cursor) {
-      query.set('before', cursor.before);
-      if (cursor.beforeId) query.set('beforeId', cursor.beforeId);
+    for (const [key, value] of Object.entries(cursor ?? {})) {
+      if (value) query.set(key, value);
     }
     const data = await api<{ messages: Message[] }>(`/channels/${channelId}/messages?${query}`);
     return data.messages;
@@ -702,6 +705,7 @@ class ChatStore {
     this.messages = [];
     this.hasMore = false;
     this.loadingOlder = false;
+    this.loadingNewer = false;
     this.detached = false;
     this.replyTarget = null;
     this.highlightedId = null;
@@ -753,53 +757,67 @@ class ChatStore {
   }
 
   /**
-   * Takes the reader to a message named by a launch link, as a notification tap
-   * or a deep link carries it. The id on its own says nothing about where in
-   * history the message sits, so the newest pages are walked back a bounded
-   * distance looking for it, and the ordinary jump path then frames it with the
-   * messages around it exactly as a search result would. A message that has been
-   * deleted, or sits deeper than the walk, is quietly left alone: the channel
-   * stays open at its newest page rather than the screen going blank.
+   * Brings a message in the open channel into view and flashes it, however far
+   * back in history it sits. One already loaded is simply scrolled to. Otherwise
+   * the server is asked for the page centred on it, in one request: when that
+   * page meets the present the two are joined and the reader stays in the
+   * present, and when it does not it is shown as an older stretch, which
+   * scrolling down carries forward a page at a time until it is the present
+   * again, exactly like the stretch a search result opens.
+   *
+   * A message that has been deleted, or is not in this channel at all, leaves
+   * the view as it was rather than blanking it.
    */
-  async revealLinkedMessage(channelId: string, messageId: string): Promise<void> {
-    // An id the instance does not know leaves the default channel open; only the
-    // channel the link actually opened is searched.
-    if (channelId !== this.activeChannelId) return;
-    const found = await this.#findMessage(messageId);
-    if (!found || channelId !== this.activeChannelId) return;
-    // A message already in the page on screen needs no refetch: flash it and
-    // bring it into view. One found deeper is framed by the jump path.
+  async revealMessage(messageId: string): Promise<void> {
+    const channelId = this.activeChannelId;
+    if (!channelId) return;
     if (this.messages.some((message) => message.id === messageId)) {
       this.#highlight(messageId);
       this.scrollSignal += 1;
       return;
     }
-    await this.jumpToMessage(channelId, found);
+
+    // A list that reaches the present already says what the present is. One
+    // still loading, or showing an older stretch, does not, so the newest page is
+    // fetched alongside, as a jump to a search result does.
+    const knowsPresent = !this.loading && !this.detached;
+    const load = ++this.#historyLoad;
+    try {
+      const [page, newest] = await Promise.all([
+        this.#fetchHistory(channelId, { around: messageId }),
+        knowsPresent ? null : this.#fetchHistory(channelId),
+      ]);
+      if (load !== this.#historyLoad || channelId !== this.activeChannelId) return;
+      const present = newest
+        ? { messages: newest, hasMore: newest.length >= historyPageSize }
+        : { messages: this.messages, hasMore: this.hasMore };
+      const view = windowAround(page, messageId, historyPageSize, present);
+      if (!view) return;
+      this.messages = view.messages;
+      this.hasMore = view.hasMore;
+      this.detached = view.detached;
+      this.#highlight(messageId);
+      // The message view finds the flashed row and centres it.
+      this.scrollSignal += 1;
+    } catch {
+      // Deleted, never in this channel, or the request failed. The list on
+      // screen stays; one that was still loading opens at the newest page
+      // instead, since the load this replaced will not land now.
+      if (load === this.#historyLoad && this.messages.length === 0) await this.loadHistory(channelId);
+    } finally {
+      if (load === this.#historyLoad) this.loading = false;
+    }
   }
 
   /**
-   * Looks for a message id in the open channel, checking the page already loaded
-   * first and then walking back at most `linkedJumpMaxPages` pages, since the id
-   * carries no hint of where in time it sits.
+   * Takes the reader to a message named by a launch link, as a notification tap
+   * or a deep link carries it. Only the channel the link opened is looked in: a
+   * link whose channel the instance does not know leaves the default channel
+   * open at its newest page, rather than the screen going blank.
    */
-  async #findMessage(messageId: string): Promise<Message | null> {
-    const channelId = this.activeChannelId;
-    if (!channelId) return null;
-    const loaded = this.messages.find((message) => message.id === messageId);
-    if (loaded) return loaded;
-
-    let oldest = this.messages[0];
-    for (let pages = 0; pages < linkedJumpMaxPages && this.hasMore && oldest; pages++) {
-      const page = await this.#fetchHistory(channelId, { before: oldest.createdAt, beforeId: oldest.id });
-      // A channel switch while this was in flight must not answer for the wrong one.
-      if (channelId !== this.activeChannelId) return null;
-      const found = page.find((message) => message.id === messageId);
-      if (found) return found;
-      // A short page is the channel's oldest, so there is nowhere further back.
-      if (page.length < historyPageSize) return null;
-      oldest = page[0];
-    }
-    return null;
+  async revealLinkedMessage(channelId: string, messageId: string): Promise<void> {
+    if (channelId !== this.activeChannelId) return;
+    await this.revealMessage(messageId);
   }
 
   /** Flashes a message for a few seconds, so a jump is obvious. */
@@ -822,15 +840,53 @@ class ChatStore {
     const oldest = this.messages[0];
     if (!channelId || !oldest || this.loadingOlder || !this.hasMore) return;
 
+    const load = this.#historyLoad;
     this.loadingOlder = true;
     try {
       const page = await this.#fetchHistory(channelId, { before: oldest.createdAt, beforeId: oldest.id });
-      // A channel switch while this was in flight must not splice in old history.
-      if (channelId !== this.activeChannelId) return;
+      // A channel switch or a jump while this was in flight must not splice in
+      // history from before a list that is no longer there.
+      if (channelId !== this.activeChannelId || load !== this.#historyLoad) return;
       this.messages = [...page, ...this.messages];
       this.hasMore = page.length >= historyPageSize;
     } finally {
       this.loadingOlder = false;
+    }
+  }
+
+  /**
+   * Fetches the page just after the newest message loaded and appends it, while
+   * the open channel shows an older stretch, so a reader who jumped back can read
+   * on towards the present rather than only leap to it. A short page is the
+   * newest one: the stretch has rejoined the present, live messages flow into it
+   * again, and a member who read down to it has read the channel, as one who
+   * took the leap has.
+   */
+  async loadNewer(): Promise<void> {
+    const channelId = this.activeChannelId;
+    const newest = this.messages.at(-1);
+    if (!channelId || !newest || this.loadingNewer || !this.detached) return;
+
+    const load = this.#historyLoad;
+    this.loadingNewer = true;
+    try {
+      const page = await this.#fetchHistory(channelId, { after: newest.createdAt, afterId: newest.id });
+      if (channelId !== this.activeChannelId || load !== this.#historyLoad || !this.detached) return;
+      const next = appendNewer(this.messages, page, historyPageSize);
+      this.messages = next.messages;
+      this.detached = next.detached;
+      if (!next.detached) {
+        // Live messages were held back until now, and one may have landed
+        // between the page being read and its arriving here; the newest page,
+        // folded in, settles that.
+        void this.#catchUp();
+        if (document.visibilityState === 'visible') this.#markRead(channelId, false);
+      }
+    } catch {
+      // Offline, or the channel was locked away meanwhile. Scrolling down again
+      // tries again, and the bar's leap to the present is still there.
+    } finally {
+      this.loadingNewer = false;
     }
   }
 

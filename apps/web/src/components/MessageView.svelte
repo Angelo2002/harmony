@@ -274,6 +274,8 @@
     atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 60;
     checkNewSeen();
     if (element.scrollTop < 80) void loadOlder();
+    // An older stretch reads on towards the present as its end comes into view.
+    if (chat.detached && element.scrollHeight - element.scrollTop - element.clientHeight < 80) void loadNewer();
   }
 
   /**
@@ -337,6 +339,20 @@
     if (grown > 0) element.scrollTop = previousTop + grown;
   }
 
+  /**
+   * Loads the page after an older stretch. It lands below the reader, so the
+   * viewport stays over the same messages by itself; the view only has to stop
+   * believing it is at the bottom, or the next row to settle would pin it to the
+   * end of a page nobody has read yet.
+   */
+  async function loadNewer(): Promise<void> {
+    const element = scroller;
+    if (!element) return;
+    await chat.loadNewer();
+    await tick();
+    atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 60;
+  }
+
   let sizeObserver: ResizeObserver | null = null;
 
   /**
@@ -369,25 +385,34 @@
     };
   }
 
+  /** Whether the list was an older stretch the last time it changed. */
+  let wasDetached = false;
+
   // Follow the newest message, but never yank the view when older pages load.
   $effect(() => {
     const element = scroller;
     const channelId = chat.activeChannelId;
     const newest = chat.messages.at(-1)?.id ?? null;
     const oldest = chat.messages[0]?.id ?? null;
+    const detached = chat.detached;
 
     if (channelId !== watchedChannelId) {
       watchedChannelId = channelId;
       firstId = null;
       lastId = null;
+      wasDetached = false;
     }
 
     const prepended = firstId !== null && oldest !== firstId;
     const previousNewest = lastId;
+    const previouslyDetached = wasDetached;
     firstId = oldest;
     lastId = newest;
+    wasDetached = detached;
 
-    if (!element || prepended) return;
+    // The end of an older stretch is not the present, and a page added to it,
+    // even the one that rejoins the present, is read from where the reader is.
+    if (!element || prepended || previouslyDetached) return;
     if (newest !== null && newest !== previousNewest && (previousNewest === null || atBottom)) {
       element.scrollTo({ top: element.scrollHeight });
     }
@@ -787,9 +812,15 @@
     {/each}
   {/if}
 
+  {#if chat.loadingNewer}
+    <p class="muted pad">Loading newer messages…</p>
+  {/if}
+
   <!--
-    After a jump to a search or inbox result the list can be an older stretch of
-    history with newer messages held back, so the way back is always in reach.
+    After a jump to a search or inbox result, or a link to an old message, the
+    list can be an older stretch of history with newer messages held back. It
+    reads on towards the present as the reader scrolls down, and the leap there
+    is always in reach.
   -->
   {#if chat.detached && !chat.loading}
     <div class="present-bar" role="status">

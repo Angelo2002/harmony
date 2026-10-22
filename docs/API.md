@@ -1016,13 +1016,17 @@ A deleted message still counts, so deleting your own does not clear the wait.
 
 #### `GET /api/v1/channels/:id/messages` — `ViewChannels`
 
-Returns up to 100 messages in ascending order (oldest first).
+Returns up to 100 messages in ascending order (oldest first). Without a cursor that is the channel's
+newest page.
 
 | Query | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `limit` | integer 1–100 | 50 | |
 | `before` | ISO 8601 string | — | Return messages older than this timestamp |
 | `beforeId` | string | — | Id of the message `before` came from |
+| `after` | ISO 8601 string | — | Return the messages just newer than this timestamp |
+| `afterId` | string | — | Id of the message `after` came from |
+| `around` | message id | — | Return the page centred on this message |
 
 ```json
 { "messages": [ /* Message */ ] }
@@ -1032,6 +1036,25 @@ To page backwards, pass the `createdAt` **and** the `id` of the oldest message y
 `before` and `beforeId`. The id matters: `createdAt` only has millisecond precision, so a burst of
 messages (a bridge history import, for instance) can share a timestamp, and a timestamp-only cursor
 would skip the rest of that millisecond.
+
+To page forwards, from an older stretch back towards the present, pass the `createdAt` and `id` of
+the newest message you have as `after` and `afterId`. The page is the `limit` messages that follow
+it, still oldest first; a page shorter than `limit` reaches the channel's newest message.
+
+`around` opens history at one message however far back it sits, which is what a link to a message
+needs. The page holds the message itself, up to `floor(limit / 2)` messages before it and up to the
+rest of the limit after it (with the default 50: 25 before, the message, 24 after). Neither side
+borrows from the other where the channel begins or ends, so a side that comes back short says the
+page reached the channel's first or newest message; `historyAroundSplit` in `packages/shared` gives
+the two numbers for a limit. Everything else is as for any page: the same order, the same rendering,
+and the same per-viewer fields (`reactions[].me`, `saved`, `poll.myVotes`). A message id that does
+not exist, has been deleted, or belongs to another channel is `404 message_not_found`, the same
+answer in all three cases, so it reveals nothing about other channels.
+
+`before`/`beforeId`, `after`/`afterId` and `around` each name a different page, so combining
+`around` with any cursor, or `after` with `before`, is `400 validation_error`. Like any page, a
+channel the caller cannot see is `403 channel_forbidden` and one that does not exist `404
+channel_not_found`, checked before the message is looked up.
 
 #### `POST /api/v1/channels/:id/messages` — `SendMessages`
 

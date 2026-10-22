@@ -6094,6 +6094,153 @@ try {
     await req(`/channels/${countsRoom}`, { method: 'DELETE', token: ownerToken });
   }
 
+  // --- History around a message, and after one ---
+  // A link to a message however far back opens with one request for the page
+  // centred on it, and a reader carries on towards the present with the page
+  // after the newest one they hold.
+  {
+    const aroundRoom = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'aroundroom' } }))
+      .json.id;
+    const otherRoom = (await req('/channels', { method: 'POST', token: ownerToken, body: { name: 'aroundother' } }))
+      .json.id;
+    const posted = [];
+    for (let i = 0; i < 30; i++) posted.push((await postIn(aroundRoom, ownerToken, { content: `around ${i}` })).json);
+    const elsewhere = (await postIn(otherRoom, ownerToken, { content: 'not in aroundroom' })).json;
+    const historyOf = (query, token = bobToken, channelId = aroundRoom) =>
+      req(`/channels/${channelId}/messages?${new URLSearchParams(query)}`, { token });
+    const numbers = (res) => (res.json?.messages ?? []).map((message) => message.content.replace('around ', '')).join(',');
+    const ids = (res) => (res.json?.messages ?? []).map((message) => message.id).join(',');
+    const range = (from, to) => Array.from({ length: to - from + 1 }, (_, k) => String(from + k)).join(',');
+
+    const centred = await historyOf({ around: posted[15].id, limit: '10' });
+    check(
+      'a page around a message is centred on it: five before, it, four after',
+      centred.status === 200 && numbers(centred) === range(10, 19),
+      numbers(centred),
+    );
+    check('the page around a message holds no more than the limit', centred.json?.messages?.length === 10);
+    check(
+      'the default page around a message reaches as far as the channel allows',
+      numbers(await historyOf({ around: posted[15].id })) === range(0, 29),
+    );
+    check('a page of one around a message is the message itself', numbers(await historyOf({ around: posted[15].id, limit: '1' })) === '15');
+    const nearOldest = await historyOf({ around: posted[2].id, limit: '10' });
+    check(
+      'near the oldest message the older side comes back short and the newer side does not borrow',
+      numbers(nearOldest) === range(0, 6),
+      numbers(nearOldest),
+    );
+    const nearNewest = await historyOf({ around: posted[28].id, limit: '10' });
+    check(
+      'near the newest message the newer side comes back short',
+      numbers(nearNewest) === range(23, 29),
+      numbers(nearNewest),
+    );
+    check(
+      'a page around a message is in the same order as an ordinary page',
+      ids(nearNewest) === ids(await historyOf({ limit: '7' })),
+    );
+
+    // The same viewer-specific fields as any page: a reaction of their own, a
+    // save, and a poll vote.
+    await req(`/messages/${posted[15].id}/reactions`, { method: 'POST', token: bobToken, body: { emoji: '👍' } });
+    await req(`/users/@me/saved/${posted[15].id}`, { method: 'PUT', token: bobToken });
+    const aroundPoll = (
+      await req(`/channels/${aroundRoom}/polls`, {
+        method: 'POST',
+        token: ownerToken,
+        body: { question: 'Around or about?', options: [{ text: 'Around' }, { text: 'About' }], allowMultiple: false, durationHours: 24 },
+      })
+    ).json;
+    await req(`/messages/${aroundPoll.id}/poll/votes`, {
+      method: 'PUT',
+      token: bobToken,
+      body: { optionIds: [aroundPoll.poll.options[0].id] },
+    });
+    const forBob = (await historyOf({ around: posted[15].id, limit: '3' })).json?.messages?.[1];
+    check(
+      "a page around a message marks the viewer's own reaction and save",
+      forBob?.id === posted[15].id && forBob.reactions.some((r) => r.emoji === '👍' && r.me === true) && forBob.saved === true,
+    );
+    const forOwner = (await historyOf({ around: posted[15].id, limit: '3' }, ownerToken)).json?.messages?.[1];
+    check(
+      'and not for anyone else',
+      forOwner?.reactions?.some((r) => r.emoji === '👍' && r.me === false) && forOwner.saved === false,
+    );
+    const pollForBob = (await historyOf({ around: aroundPoll.id, limit: '3' })).json?.messages?.at(-1);
+    check(
+      "a page around a poll carries the viewer's own vote",
+      pollForBob?.id === aroundPoll.id && pollForBob.poll?.myVotes?.[0] === aroundPoll.poll.options[0].id,
+    );
+
+    // A message that is not this channel's own answers the same whatever the reason.
+    const missing = await historyOf({ around: 'no-such-message' });
+    const foreign = await historyOf({ around: elsewhere.id });
+    check('a page around an unknown message is 404', missing.status === 404 && missing.json?.error?.code === 'message_not_found');
+    check(
+      "a page around another channel's message is the same 404",
+      foreign.status === 404 && foreign.json?.error?.code === 'message_not_found' && foreign.json?.error?.message === missing.json?.error?.message,
+    );
+    const doomed = (await postIn(aroundRoom, ownerToken, { content: 'around and gone' })).json;
+    await req(`/messages/${doomed.id}`, { method: 'DELETE', token: ownerToken });
+    check('a page around a deleted message is the same 404', (await historyOf({ around: doomed.id })).status === 404);
+    const mixed = await historyOf({ around: posted[15].id, before: posted[20].createdAt, beforeId: posted[20].id });
+    check('around cannot be mixed with a before cursor (400)', mixed.status === 400 && mixed.json?.error?.code === 'validation_error');
+    check(
+      'nor with an after cursor (400)',
+      (await historyOf({ around: posted[15].id, after: posted[3].createdAt })).status === 400,
+    );
+    check(
+      'nor beforeId alone (400)',
+      (await historyOf({ around: posted[15].id, beforeId: posted[20].id })).status === 400,
+    );
+    check('an empty around is refused (400)', (await historyOf({ around: '' })).status === 400);
+
+    // Paging forwards from an older stretch.
+    const forward = await historyOf({ after: posted[9].createdAt, afterId: posted[9].id, limit: '5' });
+    check('the page after a message is the next ones, oldest first', numbers(forward) === range(10, 14), numbers(forward));
+    const lastForward = await historyOf({ after: posted[26].createdAt, afterId: posted[26].id, limit: '5' });
+    check(
+      'the page after a message near the end comes back short, reaching the newest',
+      numbers(lastForward) === '27,28,29,Around or about?',
+      numbers(lastForward),
+    );
+    check(
+      'after cannot be mixed with before (400)',
+      (await historyOf({ after: posted[9].createdAt, before: posted[20].createdAt })).status === 400,
+    );
+
+    // A locked channel is answered exactly as its history already is.
+    const aroundRole = await req('/roles', { method: 'POST', token: ownerToken, body: { name: 'Around' } });
+    const aroundLocked = (
+      await req('/channels', {
+        method: 'POST',
+        token: ownerToken,
+        body: { name: 'aroundlocked', requiredRoleId: aroundRole.json.id },
+      })
+    ).json.id;
+    const lockedMessage = (await postIn(aroundLocked, ownerToken, { content: 'behind the lock' })).json;
+    const lockedHistory = await historyOf({}, bobToken, aroundLocked);
+    const lockedAround = await historyOf({ around: lockedMessage.id }, bobToken, aroundLocked);
+    const lockedAroundUnknown = await historyOf({ around: 'no-such-message' }, bobToken, aroundLocked);
+    check(
+      'a page around a message in a locked channel is refused like its history (403)',
+      lockedHistory.status === 403 &&
+        lockedAround.status === 403 &&
+        lockedAround.json?.error?.code === lockedHistory.json?.error?.code,
+    );
+    check('and says nothing about whether the message exists', lockedAroundUnknown.status === 403);
+    check(
+      'an administrator can open a locked channel around a message',
+      numbers(await historyOf({ around: lockedMessage.id }, ownerToken, aroundLocked)) === 'behind the lock',
+    );
+
+    await req(`/channels/${aroundLocked}`, { method: 'DELETE', token: ownerToken });
+    await req(`/roles/${aroundRole.json.id}`, { method: 'DELETE', token: ownerToken });
+    await req(`/channels/${otherRoom}`, { method: 'DELETE', token: ownerToken });
+    await req(`/channels/${aroundRoom}`, { method: 'DELETE', token: ownerToken });
+  }
+
   // --- Mute and notification settings ---
   {
     const settingsOf = async (token) => (await req('/users/@me/channel-settings', { token })).json?.settings ?? [];

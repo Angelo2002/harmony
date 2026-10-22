@@ -129,7 +129,9 @@ import {
 } from '../src/lib/search-query.ts';
 import { SLASH_COMMANDS, applySlashCommand, matchSlashCommands, slashQuery } from '../src/lib/slash-commands.ts';
 import { mediaFilesFrom } from '../src/lib/files.ts';
-import { hasLaunchTarget, parseLaunchParams, withoutLaunchParams } from '../src/lib/launch-params.ts';
+import { hasLaunchTarget, messageLink, parseLaunchParams, withoutLaunchParams } from '../src/lib/launch-params.ts';
+import { historyAroundSplit } from '@harmony/shared';
+import { appendNewer, windowAround } from '../src/lib/history-window.ts';
 import {
   clockTime,
   dayDividerLabel,
@@ -2162,6 +2164,95 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('a changelog date reads as a day (en-US)', formatChangelogDate('2026-10-22', 'en-US') === 'October 22, 2026');
   check('the first of a month stays on that day', formatChangelogDate('2026-01-01', 'en-GB') === '1 January 2026');
   check('an unreadable date is shown as written', formatChangelogDate('someday', 'en-GB') === 'someday');
+}
+
+// --- Jumping to any message: the page around it, and reading on to the present ---
+{
+  // A channel of 200 messages, m0 oldest, and the pages the server would answer
+  // with: around a message as historyAroundSplit lays it out, and after one.
+  const all = Array.from({ length: 200 }, (_, i) => ({
+    id: `m${i}`,
+    createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+  }));
+  const around = (i, limit = 50) => {
+    const split = historyAroundSplit(limit);
+    return all.slice(Math.max(0, i - split.before), i + split.after + 1);
+  };
+  const after = (id, limit = 50) => {
+    const index = all.findIndex((message) => message.id === id);
+    return all.slice(index + 1, index + 1 + limit);
+  };
+  const ids = (messages) => messages.map((message) => message.id).join(',');
+  const span = (from, to) => ids(all.slice(from, to + 1));
+  const newest = { messages: all.slice(150), hasMore: true };
+
+  const split = historyAroundSplit(50);
+  check('a page of 50 around a message is 25 before, it, and 24 after', split.before === 25 && split.after === 24);
+  check('a page of one is the message alone', historyAroundSplit(1).before === 0 && historyAroundSplit(1).after === 0);
+  check('a page of two takes the one before', historyAroundSplit(2).before === 1 && historyAroundSplit(2).after === 0);
+  check('the largest page is 50 before and 49 after', historyAroundSplit(100).before === 50 && historyAroundSplit(100).after === 49);
+
+  const old = windowAround(around(40), 'm40', 50, newest);
+  check('an old message is shown with its page around it', ids(old.messages) === span(15, 64));
+  check('a page that misses the present is an older stretch', old.detached === true);
+  check('with older history above it', old.hasMore === true);
+
+  const first = windowAround(around(3), 'm3', 50, newest);
+  check('near the channel start the page begins at its first message', ids(first.messages) === span(0, 27));
+  check('and has nothing older above it', first.hasMore === false && first.detached === true);
+
+  const recent = windowAround(around(160), 'm160', 50, newest);
+  check('a page that meets the present is joined to it', ids(recent.messages) === span(135, 199));
+  check('and the reader is in the present', recent.detached === false && recent.hasMore === true);
+
+  const latest = windowAround(around(190), 'm190', 50, null);
+  check('a page whose newer side came back short reaches the present by itself', latest.detached === false);
+  check('and keeps the messages it holds', ids(latest.messages) === span(165, 199));
+
+  const longPresent = windowAround(around(120), 'm120', 50, { messages: all.slice(90), hasMore: false });
+  check('a present reaching further back than the page is kept whole', ids(longPresent.messages) === span(90, 199));
+  check('and it is the one that knows what is older', longPresent.hasMore === false);
+
+  const raced = windowAround(around(190), 'm190', 50, { messages: all.slice(150, 199), hasMore: true });
+  check(
+    'a message newer than the present on screen lands at the end, once',
+    ids(raced.messages) === span(150, 199) && raced.detached === false,
+  );
+
+  const small = all.slice(0, 10);
+  const whole = windowAround(small, 'm5', 50, { messages: small, hasMore: false });
+  check('a small channel is simply the whole channel', ids(whole.messages) === span(0, 9) && !whole.hasMore && !whole.detached);
+  check('a page without the message is not laid out', windowAround(around(40), 'm999', 50, newest) === null);
+
+  const forward = appendNewer(old.messages, after('m64'), 50);
+  check('the page after an older stretch is appended', ids(forward.messages) === span(15, 114));
+  check('a full page leaves it short of the present', forward.detached === true);
+  const withLive = appendNewer([...old.messages, all[65]], after('m64'), 50);
+  check('a message already held is not repeated', ids(withLive.messages) === span(15, 114));
+
+  // Reading on from an old message gets back to the present with every message once.
+  let view = windowAround(around(40), 'm40', 50, newest);
+  let steps = 0;
+  while (view.detached && steps < 10) {
+    const next = appendNewer(view.messages, after(view.messages.at(-1).id), 50);
+    view = { ...view, messages: next.messages, detached: next.detached };
+    steps++;
+  }
+  check('reading on from an old message reaches the present', view.detached === false && steps === 3);
+  check('with every message from the page on exactly once', ids(view.messages) === span(15, 199));
+
+  // A link to a message, which the launch handling opens.
+  const link = messageLink('https://chat.example.com', 'c1', 'm1');
+  check('a message link is the launch link on the instance', link === 'https://chat.example.com/?channel=c1&message=m1');
+  const linked = parseLaunchParams(new URL(link).search);
+  check('the launch handling reads a message link back', linked.channelId === 'c1' && linked.messageId === 'm1');
+  check(
+    'an origin with a trailing slash does not double it',
+    messageLink('https://chat.example.com/', 'c1', 'm1') === 'https://chat.example.com/?channel=c1&message=m1',
+  );
+  const odd = parseLaunchParams(new URL(messageLink('http://127.0.0.1:8787', 'a&b=c', 'd e/é?#')).search);
+  check('ids are encoded so any id reads back unchanged', odd.channelId === 'a&b=c' && odd.messageId === 'd e/é?#');
+  check('the strip after handling leaves nothing of a message link', withoutLaunchParams(new URL(link).search) === '');
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

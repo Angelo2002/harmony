@@ -723,6 +723,34 @@ follows them; the decisions are the pure `lib/channel-history.ts`, covered by `n
   why the client takes the step itself on that `mouseup`, preventing the default first so Chrome
   does not take it twice.
 
+## Jumping to a message
+
+A link to a message (a notification tap, a deep link, or one built with `messageLink` in
+`lib/launch-params.ts`, all of them `?channel=…&message=…`) opens wherever in history the message
+sits, with one request:
+`GET /channels/:id/messages?around=<id>` returns the page centred on it, the message with about half
+the page before it and the rest after. Neither side borrows from the other at the ends of a channel,
+which is what lets the client read the counts back (`historyAroundSplit` in `packages/shared`, used
+by both sides): a short older side means there is nothing above to load, and a short newer side means
+the page already reaches the newest message.
+
+`chat.revealMessage` in the client decides what the open channel shows, through the pure
+`lib/history-window.ts` (covered by `npm run smoke:text`). A message already loaded is only scrolled
+to and flashed. Otherwise the page around it is laid against what is known of the present, which is
+the list on screen when it reaches the present, or a newest page fetched alongside when it does not.
+When the two share a message they become one list and the reader is simply in the present, with the
+message somewhere above. When they do not, the page is shown as an older stretch, **detached** from
+the present: live messages are held back rather than put straight after it, which would hide the gap.
+
+A detached stretch reads on towards the present rather than only leaping there. Scrolling near its
+end fetches the page after its newest message (`after`/`afterId`, the forward twin of the `before`
+cursor) and appends it below the reader, who stays where they are: the view does not follow a page
+appended to a stretch, even the one that rejoins the present, and stops thinking it is at the bottom.
+A page shorter than the limit is the newest one, so the stretch is the present again, the held-back
+messages are folded in from a fresh newest page, and the channel counts as read. The "Jump to present"
+bar stays for the reader who would rather leap. Search, inbox, pin, saved and gallery jumps open a
+detached stretch the same way and read on from it the same way.
+
 ## Unread channels
 
 A channel with something new in it is drawn brighter in the sidebar, with a mark down its left edge.

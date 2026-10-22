@@ -298,8 +298,10 @@ class UiState {
 
   #ownOpen(): boolean {
     return (
-      this.sidebarOpen ||
-      this.rosterOpen ||
+      // A drawer is only drawn on a narrow screen. One left open as the window
+      // widens, or a tablet turns, is out of sight and does not count, or back
+      // would spend a press closing it.
+      (this.narrow && (this.sidebarOpen || this.rosterOpen)) ||
       this.setupOpen ||
       this.aboutOpen ||
       this.adminOpen ||

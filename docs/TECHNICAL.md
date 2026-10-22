@@ -894,8 +894,9 @@ follows them; the decisions are the pure `lib/channel-history.ts`, covered by `n
   meant to change channel cannot carry on out of the app to whatever page came before.
 - **Back closes what is open over the chat before it changes channel**, as back does on a phone,
   where the drawers and panels cover the whole screen. Something opening over the chat pushes a
-  marker entry naming the open channel and how many layers are open (`depth`): the drawers, the
-  panels and the setup wizard are one layer, the quick switcher and shortcut list another, the
+  marker entry naming the open channel and how many layers are open (`depth`): the drawers (only
+  while the screen is narrow, the only place they are drawn), the panels and the setup wizard are
+  one layer, the quick switcher and shortcut list another, the
   dialogs that register themselves in `lib/modal-layers.svelte.ts` (edit history, "What's new") a
   third, and the lightbox a fourth. `ui.overlayDepth` is the one place that counts them. A step back
   that lands below what is open closes the layers above the entry it landed on and stops there, so a

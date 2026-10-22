@@ -23,6 +23,7 @@ import { emojiUsage } from './emoji-usage.svelte';
 import { gifs } from './gifs.svelte';
 import { mentionsUser, mergeLatest } from './messages';
 import { members } from './members.svelte';
+import { MemberReloadQueue } from './member-reload';
 import { roster } from './roster.svelte';
 import { commands } from './commands.svelte';
 import { nameColors } from './name-colors.svelte';
@@ -222,6 +223,9 @@ class ChatStore {
   #unreadRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   /** Coalesces a burst of emoji events into one list reload. */
   #emojiReloadTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Member and role changes waiting for the one reload that covers them all. */
+  #memberReloads = new MemberReloadQueue();
+  #memberReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
   get activeChannel(): Channel | null {
     return this.channels.find((channel) => channel.id === this.activeChannelId) ?? null;
@@ -312,6 +316,9 @@ class ChatStore {
     this.#unreadRefreshTimer = null;
     if (this.#emojiReloadTimer) clearTimeout(this.#emojiReloadTimer);
     this.#emojiReloadTimer = null;
+    if (this.#memberReloadTimer) clearTimeout(this.#memberReloadTimer);
+    this.#memberReloadTimer = null;
+    this.#memberReloads.clear();
     channelSettings.reset();
     if (this.#highlightTimer) clearTimeout(this.#highlightTimer);
     this.#highlightTimer = null;
@@ -438,12 +445,12 @@ class ChatStore {
    * Re-dresses loaded messages in their authors' current names, pictures and
    * role colors, from the freshly loaded member directory. Cheaper than
    * refetching history, keeps the reader's place, and reaches the older pages a
-   * refetch of the newest one would miss. Without `userId` everyone is checked,
-   * as after a role change that can recolor many people at once.
+   * refetch of the newest one would miss. With `userIds` null everyone is
+   * checked, as after a role change that can recolor many people at once.
    */
-  #refreshAuthors(userId?: string): void {
+  #refreshAuthors(userIds: ReadonlySet<string> | null): void {
     const current = (user: User | null): User | null => {
-      if (!user || (userId !== undefined && user.id !== userId)) return user;
+      if (!user || (userIds !== null && !userIds.has(user.id))) return user;
       const fresh = members.byId.get(user.id);
       return fresh && !sameFace(fresh, user) ? fresh : user;
     };
@@ -1187,6 +1194,25 @@ class ChatStore {
     if (message.channelId === this.activeChannelId && me.notifyMinor) playSound('minor');
   }
 
+  /**
+   * Reloads the member directory and the roster once the member and role events
+   * have gone quiet for a moment (see lib/member-reload.ts), and then re-dresses
+   * the messages on screen for everyone those events named. The wait starts
+   * over with each event, up to a limit, and `delay` is what the queue said is
+   * left of it.
+   */
+  #reloadMembersSoon(delay: number): void {
+    if (this.#memberReloadTimer !== null) clearTimeout(this.#memberReloadTimer);
+    this.#memberReloadTimer = setTimeout(() => {
+      this.#memberReloadTimer = null;
+      const reload = this.#memberReloads.take();
+      if (!reload) return;
+      if (reload.channels) void this.loadChannels();
+      void roster.load();
+      void members.load().then(() => this.#refreshAuthors(reload.authors));
+    }, delay);
+  }
+
   /** Reloads the custom emoji list once, after a short settle. */
   #reloadEmojisSoon(): void {
     if (this.#emojiReloadTimer !== null) clearTimeout(this.#emojiReloadTimer);
@@ -1389,9 +1415,8 @@ class ChatStore {
         // are locked, so refresh the channel list and the roster, and recolor the
         // names on screen. Reloading the history would do that too, but would
         // also throw a reader scrolled back through it to the newest messages.
-        void this.loadChannels();
-        void roster.load();
-        void members.load().then(() => this.#refreshAuthors());
+        // Editing roles tends to come in runs, so the refresh waits for a pause.
+        this.#reloadMembersSoon(this.#memberReloads.role(Date.now()));
         break;
       case 'COMMANDS_UPDATE':
         // A bot changed the commands it offers, so the completion list is stale.
@@ -1400,11 +1425,13 @@ class ChatStore {
 
       case 'MEMBER_UPDATE': {
         const payload = frame.d as { userId: string };
-        // The roster and mention list may have changed, and if it was us the
-        // change could be our own timeout or a role that unlocks channels. Their
-        // messages only need their new name, picture or color, not a reload.
-        void members.load().then(() => this.#refreshAuthors(payload.userId));
-        void roster.load();
+        // The roster and mention list may have changed. They are reloaded once
+        // a run of such events has paused, since a role handed to several people
+        // or a palette change announces each member separately. Their messages
+        // only need their new name, picture or color, not a reload.
+        this.#reloadMembersSoon(this.#memberReloads.member(payload.userId, Date.now()));
+        // If it was us, the change could be our own timeout or a role that
+        // unlocks channels, which should not wait for anyone else's.
         if (payload.userId === session.user?.id) {
           void this.loadChannels();
           void this.#refreshSession();

@@ -231,6 +231,31 @@ riding on `currentColor`); a color the member picked does not. Both a palette ed
 and a removal announce the affected members with `MEMBER_UPDATE`, since the color
 only changes for them in the DTO they are refetched with.
 
+## Member and role changes
+
+`MEMBER_UPDATE` carries only a member's id and the `ROLE_*` events little more
+than the role, so a client brings itself in step by refetching what they touch:
+the member directory (names, pictures and colors, which also re-dress the
+messages on screen without reloading history), the roster with the role list
+(the member list's groups and presence) and, after a role change, the channel
+list, since a role can lock or unlock channels.
+
+Every connected client hears every one of these events, and they come in runs:
+an administrator handing out several roles, a palette edit announcing each
+member who picked the color, the bridge bringing linked members' pictures in
+step. Refetching per event made each run cost every client one round of those
+lists per event. The web client now gathers them (`lib/member-reload.ts`): it
+reloads once the events have paused for 300 ms, or after two seconds of a
+steady stream, and then re-dresses the messages of every member named in the
+meantime, or of everyone when a role changed. With three clients connected,
+four role assignments in a row used to make each client fetch the directory,
+the roster and the role list four times, and three role edits made each fetch
+those and the channel list three times; each now fetches them once.
+
+An event about the signed-in member still refreshes their own session and
+channel list at once, since a timeout or a role that unlocks channels should
+not wait on anyone else's changes.
+
 ## Voice
 
 Voice chats are rooms to talk in, and the design splits along one line: clients do

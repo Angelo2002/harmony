@@ -3369,7 +3369,9 @@ Dispatched frames use `op: 0` with a `t` name and `d` payload:
 
 `MEMBER_UPDATE` fires for a member's own profile and avatar changes as well as administrator edits,
 role changes, timeouts, kicks and bans, so a client should refetch the roster (and its own profile,
-when the `userId` is its own) whenever it sees one.
+when the `userId` is its own) whenever it sees one. These events, and the `ROLE_*` ones, tend to
+arrive in runs, one per affected member or role, so a client may wait for a short pause and refetch
+once for the whole run, as the web client does (about 300 ms).
 
 `CHANNEL_DELETE` and `CATEGORY_DELETE` reach every member who could see the channel or category
 before it went. They are also how a member learns they have **lost access**: when an administrator

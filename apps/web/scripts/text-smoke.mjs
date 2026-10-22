@@ -12,7 +12,8 @@
 // per-member voice-volume control, the changelog and when the "What's new"
 // dialog shows it, and which key presses the app-wide keyboard layer takes and
 // which it leaves alone, and the formatting keys and the Up arrow of the
-// message box, and the loader behind the panels fetched on first use.
+// message box, and the loader behind the panels fetched on first use, and how a
+// burst of member and role events becomes one reload.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -171,6 +172,7 @@ import { globalShortcut, typesCharacter } from '../src/lib/global-shortcuts.ts';
 import { FORMAT_MARKERS, formatForKey, toggleFormat } from '../src/lib/composer-format.ts';
 import { lastEditable } from '../src/lib/message-edit.ts';
 import { SLOW_LOAD_MS, lazy } from '../src/lib/lazy.ts';
+import { MEMBER_RELOAD_MAX_WAIT_MS, MEMBER_RELOAD_QUIET_MS, MemberReloadQueue } from '../src/lib/member-reload.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -2504,6 +2506,42 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('a failed fetch rejects, so the panel can say so', failure instanceof TypeError && flaky.current === null);
   check('a failure is not remembered: the next opening tries again', (await flaky.load()) === 'flaky' && attempts === 2);
   check('the loading line waits a moment, but not long', SLOW_LOAD_MS > 0 && SLOW_LOAD_MS <= 500);
+}
+
+// --- Member and role events: one reload per burst ---
+{
+  const queue = new MemberReloadQueue();
+  check('an empty queue has nothing to reload', queue.take() === null);
+
+  check('a first change waits the quiet period', queue.member('u1', 0) === MEMBER_RELOAD_QUIET_MS);
+  check('another change starts the wait over', queue.member('u2', 100) === MEMBER_RELOAD_QUIET_MS);
+  queue.member('u1', 150);
+  const people = queue.take();
+  check(
+    'a burst about members reloads once, for the union of them',
+    people !== null && people.channels === false && people.authors?.size === 2 && people.authors.has('u1') && people.authors.has('u2'),
+  );
+  check('taking the batch empties the queue', queue.take() === null);
+
+  queue.member('u3', 1000);
+  queue.role(1100);
+  queue.member('u4', 1200);
+  const roles = queue.take();
+  check('a role change rechecks everyone on screen', roles !== null && roles.authors === null);
+  check('a role change reloads the channel list too', roles?.channels === true);
+
+  // A steady stream still reloads within the limit, rather than waiting for it to stop.
+  check('the first change of a long run waits the quiet period', queue.member('u5', 5000) === MEMBER_RELOAD_QUIET_MS);
+  check(
+    'near the limit the wait is cut short',
+    queue.member('u5', 5000 + MEMBER_RELOAD_MAX_WAIT_MS - 100) === 100,
+  );
+  check('past the limit the reload is due at once', queue.member('u6', 5000 + MEMBER_RELOAD_MAX_WAIT_MS + 50) === 0);
+  queue.take();
+  check('a new batch gets the full quiet period again', queue.role(9000) === MEMBER_RELOAD_QUIET_MS);
+  queue.clear();
+  check('clearing drops what had gathered', queue.take() === null);
+  check('the quiet period is a short pause', MEMBER_RELOAD_QUIET_MS >= 250 && MEMBER_RELOAD_QUIET_MS <= 500);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

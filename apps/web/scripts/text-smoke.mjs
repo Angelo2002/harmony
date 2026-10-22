@@ -2470,7 +2470,22 @@ function historySession(channelIds, { installed = false } = {}) {
   check('Escape in another text box is left to it', action(press('Escape'), inOtherField) === null);
   check('Escape while a menu or picker is open is left to it', action(press('Escape'), scene({ popover: true })) === null);
   check('Escape while a profile card shows is left to it', action(press('Escape'), scene({ card: true })) === null);
-  check('Escape while a panel is open is left to it', action(press('Escape'), scene({ panel: true })) === null);
+  check('Escape while a panel is open closes it', action(press('Escape'), scene({ panel: true })) === 'close-panel');
+  check(
+    'Escape over a panel closes it even from a text box inside it',
+    action(press('Escape'), scene({ panel: true, typing: true })) === 'close-panel',
+  );
+  check('Shift+Escape over a panel does nothing', action(press('Escape', { shiftKey: true }), scene({ panel: true })) === null);
+  check('Ctrl+Escape over a panel does nothing', action(press('Escape', { ctrlKey: true }), scene({ panel: true })) === null);
+  check('a key already used over a panel is left alone', action(press('Escape'), scene({ panel: true, handled: true })) === null);
+  check(
+    "Escape closes a phone's drawer",
+    action(press('Escape'), scene({ popover: true, drawer: true })) === 'close-panel',
+  );
+  check(
+    'but not while a profile card shows over it',
+    action(press('Escape'), scene({ popover: true, drawer: true, card: true })) === null,
+  );
   check('Shift+Escape marks every channel read', action(press('Escape', { shiftKey: true })) === 'read-all');
   check(
     'Shift+Escape marks every channel read even with nothing new here',

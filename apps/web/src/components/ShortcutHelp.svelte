@@ -45,6 +45,7 @@
         { keys: [[mod, 'U']], label: 'Show or hide the member list' },
         { keys: [[alt, '↑'], [alt, '↓']], label: 'Previous or next channel' },
         { keys: [[alt, 'Shift', '↑'], [alt, 'Shift', '↓']], label: 'Previous or next unread channel' },
+        { keys: [['Esc']], label: 'Close the open panel, or the drawer on a phone' },
         { keys: [['Esc']], label: 'Mark this channel read' },
         { keys: [['Shift', 'Esc']], label: 'Mark every channel read' },
         { keys: [['Any letter']], label: 'Start writing a message' },

@@ -68,6 +68,7 @@
       // not drawn at all, so it only counts while the screen is narrow.
       popover:
         (ui.narrow && (ui.sidebarOpen || ui.rosterOpen)) || document.querySelector(popoverSelector) !== null,
+      drawer: ui.narrow && (ui.sidebarOpen || ui.rosterOpen),
       card: profileCard.user !== null,
       typing: isTypingTarget(event.target),
       inComposer: isComposerField(event.target),
@@ -107,6 +108,16 @@
       { ...scene, handled: event.defaultPrevented },
     );
     if (!shortcut) return;
+    if (shortcut.action === 'close-panel') {
+      // Acted on only once every handler has had the key: something over the
+      // panel that closes on Escape itself marks it as used, and then only that
+      // closes. This layer listens on the window early, so it would otherwise go
+      // first.
+      setTimeout(() => {
+        if (!event.defaultPrevented) ui.dismissPanel();
+      });
+      return;
+    }
     // Moving focus is all a typed character needs: the key's own default then
     // types it into the message box, which is focused by the time it lands.
     if (shortcut.action !== 'type') event.preventDefault();

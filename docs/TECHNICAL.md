@@ -786,6 +786,7 @@ switcher its arrows, a menu its Escape. `ShortcutHelp.svelte`, opened with Ctrl+
 | Ctrl+U | Show or hide the member list | No (underline there) |
 | Ctrl+/ | The shortcut list | No |
 | Alt+Up / Alt+Down, with Shift for unread only | Previous or next channel | No |
+| Escape, over a panel or a phone's drawer | Close it | Yes |
 | Escape | Mark the open channel read and drop its "new" line | Only the message box, see below |
 | Shift+Escape | Mark every channel read | Only the message box, see below |
 | Ctrl+Shift+M / Ctrl+Shift+D | Mute / deafen, while connected to voice | Yes |
@@ -793,8 +794,8 @@ switcher its arrows, a menu its Escape. `ShortcutHelp.svelte`, opened with Ctrl+
 
 - **When the layer stays out of the way.** A key something else already used (`defaultPrevented`)
   or one that finishes an IME composition is never taken. While a panel covers the chat (anything in
-  `.admin-overlay`, or the lightbox) every shortcut but mute and deafen stays quiet, since acting
-  would happen out of sight. While the quick switcher or the shortcut list is open only they answer.
+  `.admin-overlay`, or the lightbox) every shortcut but mute, deafen and Escape stays quiet, since
+  acting would happen out of sight. While the quick switcher or the shortcut list is open only they answer.
   In a text box only the keys that mean nothing to it are taken.
 - **Escape** marks read only when nothing is open that Escape would close: a menu, a picker, a
   popover, a dialog, a drawer or a profile card. In the message box it waits until the composer has
@@ -804,6 +805,12 @@ switcher its arrows, a menu its Escape. `ShortcutHelp.svelte`, opened with Ctrl+
   capture phase, before any handler has had the key. Read after one of them, the menu would already
   have closed itself and the same press would mark the channel read as well. With nothing new in the
   open channel Escape is left alone, so it does not send a read for nothing.
+- **Escape over a panel or a phone's drawer closes it.** Most panels have no Escape of their own, so
+  without this nothing closed them from the keyboard. Whatever sits over a panel and closes on Escape
+  itself (the lightbox, a menu, the profile card, a dialog such as "What's new") marks the key as
+  used, and the layer acts on this one only after every handler has had the key, on the next turn of
+  the event loop, because it listens on the window early and would otherwise go first. So one press
+  closes only the top thing. The setup wizard is left to its own buttons.
 - **Typing a character** while focus is on nothing editable and nothing is open over the chat moves
   focus into the message box during the keydown, and the key's own default then types the character
   there. Space is left out, so a focused list still scrolls with it. AltGr counts as typing, since

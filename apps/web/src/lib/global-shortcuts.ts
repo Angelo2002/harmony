@@ -34,6 +34,8 @@ export interface KeyScene {
   dialog: boolean;
   /** A menu, picker, popover or drawer is open over the chat; each takes its own keys. */
   popover: boolean;
+  /** One of those is the channel or member drawer of a narrow screen. */
+  drawer: boolean;
   /** A profile card is showing. It closes on Escape but takes no typing. */
   card: boolean;
   /** Focus is in a field that takes text. */
@@ -54,6 +56,7 @@ export type GlobalShortcut =
   | { action: 'switcher' }
   | { action: 'help' }
   | { action: 'close-dialog' }
+  | { action: 'close-panel' }
   | { action: 'search' }
   | { action: 'inbox' }
   | { action: 'pins' }
@@ -94,6 +97,12 @@ export function typesCharacter(press: KeyPress): boolean {
  *   sight; there Ctrl+F, Ctrl+P and the rest keep the browser's meaning.
  * - While the quick switcher or the shortcut list is open only they answer:
  *   Escape closes and Ctrl+/ toggles the list.
+ * - A plain Escape over a panel, or over a narrow screen's drawer, closes it.
+ *   Most panels have no Escape of their own, so nothing else would. Whatever
+ *   sits over the panel and closes on Escape itself (the lightbox, a menu, a
+ *   picture's dialog) marks the key as used, and the caller acts on this one
+ *   only after every handler has had the key, so that press closes only the
+ *   top thing.
  * - Ctrl+F (search) and Ctrl+P (pins) work from text boxes too, since neither
  *   key means anything to a text box.
  * - Escape and Shift+Escape mark read when nothing is open over the chat that
@@ -124,7 +133,9 @@ export function globalShortcut(press: KeyPress, scene: KeyScene): GlobalShortcut
     return null;
   }
 
-  if (scene.panel) return null;
+  const plainEscape = press.key === 'Escape' && !mod && !press.altKey && !press.shiftKey;
+  if (scene.panel) return plainEscape ? { action: 'close-panel' } : null;
+  if (plainEscape && scene.drawer && !scene.card) return { action: 'close-panel' };
 
   if (ctrlOnly && key === 'f') return { action: 'search' };
   if (ctrlOnly && key === 'p') return scene.channelOpen ? { action: 'pins' } : null;

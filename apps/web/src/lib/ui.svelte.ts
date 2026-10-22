@@ -232,6 +232,16 @@ class UiState {
   }
 
   /**
+   * What Escape does over the chat: closes the open panel or drawer. The setup
+   * wizard is left alone, since it is finished or skipped with its own buttons
+   * rather than put away with a stray key.
+   */
+  dismissPanel(): void {
+    this.closeDrawers();
+    this.#closePanels();
+  }
+
+  /**
    * Leaves the setup wizard for now. It is not marked done, so it greets the
    * owner again next time; only its own last step and "Skip setup" finish it.
    */

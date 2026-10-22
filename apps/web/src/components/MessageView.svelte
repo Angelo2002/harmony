@@ -1,9 +1,12 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { Permission, hasPermission, isGifContentType, isGifLinkUrl, type Attachment, type LinkEmbed, type Message, type User } from '@harmony/shared';
   import { ApiError } from '../lib/api';
   import { chat } from '../lib/chat.svelte';
   import { focusComposer } from '../lib/composer-field';
+  import { formatForKey, toggleFormat } from '../lib/composer-format';
+  import { messageLink } from '../lib/launch-params';
+  import { messageEdit } from '../lib/message-edit.svelte';
   import { avatarUrl, initial } from '../lib/avatar';
   import { inlineSegmentsOf, parseMessage } from '../lib/message-text';
   import { firstUnreadIndex, newMessageCount, newMessagesLabel } from '../lib/unread';
@@ -58,9 +61,9 @@
   let watchedChannelId: string | null = null;
   /** The message whose reaction picker is open, if any. */
   let pickerFor = $state<string | null>(null);
-  /** The message currently being edited, and its draft text. */
-  let editingId = $state<string | null>(null);
-  let editValue = $state('');
+  /** The message whose "Copy link" just worked, for its moment of saying so. */
+  let copiedId = $state<string | null>(null);
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null;
   /** The message whose delete is awaiting confirmation. */
   let confirmingDeleteId = $state<string | null>(null);
   let actionError = $state<string | null>(null);
@@ -240,21 +243,99 @@
 
   function startEdit(message: Message): void {
     actionError = null;
-    editingId = message.id;
-    editValue = message.content;
+    messageEdit.start(message);
   }
 
-  async function saveEdit(event: SubmitEvent, message: Message): Promise<void> {
-    event.preventDefault();
-    const content = editValue.trim();
+  /** Saves the edit box; a box emptied of everything is not saved, as Save is disabled then too. */
+  async function saveEdit(message: Message): Promise<void> {
+    const content = messageEdit.draft.trim();
     if (!content) return;
     actionError = null;
     try {
       await chat.editMessage(message.id, content);
-      editingId = null;
+      // Another edit may have been started meanwhile; only this one is over.
+      if (messageEdit.id === message.id) finishEdit();
     } catch (cause) {
       actionError = cause instanceof ApiError ? cause.message : String(cause);
     }
+  }
+
+  /**
+   * Closes the edit box and hands the caret back to the message box, where the
+   * member was most likely typing before, and where the Up arrow started it.
+   */
+  function finishEdit(): void {
+    messageEdit.stop();
+    focusComposer();
+  }
+
+  /**
+   * Enter saves and Shift+Enter starts a new line, as in the message box, and
+   * Escape cancels. A key that finishes an IME composition is left to the IME, by
+   * the same test the composer uses. Ctrl+B, Ctrl+I and Ctrl+U format the
+   * selection here too.
+   */
+  async function onEditKeydown(event: KeyboardEvent, message: Message): Promise<void> {
+    const box = event.currentTarget as HTMLTextAreaElement;
+    const format = formatForKey(event);
+    if (format && !event.isComposing) {
+      event.preventDefault();
+      const next = toggleFormat({ text: box.value, start: box.selectionStart, end: box.selectionEnd }, format);
+      messageEdit.draft = next.text;
+      await tick();
+      box.setSelectionRange(next.start, next.end);
+      return;
+    }
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+      event.preventDefault();
+      void saveEdit(message);
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      finishEdit();
+    }
+  }
+
+  /**
+   * The edit box opens ready to type in: focused, with the caret after the last
+   * word, and scrolled into view, which matters when the Up arrow opened it for
+   * a message further up than the screen shows.
+   */
+  function focusEditBox(box: HTMLTextAreaElement): void {
+    box.focus({ preventScroll: true });
+    box.setSelectionRange(box.value.length, box.value.length);
+    box.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** Discord's "Mark unread": the channel is unread again from this message on. */
+  async function markUnread(message: Message): Promise<void> {
+    actionError = null;
+    try {
+      await chat.markUnreadFrom(message);
+    } catch (cause) {
+      actionError = cause instanceof ApiError ? cause.message : String(cause);
+    }
+  }
+
+  /** Copies the link that opens this message, the same one a notification tap follows. */
+  async function copyLink(message: Message): Promise<void> {
+    const link = messageLink(window.location.origin, message.channelId, message.id);
+    actionError = null;
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      // Clipboard access needs a secure origin and the browser's consent; when it
+      // is refused, the link itself is still worth having.
+      actionError = `Your browser did not allow copying. The link is ${link}`;
+      return;
+    }
+    copiedId = message.id;
+    if (copiedTimer) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedId = null;
+      copiedTimer = null;
+    }, 1500);
   }
 
   async function remove(message: Message): Promise<void> {
@@ -286,14 +367,21 @@
    * nothing here.
    */
   function onMessageClick(event: MouseEvent, message: Message): void {
-    // A device with hover already shows the actions on hover.
-    if (window.matchMedia('(hover: hover)').matches) return;
-
     const target = event.target as Element | null;
     // The emoji picker is its own surface inside the row, with a search field and
     // stretches of padding between the emoji; a tap on any of it belongs to the
-    // picker, not to the message.
-    if (target?.closest('a, button, .spoiler, .profile-trigger, .emoji-picker')) return;
+    // picker, not to the message. The same goes for the edit box.
+    if (target?.closest('a, button, .spoiler, .profile-trigger, .emoji-picker, .edit-form')) return;
+
+    // Alt+click marks the channel unread from this message, as on Discord.
+    if (event.altKey) {
+      event.preventDefault();
+      void markUnread(message);
+      return;
+    }
+
+    // A device with hover already shows the actions on hover.
+    if (window.matchMedia('(hover: hover)').matches) return;
 
     // A tap while text is selected just clears the selection.
     const selection = window.getSelection();
@@ -318,10 +406,11 @@
     return () => window.removeEventListener('pointerdown', onPointerDown, true);
   });
 
-  // A channel change leaves any open menu pointing at the wrong list.
+  // A channel change leaves any open menu, or edit box, pointing at the wrong list.
   $effect(() => {
     void chat.activeChannelId;
     actionsFor = null;
+    untrack(() => messageEdit.stop());
   });
 
   /** Loads an older page while holding the messages already on screen in place. */
@@ -549,12 +638,27 @@
         {/if}
         <div class="body">
           {#if message.replyTo}
-            <div class="reply-ref" class:deleted={message.replyTo.deleted}>
-              <span class="reply-author">{replyAuthorName(message)}</span>
-              {#if replySnippet(message)}
+            {@const replyTo = message.replyTo}
+            {#if replyTo.deleted}
+              <div class="reply-ref deleted">
+                <span class="reply-author">{replyAuthorName(message)}</span>
                 <span class="reply-text">{replySnippet(message)}</span>
-              {/if}
-            </div>
+              </div>
+            {:else}
+              <!-- The quote is the way to the message it answers, wherever in history that is. -->
+              <button
+                type="button"
+                class="reply-ref"
+                aria-label={`Jump to the replied message from ${replyAuthorName(message)}`}
+                title="Jump to the replied message"
+                onclick={() => void chat.revealMessage(replyTo.id)}
+              >
+                <span class="reply-author">{replyAuthorName(message)}</span>
+                {#if replySnippet(message)}
+                  <span class="reply-text">{replySnippet(message)}</span>
+                {/if}
+              </button>
+            {/if}
           {/if}
 
           {#if !grouped}
@@ -587,12 +691,27 @@
           {/if}
           {#if grouped && message.pinnedAt}<span class="pin-marker grouped" title="Pinned"><Icon name="pin" size={13} /></span>{/if}
 
-          {#if editingId === message.id}
-            <form class="edit-form" onsubmit={(event) => saveEdit(event, message)}>
-              <textarea class="edit-box" bind:value={editValue} rows="3" aria-label="Edit message"></textarea>
+          {#if messageEdit.id === message.id}
+            <form
+              class="edit-form"
+              onsubmit={(event) => {
+                event.preventDefault();
+                void saveEdit(message);
+              }}
+            >
+              <textarea
+                class="edit-box"
+                bind:value={messageEdit.draft}
+                rows="3"
+                aria-label="Edit message"
+                aria-describedby="edit-hint-{message.id}"
+                use:focusEditBox
+                onkeydown={(event) => onEditKeydown(event, message)}
+              ></textarea>
+              <p id="edit-hint-{message.id}" class="edit-hint">Enter to save, Shift+Enter for a new line, Escape to cancel</p>
               <div class="edit-actions">
-                <button type="submit" disabled={!editValue.trim()}>Save</button>
-                <button type="button" class="ghost" onclick={() => (editingId = null)}>Cancel</button>
+                <button type="submit" disabled={!messageEdit.draft.trim()}>Save</button>
+                <button type="button" class="ghost" onclick={finishEdit}>Cancel</button>
               </div>
             </form>
           {:else}
@@ -778,6 +897,22 @@
           >
             React
           </button>
+          <button
+            type="button"
+            title="Copy a link that opens this message"
+            onclick={() => {
+              void copyLink(message);
+              actionsFor = null;
+            }}>{copiedId === message.id ? 'Copied' : 'Copy link'}</button
+          >
+          <button
+            type="button"
+            title="Mark the channel unread from this message (Alt+click a message)"
+            onclick={() => {
+              void markUnread(message);
+              actionsFor = null;
+            }}>Mark unread</button
+          >
           <PinAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
           <SaveAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
           <ServerGifAction {message} ondone={() => (actionsFor = null)} onerror={(text) => (actionError = text)} />
@@ -804,7 +939,19 @@
               >
               <button type="button" onclick={() => (confirmingDeleteId = null)}>Cancel</button>
             {:else}
-              <button type="button" title="Delete" onclick={() => (confirmingDeleteId = message.id)}>Delete</button>
+              <!-- Shift skips the confirming step, as on Discord. -->
+              <button
+                type="button"
+                title="Delete (Shift+click to delete without confirming)"
+                onclick={(event) => {
+                  if (event.shiftKey) {
+                    void remove(message);
+                    actionsFor = null;
+                  } else {
+                    confirmingDeleteId = message.id;
+                  }
+                }}>Delete</button
+              >
             {/if}
           {/if}
         </div>

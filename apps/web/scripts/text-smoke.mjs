@@ -11,7 +11,8 @@
 // map, deafen-over-volume rule and two-stage element/graph split behind the
 // per-member voice-volume control, the changelog and when the "What's new"
 // dialog shows it, and which key presses the app-wide keyboard layer takes and
-// which it leaves alone.
+// which it leaves alone, and the formatting keys and the Up arrow of the
+// message box.
 //
 // Run with: npm run smoke:text
 import { readFileSync } from 'node:fs';
@@ -167,6 +168,8 @@ import {
 } from '@harmony/shared';
 import { changelogSeenKey, formatChangelogDate, newerSeen, planChangelog, readSeenMarker } from '../src/lib/changelog.ts';
 import { globalShortcut, typesCharacter } from '../src/lib/global-shortcuts.ts';
+import { FORMAT_MARKERS, formatForKey, toggleFormat } from '../src/lib/composer-format.ts';
+import { lastEditable } from '../src/lib/message-edit.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -2428,6 +2431,49 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
   check('Alt plus a letter is not typing', !typesCharacter(press('x', { altKey: true })));
   check('Cmd plus a letter is not typing', !typesCharacter(press('v', { metaKey: true })));
   check('AltGr, reported as Ctrl and Alt, types', typesCharacter(press('@', { ctrlKey: true, altKey: true, altGraph: true })));
+}
+
+// --- The message box's own keys: formatting and the Up arrow ---
+{
+  const press = (key, extra = {}) => ({ key, ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, ...extra });
+  check('Ctrl+B, Ctrl+I and Ctrl+U are bold, italic and underline', formatForKey(press('b')) === 'bold' && formatForKey(press('i')) === 'italic' && formatForKey(press('u')) === 'underline');
+  check('Cmd works where Ctrl does', formatForKey(press('B', { ctrlKey: false, metaKey: true })) === 'bold');
+  check('Shift or Alt makes it some other shortcut', formatForKey(press('u', { shiftKey: true })) === null && formatForKey(press('b', { altKey: true })) === null);
+  check('a plain letter is not a format', formatForKey(press('b', { ctrlKey: false })) === null);
+  check('the markers are the ones the parser reads', FORMAT_MARKERS.bold === '**' && FORMAT_MARKERS.italic === '*' && FORMAT_MARKERS.underline === '__');
+
+  const at = (text, start, end = start) => ({ text, start, end });
+  const same = (got, text, start, end) => got.text === text && got.start === start && got.end === end;
+
+  check('wrapping a word keeps it selected', same(toggleFormat(at('say hello now', 4, 9), 'bold'), 'say **hello** now', 6, 11));
+  check('nothing selected puts the pair in with the caret between', same(toggleFormat(at('ab', 1), 'italic'), 'a**b', 2, 2));
+  check('an empty box gets the pair', same(toggleFormat(at('', 0), 'underline'), '____', 2, 2));
+  check('a second press takes the markers off the selected words', same(toggleFormat(at('say **hello** now', 6, 11), 'bold'), 'say hello now', 4, 9));
+  check('selecting the markers too takes them off as well', same(toggleFormat(at('say **hello** now', 4, 13), 'bold'), 'say hello now', 4, 9));
+  check('spaces at the edges stay outside the markers', same(toggleFormat(at('a  word  b', 1, 8), 'bold'), 'a  **word**  b', 5, 9));
+  check('a selection of only spaces acts like the caret at its end', toggleFormat(at('a   b', 1, 4), 'bold').text === 'a   ****b');
+  check('a selection made backwards is taken the right way round', same(toggleFormat(at('hello', 5, 0), 'italic'), '*hello*', 1, 6));
+  check('several lines are wrapped as one', toggleFormat(at('one\ntwo', 0, 7), 'bold').text === '**one\ntwo**');
+  check('italic on bold words makes them both', toggleFormat(at('**bold**', 0, 8), 'italic').text === '***bold***');
+  check('italic comes off bold-and-italic words and leaves the bold', toggleFormat(at('***both***', 0, 10), 'italic').text === '**both**');
+  check('bold comes off bold-and-italic words and leaves the italic', toggleFormat(at('***both***', 0, 10), 'bold').text === '*both*');
+  check('italic is not mistaken for bold markers around the words', toggleFormat(at('**bold**', 2, 6), 'italic').text === '***bold***');
+  check('bold words inside get their markers taken off by bold', same(toggleFormat(at('***both***', 3, 7), 'bold'), '*both*', 1, 5));
+  check('underline wraps in double underscores', toggleFormat(at('x', 0, 1), 'underline').text === '__x__');
+  check('an empty pair selected is taken away', same(toggleFormat(at('a****b', 1, 5), 'bold'), 'ab', 1, 1));
+  check('a press, then a press with the pair selected, leaves nothing behind', (() => {
+    const first = toggleFormat(at('', 0), 'italic');
+    return toggleFormat({ text: first.text, start: 0, end: first.text.length }, 'italic').text === '';
+  })());
+  check('a selection past the end is held to the text', same(toggleFormat(at('hi', 0, 99), 'bold'), '**hi**', 2, 4));
+
+  const message = (id, authorId, poll = null) => ({ id, author: authorId === null ? null : { id: authorId }, poll });
+  const list = [message('m1', 'me'), message('m2', 'you'), message('m3', 'me', { question: 'q' }), message('m4', 'you')];
+  check('the Up arrow edits your newest message', lastEditable(list, 'me')?.id === 'm1');
+  check('a poll is passed over, since it cannot be edited', lastEditable([message('m1', 'me'), message('m2', 'me', {})], 'me')?.id === 'm1');
+  check('nothing of yours means nothing to edit', lastEditable(list, 'them') === null);
+  check('signed out means nothing to edit', lastEditable(list, undefined) === null);
+  check("a deleted account's message is nobody's", lastEditable([message('m1', null)], 'me') === null);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);

@@ -758,6 +758,40 @@ switcher its arrows, a menu its Escape. `ShortcutHelp.svelte`, opened with Ctrl+
   leaves the mute setting alone (a deafened member is muted without it changing), so undeafening
   brings back whatever it was.
 
+### The message box, the edit box and the messages
+
+The message box (`Composer.svelte`) and a message's edit box (`MessageView.svelte`) take their own
+keys first and prevent them, which is also what keeps Ctrl+I and Ctrl+U, the inbox and the member
+list everywhere else, from reaching the app-wide layer while someone types.
+
+| Keys | Where | What they do |
+| --- | --- | --- |
+| Enter / Shift+Enter | Both | Send or save / a new line |
+| Ctrl+B / Ctrl+I / Ctrl+U | Both | Wrap the selection in `**`, `*` or `__`, or take them off again |
+| Escape | Edit box | Cancel the edit and go back to the message box |
+| Escape | Message box | Back out of a suggestion list, a picker, the timestamp list or a reply, one at a time |
+| Up | Empty message box | Edit your newest message in the channel (not a poll) |
+| Ctrl+E / Ctrl+G | Message box | Open or close the emoji / gif picker |
+| Ctrl+Shift+U | Message box | Choose a file to attach |
+
+- **Formatting** is the pure `lib/composer-format.ts`, covered by `npm run smoke:text`. With nothing
+  selected the pair goes in with the caret between; a selection that already has the format, whether
+  the markers were selected too or sit just outside it, has it taken off; spaces at the edges of a
+  selection stay outside the markers, since markdown does not read `** bold**` as bold. Asterisks
+  stack as the parser reads them (one italic, two bold, three both), so italic on bold words makes
+  them both and comes off again without taking the bold.
+- **The edit state** lives in `lib/message-edit.svelte.ts` rather than in the message view, because
+  the message box starts edits too. Only one message is edited at a time, a channel change closes the
+  edit box, and the box opens focused with the caret at the end and scrolled into view. Saving or
+  cancelling hands the caret back to the message box.
+- **Messages.** Clicking a reply's quote jumps to the message it answers through
+  `chat.revealMessage`, however far back it is (see "Jumping to a message"); a quote whose message
+  was deleted is plain text. Alt+click on a message, or its "Mark unread" action, marks the channel
+  unread from it (see "Unread channels"); the actions are there for a phone, which has no Alt.
+  "Copy link" copies the same link a notification tap opens, `?channel=…&message=…` on the
+  instance's address. Shift+click on Delete deletes without the confirming step, as on Discord. On a
+  narrow screen the actions toolbar wraps onto a second row rather than running off the screen.
+
 ## Going back and forward
 
 Every channel opened, by whatever route (the sidebar, the quick switcher, the channel arrows, a

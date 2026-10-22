@@ -79,7 +79,7 @@
         { keys: [[mod, 'Shift', 'U']], label: 'Attach a file' },
         { keys: [['↑']], label: 'Edit your last message, from an empty box' },
         { keys: [['Tab']], label: 'Take the highlighted suggestion' },
-        { keys: [['Esc']], label: 'Cancel a reply or close suggestions, then mark the channel read' },
+        { keys: [['Esc']], label: 'Close a picker or suggestions, or cancel a reply; then mark the channel read' },
       ],
     },
     {

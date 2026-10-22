@@ -937,8 +937,11 @@ class ChatStore {
     try {
       const page = await this.#fetchHistory(channelId, { before: oldest.createdAt, beforeId: oldest.id });
       // A channel switch or a jump while this was in flight must not splice in
-      // history from before a list that is no longer there.
+      // history from before a list that is no longer there. A reply's quote
+      // replaces the list only when its page lands, after this may have set off,
+      // so the page also has to still meet the list's first message.
       if (channelId !== this.activeChannelId || load !== this.#historyLoad) return;
+      if (this.messages[0]?.id !== oldest.id) return;
       this.messages = [...page, ...this.messages];
       this.hasMore = page.length >= historyPageSize;
     } finally {
@@ -964,6 +967,9 @@ class ChatStore {
     try {
       const page = await this.#fetchHistory(channelId, { after: newest.createdAt, afterId: newest.id });
       if (channelId !== this.activeChannelId || load !== this.#historyLoad || !this.detached) return;
+      // As in loadOlder: a list replaced meanwhile no longer ends where this
+      // page begins, and joining the two would hide what lies between them.
+      if (this.messages.at(-1)?.id !== newest.id) return;
       const next = appendNewer(this.messages, page, historyPageSize);
       this.messages = next.messages;
       this.detached = next.detached;

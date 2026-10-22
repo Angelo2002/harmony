@@ -2,6 +2,7 @@
   import { tick } from 'svelte';
   import { Permission, hasPermission, type Message, type MessageEdit, type MessageEditListResponse } from '@harmony/shared';
   import { ApiError, api } from '../lib/api';
+  import { portal } from '../lib/portal';
   import { session } from '../lib/session.svelte';
   import { trapFocus } from '../lib/shortcuts.svelte';
   import { diffWords } from '../lib/text-diff';
@@ -84,8 +85,12 @@
 {/if}
 
 {#if open}
+  <!--
+    The marker sits inside a message row, which is transformed, so the layer is
+    moved to the body to cover the window rather than that one row.
+  -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="eh-layer" onkeydown={onKeydown}>
+  <div class="eh-layer" onkeydown={onKeydown} use:portal>
     <button class="eh-backdrop" type="button" tabindex="-1" aria-label="Close edit history" onclick={close}></button>
     <div class="eh-dialog" role="dialog" aria-modal="true" aria-labelledby="eh-title-{message.id}" use:trapFocus>
       <div class="eh-head">
@@ -160,6 +165,14 @@
     border: none;
     background: rgb(0 0 0 / 70%);
     cursor: default;
+  }
+
+  /* A button, so the shared hover and active styles are pinned off it, as on every backdrop. */
+  .eh-backdrop:hover:not(:disabled),
+  .eh-backdrop:active:not(:disabled) {
+    background: rgb(0 0 0 / 70%);
+    box-shadow: none;
+    transform: none;
   }
 
   .eh-dialog {

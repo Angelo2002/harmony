@@ -576,6 +576,11 @@ The shared contract (currently duplicated — see Gap 1):
   above the catcher.
 - `role="dialog"` + `aria-modal="true"`; Escape closes; focus returns to the
   opener (e.g. `EventsPanel`, `Lightbox`).
+- A layer opened from inside a message row or a sidebar row must leave the row
+  with `use:portal` (`lib/portal.ts`), as `EditHistory` does. Those rows carry a
+  transform and `will-change: transform` for their hover nudge, and either one
+  makes the row the box `position: fixed` is measured against, so the layer
+  would cover that one row instead of the window.
 - z-index ladder: `.screen-share` `50`; `.notice` and `.profile-card` `60`;
   drawers/backdrop `75`–`80`; composer action popovers `90`–`91`; admin overlay
   `100`; dialogs that can open over a panel (what's new, shortcut help, edit

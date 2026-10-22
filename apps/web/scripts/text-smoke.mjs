@@ -2506,7 +2506,7 @@ check('the app badge clears when all is read', unreadBadge(0, 0) === null);
     (cause) => cause,
   );
   check('a failed fetch rejects, so the panel can say so', failure instanceof TypeError && flaky.current === null);
-  check('a failure is not remembered: the next opening tries again', (await flaky.load()) === 'flaky' && attempts === 2);
+  check('the loader forgets a failure, so the next opening asks again', (await flaky.load()) === 'flaky' && attempts === 2);
   check('the loading line waits a moment, but not long', SLOW_LOAD_MS > 0 && SLOW_LOAD_MS <= 500);
 }
 

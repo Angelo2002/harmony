@@ -13,10 +13,13 @@ export interface Lazy<T> {
   readonly current: T | null;
   /**
    * Fetches it, or joins the fetch already under way, so two openings in quick
-   * succession make one request. A failure is not remembered: the next opening
-   * tries again, which is enough after a dropped connection. After an update has
-   * replaced the files a page was built against, only a reload helps, which is
-   * what the panel offers when this rejects.
+   * succession make one request. A failure is not kept here, so the next
+   * opening asks the browser again, but that is no promise of a second
+   * download: Chromium remembers a module that failed to load for as long as
+   * the page is open, and fails the same import again at once. A reload is what
+   * reliably recovers, after a dropped connection as much as after an update
+   * that replaced the files the page was built against, and it is what the
+   * panel offers when this rejects.
    */
   load(): Promise<T>;
 }

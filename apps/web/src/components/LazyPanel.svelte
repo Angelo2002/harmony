@@ -103,8 +103,8 @@
     >
       <h3 id="lazy-error-title">Could not open {label}</h3>
       <p id="lazy-error-text" class="status err">
-        It did not download. If Harmony was updated since this page was opened, reloading picks up the new
-        version; otherwise check the connection and try again.
+        It did not download. Harmony may have been updated since this page was opened, or the connection
+        dropped; reloading the page fixes either, once you are back online.
       </p>
       <div class="editor-actions">
         <button type="button" data-autofocus onclick={() => window.location.reload()}>Reload</button>

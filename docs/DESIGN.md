@@ -556,7 +556,7 @@ under a "Discord" heading and a stand-in has no other profile fields.
 | Loading | `<p class="muted">Loading…</p>` in the panel body | No skeleton, no spinner. **Gap 2 (§4.9).** |
 | Loading older | "Loading older messages…" above the stream | Same. |
 | Panel still downloading | `LazyPanel`: nothing for the first 200 ms, then a centered pill with a spinner and "Loading …" (`role="status"`). | Opaque, not glass: a turning spinner inside a backdrop filter makes Firefox repaint the blur every frame. |
-| Panel failed to download | `LazyPanel`: a modal card with a `.status.err` explanation, Reload (focused) and Close. | The recovery is a reload, because the usual cause is an update that replaced the files. |
+| Panel failed to download | `LazyPanel`: a modal card with a `.status.err` explanation, Reload (focused) and Close. | The recovery is a reload: the usual cause is an update that replaced the files, and Chromium keeps a failed download failed until the page reloads. |
 | Uploading | Progress on the attachment in `Composer` (`uploadBatches`). | Keep; the one place with real progress UI. |
 | Empty | One `.muted` sentence, plain language, no blame. `.roster-empty`, `.qs-empty`, "No messages yet. Say hello!" | Good pattern; formalize as a primitive. |
 | Error (text) | `.form-error` (error color) under a field; `role="alert"` where announced. | Inline, single-column (§ forms). |

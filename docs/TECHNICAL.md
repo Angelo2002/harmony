@@ -142,8 +142,11 @@ scheduled messages and the media gallery. `lib/lazy-panels.ts` lists them, and
 - A fetch that fails says so in a small dialog with a Reload button. The usual
   cause is an update: the open page names the hashed files of the build it came
   from, an update replaces them, and the server answers `404` for the old names.
-  Reloading fetches the new `index.html` and with it the new names. A failure is
-  not remembered, so after a dropped connection the next opening just tries again.
+  Reloading fetches the new `index.html` and with it the new names. A reload is
+  also the way back after a dropped connection: the loader forgets a failure and
+  asks again on the next opening, but Chromium keeps a module that failed to
+  load as failed for the life of the page, so without a reload the same panel
+  fails again at once, with no new request.
 
 Search, the mentions inbox, pins and saved messages stay in the entry chunk:
 they are opened often enough that waiting on first use would cost more than it

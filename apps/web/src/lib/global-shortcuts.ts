@@ -28,7 +28,11 @@ export interface KeyPress {
 export interface KeyScene {
   /** Something earlier already acted on this key, by calling `preventDefault`. */
   handled: boolean;
-  /** A modal panel (admin, search, inbox, pins, a profile and so on) or the lightbox covers the chat. */
+  /**
+   * A modal panel (admin, search, inbox, pins, a profile and so on), a dialog
+   * registered as a modal layer (edit history, "What's new") or the lightbox
+   * covers the chat.
+   */
   panel: boolean;
   /** The quick switcher or the shortcut list, the keyboard layer's own dialogs, is open. */
   dialog: boolean;

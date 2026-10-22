@@ -4,6 +4,7 @@
   import { composerTakesText, focusComposer, isComposerField } from '../lib/composer-field';
   import { globalShortcut, type GlobalShortcut, type KeyScene } from '../lib/global-shortcuts';
   import { lightbox } from '../lib/lightbox.svelte';
+  import { modalLayers } from '../lib/modal-layers.svelte';
   import { profileCard } from '../lib/profile-card.svelte';
   import { sidebarOrder, stepChannel } from '../lib/quick-switch';
   import { isTypingTarget, shortcuts } from '../lib/shortcuts.svelte';
@@ -61,8 +62,10 @@
     return {
       // The admin, profile, search, inbox, pins and setup panels all sit in
       // this overlay; the setup wizard has no store to ask, so the overlay is
-      // what is looked for. The lightbox covers the chat the same way.
-      panel: document.querySelector('.admin-overlay') !== null || lightbox.url !== null,
+      // what is looked for. The lightbox covers the chat the same way, and so
+      // do the dialogs that register as modal layers (edit history, "What's
+      // new"), whose shortcuts would otherwise act out of sight beneath them.
+      panel: document.querySelector('.admin-overlay') !== null || lightbox.url !== null || modalLayers.count > 0,
       dialog: shortcuts.panel !== null,
       // A drawer left open on a narrow screen that has since been widened is
       // not drawn at all, so it only counts while the screen is narrow.
@@ -113,8 +116,12 @@
       // panel that closes on Escape itself marks it as used, and then only that
       // closes. This layer listens on the window early, so it would otherwise go
       // first.
+      // A registered dialog is the top layer when one is open; it closes on
+      // Escape itself, and this only reaches it with focus outside it.
       setTimeout(() => {
-        if (!event.defaultPrevented) ui.dismissPanel();
+        if (event.defaultPrevented) return;
+        if (modalLayers.count > 0) modalLayers.closeAll();
+        else ui.dismissPanel();
       });
       return;
     }

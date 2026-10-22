@@ -794,8 +794,9 @@ switcher its arrows, a menu its Escape. `ShortcutHelp.svelte`, opened with Ctrl+
 
 - **When the layer stays out of the way.** A key something else already used (`defaultPrevented`)
   or one that finishes an IME composition is never taken. While a panel covers the chat (anything in
-  `.admin-overlay`, or the lightbox) every shortcut but mute, deafen and Escape stays quiet, since
-  acting would happen out of sight. While the quick switcher or the shortcut list is open only they answer.
+  `.admin-overlay`, the lightbox, or a dialog registered in `lib/modal-layers.svelte.ts` such as a
+  message's edit history) every shortcut but mute, deafen and Escape stays quiet, since acting would
+  happen out of sight. While the quick switcher or the shortcut list is open only they answer.
   In a text box only the keys that mean nothing to it are taken.
 - **Escape** marks read only when nothing is open that Escape would close: a menu, a picker, a
   popover, a dialog, a drawer or a profile card. In the message box it waits until the composer has
@@ -810,7 +811,8 @@ switcher its arrows, a menu its Escape. `ShortcutHelp.svelte`, opened with Ctrl+
   itself (the lightbox, a menu, the profile card, a dialog such as "What's new") marks the key as
   used, and the layer acts on this one only after every handler has had the key, on the next turn of
   the event loop, because it listens on the window early and would otherwise go first. So one press
-  closes only the top thing. The setup wizard is left to its own buttons.
+  closes only the top thing. A registered dialog that did not get the key, because focus was
+  outside it, is closed before any panel beneath it. The setup wizard is left to its own buttons.
 - **Typing a character** while focus is on nothing editable and nothing is open over the chat moves
   focus into the message box during the keydown, and the key's own default then types the character
   there. Space is left out, so a focused list still scrolls with it. AltGr counts as typing, since

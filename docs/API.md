@@ -622,9 +622,10 @@ account from their profile. It uses the same Discord application as the
 [bridge](#discord-bridge): register the callback URL shown in **Admin → Bridge** under *OAuth2 →
 Redirects* in the Discord developer portal, then save the client id and secret there.
 
-The flow is OAuth2 authorization code with PKCE and a one-time `state`. Both endpoints below end in
-a browser navigation, so they redirect back into the app with a short outcome code in the query
-string (`?discord=linked`, `?discord_error=taken`, and so on) rather than returning JSON.
+The flow is OAuth2 authorization code with PKCE and a one-time `state`. Starting a sign-in returns
+the authorize URL as JSON for the client to follow; the callback still lands by navigation, so a
+finished or failed flow redirects back into the app with a short outcome code in the query string
+(`?discord=linked`, `?discord_error=taken`, and so on).
 
 #### `GET /api/v1/discord/auth` — `ManageServer`
 
@@ -640,10 +641,25 @@ the flow cannot run without one. The secret is write-only: it is never returned.
 
 #### `GET /api/v1/auth/discord` — no auth
 
-Starts the flow and redirects to Discord. `intent=link` connects a Discord account to the
-signed-in member and must be started while signed in; the default is `intent=login`. A login may
-carry `invite=<code>`, which is used only if it ends up creating an account and invites are required. Either way the
-browser leaves the app, so a failure is a redirect back to `/?discord_error=…`.
+Starts the flow by navigation and redirects to Discord. `intent=link` connects a Discord account to
+the signed-in member and must be started while signed in; the default is `intent=login`. It carries
+no invite code — a code is supplied through the POST below, so it never rides in the URL the browser
+records or the server logs. The browser leaves the app, so a failure is a redirect back to
+`/?discord_error=…`.
+
+#### `POST /api/v1/auth/discord` — no auth, rate limited
+
+Starts a Discord sign-in and returns the authorize URL for the client to follow. The invite code
+travels in the body, not the query string:
+
+```json
+{ "invite": "abc123" }
+```
+
+`invite` is optional and used only if the flow ends up creating an account and invites are required.
+The response is `{ "url": "https://discord.com/oauth2/authorize?…" }`; the browser binding cookie is
+set on this response just as on the GET. Errors come back as JSON rather than a redirect, e.g.
+`404 discord_auth_disabled` when Discord sign-in is not configured or enabled.
 
 #### `GET /api/v1/auth/discord/callback` — no auth
 

@@ -89,9 +89,14 @@
       authDiscordError = error;
       authDiscordResume = resume;
     } else if (ok || error) {
+      // The query string is arbitrary input, so a key is only read from our own
+      // maps: `?discord_error=constructor` otherwise resolves to an inherited
+      // function and its string form is rendered.
+      const errorText = error && Object.hasOwn(DISCORD_ERROR, error) ? DISCORD_ERROR[error] : null;
+      const okText = ok && Object.hasOwn(DISCORD_OK, ok) ? DISCORD_OK[ok] : null;
       notice = error
-        ? { text: DISCORD_ERROR[error] ?? 'Discord sign-in failed.', kind: 'error' }
-        : { text: DISCORD_OK[ok ?? ''] ?? 'Discord connected.', kind: 'ok' };
+        ? { text: errorText ?? 'Discord sign-in failed.', kind: 'error' }
+        : { text: okText ?? 'Discord connected.', kind: 'ok' };
     }
     if (invite || ok || error || resume) {
       window.history.replaceState(null, '', window.location.pathname + window.location.hash);

@@ -3,9 +3,11 @@ import {
   GatewayEvent,
   Permission,
   discordFinishSchema,
+  discordStartSchema,
   updateDiscordAuthSchema,
   type AuthResponse,
   type DiscordAuthResponse,
+  type DiscordStartResponse,
 } from '@harmony/shared';
 import type { Config } from '../config.ts';
 import type { DiscordIdentity, DiscordOAuthService } from '../auth/discord-oauth.ts';
@@ -109,6 +111,11 @@ export function registerDiscordRoutes(app: FastifyInstance, deps: DiscordRouteDe
    * Starts the Discord flow. `intent=link` connects a Discord account to the
    * signed-in member; the default is to sign in with it. A browser lands here by
    * navigation, so failures come back as a redirect rather than a JSON error.
+   *
+   * This carries no invite code: a sign-in with one is started through the POST
+   * below, so the code never rides in the URL the browser records or the server
+   * logs. A sign-in without a code (an instance that does not require invites)
+   * can still navigate here, and lands the same way.
    */
   app.get('/api/v1/auth/discord', async (request, reply) => {
     if (!deps.oauth.enabled()) return backTo(reply, { discord_error: 'disabled' });
@@ -118,13 +125,32 @@ export function registerDiscordRoutes(app: FastifyInstance, deps: DiscordRouteDe
     // Linking is a change to an account, so it must be started by its owner.
     if (intent === 'link' && !request.auth) return backTo(reply, { discord_error: 'not_signed_in' });
 
-    const invite = (request.query as { invite?: string }).invite?.trim().slice(0, 200) || null;
     const flow = deps.oauth.authorizeUrl(intent, {
-      inviteCode: intent === 'login' ? invite : null,
       userId: intent === 'link' ? (request.auth?.user.id ?? null) : null,
     });
     setDiscordFlowCookie(reply, deps.config, flow.binding, STATE_TTL_MS / 1000);
     return reply.redirect(flow.url);
+  });
+
+  /**
+   * Starts a Discord sign-in, returning the authorize URL as JSON so the client
+   * follows it itself. The invite code travels in the body rather than the query
+   * string, so it stays out of browser history and the access log; that is the
+   * whole reason this exists beside the navigation above. The flow cookie is set
+   * on this response, so the callback is still tied to the browser that started
+   * it.
+   */
+  app.post('/api/v1/auth/discord', async (request, reply) => {
+    if (!deps.oauth.enabled()) {
+      throw new HttpError(404, 'discord_auth_disabled', 'Discord sign-in is not available.');
+    }
+    startLimiter.check(request.ip);
+
+    const input = parseBody(discordStartSchema, request.body ?? {});
+    const flow = deps.oauth.authorizeUrl('login', { inviteCode: input.invite ?? null, userId: null });
+    setDiscordFlowCookie(reply, deps.config, flow.binding, STATE_TTL_MS / 1000);
+    const body: DiscordStartResponse = { url: flow.url };
+    return body;
   });
 
   /**

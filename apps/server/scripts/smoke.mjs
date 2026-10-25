@@ -5573,6 +5573,45 @@ try {
     globalThis.fetch = realFetch;
   }
 
+  // The first account bootstraps the instance, so neither the pre-flight nor a
+  // Discord sign-in may demand an invite for it. `register` and `verifyInvite`
+  // skip the invite when no real account exists yet, and `signInWithDiscord`
+  // must agree with them, or a valid pre-flight would park on invite_required.
+  const firstDir = mkdtempSync(join(tmpdir(), 'harmony-first-'));
+  const firstStore = new Database({
+    dataDir: firstDir,
+    dbFile: join(firstDir, 'harmony.db'),
+    uploadDir: join(firstDir, 'uploads'),
+  });
+  const firstAuth = createAuthService(firstStore.sqlite, { sessionTtlDays: 1 }, { get: () => ({ requireInvite: true }) });
+  let firstPreflight = null;
+  try {
+    firstAuth.verifyInvite(null);
+  } catch (error) {
+    firstPreflight = error;
+  }
+  let firstDiscord = null;
+  try {
+    firstDiscord = firstAuth.signInWithDiscord(discordIdentity('710000000000000001', 'bootstrap'), null, null);
+  } catch (error) {
+    firstDiscord = error;
+  }
+  check('the pre-flight passes with no invite on a userless instance', firstPreflight === null, String(firstPreflight));
+  check(
+    'a first Discord sign-in needs no invite, matching register',
+    firstDiscord?.created === true && !!firstDiscord?.auth?.token,
+    String(firstDiscord),
+  );
+  let secondDiscord = null;
+  try {
+    firstAuth.signInWithDiscord(discordIdentity('710000000000000002', 'second'), null, null);
+  } catch (error) {
+    secondDiscord = error;
+  }
+  check('once an account exists a Discord sign-in needs the invite again', secondDiscord?.code === 'invite_required');
+  firstStore.close();
+  rmSync(firstDir, { recursive: true, force: true });
+
   ghostStore.close();
   rmSync(ghostDir, { recursive: true, force: true });
 
@@ -8901,22 +8940,43 @@ try {
     (await req('/meta')).json?.discordAuthEnabled === true,
   );
 
-  // Starting the flow hands the browser to Discord, with PKCE and a state.
-  const discordStart = await fetch(`${BASE}/auth/discord`, { redirect: 'manual' });
-  const discordStartTo = discordStart.headers.get('location') ?? '';
+  // Starting a sign-in is a POST so the invite code travels in the request body,
+  // never the URL; the client follows the authorize URL the response carries.
+  const startDiscordSignIn = async (invite) => {
+    const response = await fetch(`${BASE}/auth/discord`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(invite === undefined ? {} : { invite }),
+    });
+    const body = await response.json().catch(() => ({}));
+    return { status: response.status, url: body?.url ?? '', cookies: response.headers.getSetCookie?.() ?? [] };
+  };
+
+  const discordStart = await startDiscordSignIn();
+  const discordStartTo = discordStart.url;
   check(
-    'starting Discord sign-in redirects to Discord with PKCE',
-    discordStart.status >= 300 &&
-      discordStart.status < 400 &&
+    'starting Discord sign-in returns a PKCE authorize URL',
+    discordStart.status === 200 &&
       discordStartTo.startsWith('https://discord.com/oauth2/authorize') &&
       discordStartTo.includes('client_id=123456789012345678') &&
       discordStartTo.includes('code_challenge_method=S256'),
     `${discordStart.status} ${discordStartTo}`,
   );
 
+  // The invite code rides in the body, so it cannot land in browser history or
+  // the access log the way a query parameter would.
+  const invitedStart = await startDiscordSignIn('invite-canary');
+  check(
+    'the invite code never appears in the Discord start URL',
+    invitedStart.status === 200 &&
+      invitedStart.url.startsWith('https://discord.com/oauth2/authorize') &&
+      !invitedStart.url.includes('invite-canary'),
+    `${invitedStart.status} ${invitedStart.url}`,
+  );
+
   // The flow is bound to the browser that started it, so a callback URL handed
   // to someone else is worthless.
-  const flowCookie = discordStart.headers.getSetCookie?.().find((value) => value.startsWith('harmony_session_discord=')) ?? '';
+  const flowCookie = discordStart.cookies.find((value) => value.startsWith('harmony_session_discord=')) ?? '';
   check(
     'starting Discord sign-in sets an HttpOnly browser binding',
     flowCookie.includes('HttpOnly') && flowCookie.includes('Path=/api/v1/auth/discord'),
@@ -8928,8 +8988,8 @@ try {
     'a callback without the binding is refused',
     (unbound.headers.get('location') ?? '').includes('discord_error=failed'),
   );
-  const secondStart = await fetch(`${BASE}/auth/discord`, { redirect: 'manual' });
-  const secondState = new URL(secondStart.headers.get('location') ?? '').searchParams.get('state');
+  const secondStart = await startDiscordSignIn();
+  const secondState = new URL(secondStart.url).searchParams.get('state');
   const wrongBinding = await fetch(`${BASE}/auth/discord/callback?code=stolen&state=${secondState}`, {
     redirect: 'manual',
     headers: { cookie: 'harmony_session_discord=someone-elses' },
